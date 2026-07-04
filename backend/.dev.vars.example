@@ -1,0 +1,9 @@
+# Kopiraj u .dev.vars (gitignored) i popuni. NIKAD ne commitati stvarne vrijednosti.
+
+# Basic Auth za /admin
+ADMIN_USER=admin
+ADMIN_PASS=promijeni-me
+
+# Master ključ (KEK) za envelope enkripciju certifikata at-rest (AES-256-GCM).
+# Generiraj s: openssl rand -hex 32
+ENC_MASTER_KEY=0000000000000000000000000000000000000000000000000000000000000000
