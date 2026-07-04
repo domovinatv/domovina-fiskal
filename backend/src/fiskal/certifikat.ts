@@ -17,11 +17,17 @@ export interface ParsiraniCertifikat {
   notAfter: string;         // ISO
 }
 
+// OID-ovi koje node-forge ne imenuje, a pojavljuju se u HR fiskalnim certifikatima
+// (AKD/Certilia drži OIB u organizationIdentifier: 'VATHR-<OIB>'; FINA u O polju).
+const DODATNI_OIDI: Record<string, string> = {
+  '2.5.4.97': 'organizationIdentifier',
+};
+
 function dnString(attrs: forge.pki.CertificateField[]): string {
   // RFC 2253 stil: najspecifičniji RDN prvi (obrnuto od redoslijeda u certifikatu).
   return [...attrs]
     .reverse()
-    .map((a) => `${a.shortName ?? a.name ?? a.type}=${String(a.value ?? '')}`)
+    .map((a) => `${a.shortName ?? a.name ?? DODATNI_OIDI[a.type ?? ''] ?? a.type}=${String(a.value ?? '')}`)
     .join(',');
 }
 
@@ -42,36 +48,61 @@ export function parsirajP12(p12Buf: ArrayBuffer, lozinka: string): ParsiraniCert
   const kljuc = kljucBagovi[0]?.key as forge.pki.rsa.PrivateKey | undefined;
   if (!kljuc) throw new Error('P12 ne sadrži privatni ključ');
 
+  // Certifikati iz P12 lanca. forge kod pkcs12FromAsn1 ne popuni `bag.cert` ako
+  // ne zna izračunati hash potpisa (AKD/Certilia leaf je ECDSA-potpisan!) —
+  // fallback: parsiraj iz bag.asn1 bez computeHash. EC intermediate koji forge
+  // uopće ne zna ('OID is not RSA') slobodno preskačemo — treba nam samo leaf.
+  // Čuvamo i ORIGINALNI DER (bez forge re-enkodiranja) za <X509Certificate>.
   const certBagovi = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [];
-  const certifikati = certBagovi.map((b) => b.cert).filter((c): c is forge.pki.Certificate => !!c);
-  if (!certifikati.length) throw new Error('P12 ne sadrži certifikat');
+  const certifikati: { cert: forge.pki.Certificate; derB64: string }[] = [];
+  for (const bag of certBagovi) {
+    let cert = bag.cert ?? null;
+    if (!cert && bag.asn1) {
+      try {
+        cert = forge.pki.certificateFromAsn1(bag.asn1);
+      } catch {
+        continue; // npr. EC intermediate — nije leaf s našim RSA ključem
+      }
+    }
+    if (!cert || !bag.asn1) continue;
+    certifikati.push({ cert, derB64: forge.util.encode64(forge.asn1.toDer(bag.asn1).getBytes()) });
+  }
+  if (!certifikati.length) throw new Error('P12 ne sadrži čitljiv certifikat');
 
-  // Leaf = certifikat čiji javni ključ odgovara privatnom (P12 zna nositi i CA lanac).
+  // Leaf = certifikat čiji javni ključ odgovara privatnom (P12 nosi i CA lanac).
   const leaf =
-    certifikati.find((c) => {
-      const pub = c.publicKey as forge.pki.rsa.PublicKey;
+    certifikati.find(({ cert }) => {
+      const pub = cert.publicKey as forge.pki.rsa.PublicKey;
       return pub?.n && kljuc.n && pub.n.compareTo(kljuc.n) === 0;
-    }) ?? certifikati[0];
+    }) ?? null;
+  if (!leaf) throw new Error('P12: nijedan certifikat ne odgovara privatnom ključu');
 
   // Privatni ključ u PKCS8 PEM (node:crypto createSign ga izravno prima).
   const pkcs8 = forge.pki.wrapRsaPrivateKey(forge.pki.privateKeyToAsn1(kljuc));
   const privatniKljucPem = forge.pki.privateKeyInfoToPem(pkcs8);
 
-  const subjectDn = dnString(leaf.subject.attributes);
+  const subjectDn = dnString(leaf.cert.subject.attributes);
+  // OIB: FINA ga drži u O polju ('… HR<OIB>'), AKD/Certilia u
+  // organizationIdentifier ('VATHR-<OIB>') — 11 znamenki hvata oba oblika.
   const oib = subjectDn.match(/(\d{11})/)?.[1] ?? null;
-  const serialHex = leaf.serialNumber.replace(/^0+(?=.)/, '');
+  const serialHex = leaf.cert.serialNumber.replace(/^0+(?=.)/, '');
 
   return {
     privatniKljucPem,
-    certPem: forge.pki.certificateToPem(leaf),
+    certPem: derB64UPem(leaf.derB64),
     subjectDn,
-    issuerDn: dnString(leaf.issuer.attributes),
+    issuerDn: dnString(leaf.cert.issuer.attributes),
     serialHex,
     serialDec: BigInt(`0x${serialHex || '0'}`).toString(10),
     oib,
-    notBefore: leaf.validity.notBefore.toISOString(),
-    notAfter: leaf.validity.notAfter.toISOString(),
+    notBefore: leaf.cert.validity.notBefore.toISOString(),
+    notAfter: leaf.cert.validity.notAfter.toISOString(),
   };
+}
+
+function derB64UPem(derB64: string): string {
+  const linije = derB64.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN CERTIFICATE-----\n${linije.join('\n')}\n-----END CERTIFICATE-----\n`;
 }
 
 // PEM certifikat → čisti Base64 DER (sadržaj za <X509Certificate>).

@@ -58,6 +58,9 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   novi `IdPoruke`), fiskalni QR na PDF-u, P12 parsiranje pri uploadu (node-forge,
   ključ enkriptiran at-rest). E2E na CIS TEST: **JIR dobiven** (ITalk d.o.o.,
   FINA DEMO cert). Lokalne tajne (certovi/lozinke): `backend/.tajne/` (gitignored).
+  **Podržani su i FINA i AKD/Certilia certifikati** — AKD demo E2E potvrđen
+  (JIR s CIS TEST-a); AKD specifičnosti (organizationIdentifier/VATHR-, ECDSA
+  potpisan leaf) u `04-*` §5.1.
 - ⚠️ Napomene za sljedeće faze: KPD 2025 je restrukturiran vs. stara CPA
   (v. dopunu u `06-*`); R16 (čl. 90 st. 1) razriješen u `99-*`; verify recept
   u `.claude/skills/verify/SKILL.md`; prije prelaska na PROD CIS: min. 2 dana

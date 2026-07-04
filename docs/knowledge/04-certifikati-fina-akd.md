@@ -206,6 +206,27 @@ fiskalizaciji smiju se potpisivati aplikacijskim certifikatima **bilo kojeg**
 hrvatskog QTSP-a (FINA, AKD/Certilia i drugi), **uz obavezan OIB** u certifikatu.
 Prije toga (Fiskalizacija 1.0) u praksi je dominirao FINA certifikat.
 
+### 5.1. Empirijski nalazi (2026-07-05, faza 2 — AKD certi ITalk d.o.o., CIS TEST)
+
+Kupnja kroz **https://developer.certilia.com/services/fiscal** (self-service,
+DEMO besplatan, produkcijski ~duplo jeftiniji od FINA-e, **besplatna
+regeneracija**). Oba certa (demo + prod) **5 godina**, ključ **RSA 3072-bit**
+(FINA: RSA 2048). **E2E potvrđeno: CIS TEST prihvaća AKD demo (TESTCERTILIA)
+potpis — JIR dobiven** kroz `domovina-fiskal` backend.
+
+Tehničke razlike vs. FINA bitne za implementaciju:
+- **OIB je u `organizationIdentifier` (OID 2.5.4.97)** subjecta, format
+  **`VATHR-<OIB>`** (FINA ga drži u `O` polju kao `… HR<OIB>`). Parser mora
+  pokriti oba oblika.
+- **Leaf je ECDSA-potpisan, intermediate (TESTCERTILIA/CERTILIA) ima EC ključ** —
+  node-forge PKCS12 put zato ne popuni `bag.cert` za leaf (pada na computeHash)
+  i uopće ne zna parsirati EC intermediate; treba fallback
+  `certificateFromAsn1(bag.asn1)` bez hasha + preskakanje neparsabilnih
+  (implementirano u `backend/src/fiskal/certifikat.ts`).
+- P12: standardni `pbeWithSHA1And3-KeyTripleDES` — **ne treba OpenSSL `-legacy`**
+  (za razliku od starijih FINA P12).
+- Issuer DN: demo `CN=TESTCERTILIA,…,O=AKD d.o.o.,C=HR`, prod `CN=CERTILIA,…`.
+
 ---
 
 ## 6. Fiskalizacija 2.0 / eRačun — koji certifikat?
