@@ -62,10 +62,15 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
   i **FINA DEMO** (test, besplatan). Od 09/2025 dopušteni i drugi pouzdani izdavatelji s OIB-om (npr. AKD/Certilia).
 - Pohrana: **enkriptirano at-rest**, plaintext ključa **samo u sidecaru** (vidi 11).
 
-### Arhitektonska odluka
-- **Hibrid:** Cloudflare **Worker (Hono + D1)** = API/DB/admin/QR/PDF/e-mail/orkestracija;
-  **self-hosted Node „fiskal-sidecar"** = ZKI/XML-DSIG/**mTLS SOAP**/AS4 (jer WebCrypto nema
-  MD5 i Workers nema per-tenant mTLS). **Async queue + sinkroni ZKI** (offline/naknadna dostava).
+### Arhitektonska odluka (revidirano nakon web-verifikacije — vidi `11-*`)
+- **Cloudflare Worker (Hono + D1)** = API/DB/admin/QR/PDF/e-mail/orkestracija.
+- **Kripto NIJE razlog za sidecar:** MD5 **jest** podržan na Workers (WebCrypto + `node:crypto`
+  uz `nodejs_compat`), pa su ZKI (RSA-SHA1→MD5) i XML-DSIG **tehnički izvedivi na edge-u**.
+- **Uvjetni Node „fiskal-sidecar"** potreban samo ako: (a) CIS traži **per-tenant transportni
+  mTLS** (binding je statičan, ne per-request), ILI (b) sigurnosno **ne želimo dešifrirati
+  privatni ključ na edge-u** (least-exposure). Oboje su svjesne odluke, ne prisila platforme.
+- **eRačun 2.0 (AS4/UBL):** preko **informacijskog posrednika** (faza 1) → vlastita PT kasnije.
+- **Async queue + sinkroni ZKI** (offline/naknadna dostava).
 - **API dizajn** po Fira modelu: payload = **kupac + stavke + tip**; sve o izdavatelju
   **server-side** vezano na API ključ (tenant).
 
