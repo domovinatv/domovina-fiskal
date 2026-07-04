@@ -241,6 +241,17 @@ export async function createCertifikat(
     dekWrapped: string;
     dekIv: string;
     fingerprintSha256: string;
+    // Faza 2: izvučeni materijal za potpisivanje (parsiran pri uploadu)
+    kljucPemEncrypted: ArrayBuffer;
+    kljucIv: string;
+    certPem: string;
+    certIssuer: string;
+    certSerialDec: string;
+    oibCertifikata: string | null;
+    subjectDn: string;
+    serialHex: string;
+    notBefore: string;
+    notAfter: string;
   },
 ): Promise<void> {
   // Novi cert postaje aktivan; prethodni aktivni za istu okolinu se deaktivira
@@ -252,11 +263,49 @@ export async function createCertifikat(
     db
       .prepare(
         `INSERT INTO certifikat (tenant_id, okolina, pkcs12_encrypted, enc_key_id, enc_iv,
-                                 dek_wrapped, dek_iv, fingerprint_sha256)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 dek_wrapped, dek_iv, fingerprint_sha256,
+                                 kljuc_pem_encrypted, kljuc_iv, cert_pem, cert_issuer,
+                                 cert_serial_dec, oib_certifikata, subject_dn, serial,
+                                 not_before, not_after)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(tenantId, c.okolina, c.pkcs12Encrypted, c.encKeyId, c.encIv, c.dekWrapped, c.dekIv, c.fingerprintSha256),
+      .bind(
+        tenantId, c.okolina, c.pkcs12Encrypted, c.encKeyId, c.encIv,
+        c.dekWrapped, c.dekIv, c.fingerprintSha256,
+        c.kljucPemEncrypted, c.kljucIv, c.certPem, c.certIssuer,
+        c.certSerialDec, c.oibCertifikata, c.subjectDn, c.serialHex,
+        c.notBefore, c.notAfter,
+      ),
   ]);
+}
+
+// Aktivni certifikat s materijalom za potpisivanje (enkriptirani ključ + cert).
+export interface CertifikatMaterijalRow {
+  id: number;
+  kljuc_pem_encrypted: ArrayBuffer | null;
+  kljuc_iv: string | null;
+  dek_wrapped: string;
+  dek_iv: string;
+  cert_pem: string | null;
+  cert_issuer: string | null;
+  cert_serial_dec: string | null;
+  oib_certifikata: string | null;
+  not_after: string | null;
+}
+
+export async function getAktivniCertifikat(
+  db: D1Database,
+  tenantId: number,
+  okolina: 'test' | 'prod',
+): Promise<CertifikatMaterijalRow | null> {
+  return db
+    .prepare(
+      `SELECT id, kljuc_pem_encrypted, kljuc_iv, dek_wrapped, dek_iv, cert_pem,
+              cert_issuer, cert_serial_dec, oib_certifikata, not_after
+       FROM certifikat WHERE tenant_id = ? AND okolina = ? AND aktivan = 1`,
+    )
+    .bind(tenantId, okolina)
+    .first<CertifikatMaterijalRow>();
 }
 
 export async function listCertifikati(db: D1Database, tenantId: number): Promise<CertifikatRow[]> {
@@ -298,8 +347,9 @@ export interface NoviRacun {
   oznNU: string;
   godina: number;
   datumVrijeme: string; // ISO 8601
-  tipDokumenta: 'ponuda' | 'predracun' | 'racun';
+  tipDokumenta: 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c';
   sekvencaVrsta: SekvencaVrsta;
+  stornoRacunId?: number | null;
   valuta: string;
   nacinPlacanja: string | null;
   datumDospijeca: string | null;
@@ -354,14 +404,14 @@ export async function upisiRacun(db: D1Database, r: NoviRacun): Promise<RacunRow
            datum_vrijeme, tip_dokumenta, valuta, nacin_placanja,
            datum_dospijeca, vrijedi_do, datum_isporuke, model_placanja, poziv_na_broj,
            napomena, interna_biljeska, uvjeti, klauzula_pdv,
-           neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, status
+           neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id, status
          )
          SELECT ?1, ?6, ?7, ?8, ?9,
                 ?2, s.zadnji_broj, ?5, s.zadnji_broj || '/' || ?10 || '/' || ?11, ?12,
                 ?13, ?14, ?15, ?16,
                 ?17, ?18, ?19, 'HR00', s.zadnji_broj || '-' || CAST(?5 AS INTEGER),
                 ?20, ?21, ?22, ?23,
-                ?24, ?25, ?26, ?27, ?28, 'izdano'
+                ?24, ?25, ?26, ?27, ?28, ?29, 'izdano'
          FROM sekvenca s WHERE ${sekvencaUvjet}
          RETURNING id`,
       )
@@ -388,6 +438,7 @@ export async function upisiRacun(db: D1Database, r: NoviRacun): Promise<RacunRow
         r.pdv,                 // ?26
         r.iznosSPdv,           // ?27
         r.dospijevaZaPlacanje, // ?28
+        r.stornoRacunId ?? null, // ?29
       ),
     ...stavkeIPdvStmts(db, r, `FROM racun r JOIN sekvenca s ON ${sekvencaUvjet} WHERE ${racunUvjet}`, [...kontekst]),
   ];
@@ -462,8 +513,8 @@ async function upisiSkicu(db: D1Database, r: NoviRacun): Promise<RacunRow> {
          sekvenca_vrsta, oznaka_slijednosti, datum_vrijeme, tip_dokumenta, valuta,
          nacin_placanja, datum_dospijeca, vrijedi_do, datum_isporuke,
          napomena, interna_biljeska, uvjeti, klauzula_pdv,
-         neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nacrt')
+         neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nacrt')
        RETURNING id`,
     )
     .bind(
@@ -471,7 +522,7 @@ async function upisiSkicu(db: D1Database, r: NoviRacun): Promise<RacunRow> {
       r.sekvencaVrsta, r.oznakaSlijednosti, r.datumVrijeme, r.tipDokumenta, r.valuta,
       r.nacinPlacanja, r.datumDospijeca, r.vrijediDo, r.datumIsporuke,
       r.napomena, r.internaBiljeska, r.uvjeti, r.klauzulaPdv,
-      r.neto, r.iznosBezPdv, r.pdv, r.iznosSPdv, r.dospijevaZaPlacanje,
+      r.neto, r.iznosBezPdv, r.pdv, r.iznosSPdv, r.dospijevaZaPlacanje, r.stornoRacunId ?? null,
     )
     .first<{ id: number }>();
   if (!red) throw new Error('INSERT skice nije vratio id');
@@ -586,6 +637,113 @@ export async function listRacuni(
     .bind(...params, limit, offset)
     .all<RacunRow & { tenant_naziv: string }>();
   return r.results;
+}
+
+// ───────────────────────── Fiskalizacija (faza 2) ─────────────────────────
+
+// ZKI + QR (zki varijanta) odmah po izdavanju — račun je pravno izdan sa ZKI-jem.
+export async function zapisiZki(db: D1Database, tenantId: number, racunId: number, zki: string, qrPayload: string): Promise<void> {
+  await db
+    .prepare(`UPDATE racun SET zki = ?, qr_payload = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`)
+    .bind(zki, qrPayload, racunId, tenantId)
+    .run();
+}
+
+// JIR zaprimljen → status 'fiskaliziran', QR prelazi na jir varijantu.
+export async function zapisiJir(db: D1Database, tenantId: number, racunId: number, jir: string, qrPayload: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE racun SET jir = ?, qr_payload = ?, status = 'fiskaliziran', fiskal_greska = NULL,
+              fiskal_pokusaja = fiskal_pokusaja + 1, fiskal_zadnji_pokusaj = datetime('now'),
+              updated_at = datetime('now')
+       WHERE id = ? AND tenant_id = ?`,
+    )
+    .bind(jir, qrPayload, racunId, tenantId)
+    .run();
+}
+
+// Neuspjeh: nakDost=1 → automatski retry (sweep) s NakDost=true i NOVIM IdPoruke;
+// nakDost=0 → greška u poruci/certifikatu, čeka ručnu intervenciju.
+export async function zapisiFiskalGresku(
+  db: D1Database,
+  tenantId: number,
+  racunId: number,
+  greska: string,
+  nakDost: boolean,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE racun SET fiskal_greska = ?, fiskal_nak_dost = ?,
+              fiskal_pokusaja = fiskal_pokusaja + 1, fiskal_zadnji_pokusaj = datetime('now'),
+              updated_at = datetime('now')
+       WHERE id = ? AND tenant_id = ?`,
+    )
+    .bind(greska.slice(0, 2000), nakDost ? 1 : 0, racunId, tenantId)
+    .run();
+}
+
+// Kandidati za naknadnu dostavu (cron sweep): izdani fiskalni bez JIR-a koji su
+// ili označeni za naknadnu dostavu (transport pao) ili nikad nisu ni pokušani.
+export async function racuniZaNaknadnuDostavu(db: D1Database, limit = 20): Promise<{ id: number; tenant_id: number }[]> {
+  const r = await db
+    .prepare(
+      `SELECT id, tenant_id FROM racun
+       WHERE tip_dokumenta = 'fiskalni_b2c' AND status = 'izdano' AND jir IS NULL
+         AND (fiskal_nak_dost = 1 OR fiskal_pokusaja = 0)
+       ORDER BY id LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ id: number; tenant_id: number }>();
+  return r.results;
+}
+
+// Audit trag CIS razmjene — potpisani zahtjev i sirovi odgovor (tablica iz 0001).
+export async function logPoruka(
+  db: D1Database,
+  p: {
+    tenantId: number;
+    racunId: number | null;
+    vrstaPoruke: 'racun_b2c' | 'poslovni_prostor';
+    smjer: 'zahtjev' | 'odgovor';
+    messageId: string;
+    okolina: 'test' | 'prod';
+    requestXml?: string | null;
+    responseXml?: string | null;
+    jir?: string | null;
+    sifraGreske?: string | null;
+    porukaGreske?: string | null;
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO poruka_log (tenant_id, racun_id, vrsta_poruke, smjer, message_id, okolina,
+                               request_xml, response_xml, jir, sifra_greske, poruka_greske)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      p.tenantId, p.racunId, p.vrstaPoruke, p.smjer, p.messageId, p.okolina,
+      p.requestXml ?? null, p.responseXml ?? null, p.jir ?? null,
+      p.sifraGreske ?? null, p.porukaGreske ? p.porukaGreske.slice(0, 2000) : null,
+    )
+    .run();
+}
+
+// Ručno označavanje prijave poslovnog prostora: od 01.07.2017. prijava/odjava
+// prostora ide isključivo kroz ePoreznu (SOAP ProstorZahtjev je ukinut iz sheme),
+// pa CIS status ovdje evidentira admin nakon prijave u ePoreznoj.
+export async function setProstorCisStatus(
+  db: D1Database,
+  tenantId: number,
+  prostorId: number,
+  status: 'neposlano' | 'prijavljen',
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE poslovni_prostor SET cis_status = ?, cis_prijava_ts = CASE WHEN ? = 'prijavljen' THEN datetime('now') ELSE NULL END
+       WHERE id = ? AND tenant_id = ?`,
+    )
+    .bind(status, status, prostorId, tenantId)
+    .run();
 }
 
 // ───────────────────────── Kupac ─────────────────────────

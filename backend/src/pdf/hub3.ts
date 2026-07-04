@@ -71,10 +71,19 @@ export interface Hub3Barkod {
 // rasterizacije — čisti JS, radi na Workers) koji PDF sloj crta u mjerilu.
 export function hub3Barkod(p: Hub3Podaci): Hub3Barkod {
   // eclevel/columns su BWIPP opcije za pdf417 koje tipovi ne izlažu (prosljeđuju se BWIPP-u).
-  const opcije = { bcid: 'pdf417', text: hub3Payload(p), eclevel: 4, columns: 9 };
+  return izSvg({ bcid: 'pdf417', text: hub3Payload(p), eclevel: 4, columns: 9 }, 'HUB3');
+}
+
+// Fiskalni QR (02-* §10): model 2, korekcija L (minimalna dopuštena), bez loga.
+// Payload je URL porezna.gov.hr/rn s jir/zki + datv + izn.
+export function fiskalniQrBarkod(payload: string): Hub3Barkod {
+  return izSvg({ bcid: 'qrcode', text: payload, eclevel: 'L' }, 'fiskalni QR');
+}
+
+function izSvg(opcije: Record<string, unknown>, naziv: string): Hub3Barkod {
   const svg = bwip.toSVG(opcije as unknown as Parameters<typeof bwip.toSVG>[0]);
   const viewBox = svg.match(/viewBox="0 0 (\d+) (\d+)"/);
   const path = svg.match(/<path d="([^"]+)"/);
-  if (!viewBox || !path) throw new Error('HUB3: bwip-js nije vratio očekivani SVG');
+  if (!viewBox || !path) throw new Error(`${naziv}: bwip-js nije vratio očekivani SVG`);
   return { putanja: path[1], sirina: Number(viewBox[1]), visina: Number(viewBox[2]) };
 }

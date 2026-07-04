@@ -7,7 +7,7 @@ import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { RacunKontekst } from '../db';
 import { izCenti, uCente } from '../util';
-import { hub3Barkod } from './hub3';
+import { fiskalniQrBarkod, hub3Barkod } from './hub3';
 import fontRegularData from './fontovi/DejaVuSans.subset.ttf';
 import fontBoldData from './fontovi/DejaVuSans-Bold.subset.ttf';
 
@@ -146,8 +146,10 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
     ...(r.vrijedi_do ? [['Vrijedi do:', datumHr(r.vrijedi_do)] as [string, string]] : []),
     ['Način plaćanja:', r.nacin_placanja ?? '—'],
     ['Poslovni prostor / uređaj:', `${k.ppOznaka} / ${k.nuOznaka}`],
+    // Samo ime — puni podaci operatera (s OIB-om) su u bloku "Fiskalni podaci";
+    // duga vrijednost bi se preklopila s labelom u uskom meta stupcu.
     ...(k.operaterIme || k.operaterOib
-      ? [['Operater:', `${k.operaterIme ?? ''}${k.operaterOib ? ` (OIB ${k.operaterOib})` : ''}`.trim()] as [string, string]]
+      ? [['Operater:', (k.operaterIme ?? k.operaterOib ?? '').trim()] as [string, string]]
       : []),
   ];
 
@@ -273,6 +275,39 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
       c.y -= 11;
     }
     c.y -= 3;
+  }
+
+  // ── Fiskalni podaci: ZKI + JIR + fiskalni QR (obavezni elementi, 02-* §10) ──
+  if (r.tip_dokumenta === 'fiskalni_b2c' && r.zki) {
+    const QR_STRANICA = 76; // ~2,7 cm — iznad zakonskog minimuma 2×2 cm
+    if (c.y < 120 + QR_STRANICA) c.novaStranica();
+    const vrhBloka = c.y;
+    tekst(c, 'Fiskalni podaci', MARGINA, 9, { bold: true, boja: NAVY });
+    c.y -= 13;
+    tekst(c, `ZKI: ${r.zki}`, MARGINA, 8.5);
+    c.y -= 12;
+    tekst(c, r.jir ? `JIR: ${r.jir}` : 'JIR: — (račun izdan bez JIR-a; dostavlja se naknadno)', MARGINA, 8.5);
+    c.y -= 12;
+    if (k.operaterOib) {
+      tekst(c, `Operater: ${k.operaterIme ?? ''} (OIB ${k.operaterOib})`.trim(), MARGINA, 8.5);
+      c.y -= 12;
+    }
+    tekst(c, 'Provjera računa: skeniraj QR ili porezna.gov.hr/rn', MARGINA, 7.5, { boja: MUTED });
+    if (r.qr_payload) {
+      try {
+        const qr = fiskalniQrBarkod(r.qr_payload);
+        c.page.drawSvgPath(qr.putanja, {
+          x: MARGINA + SIRINA - QR_STRANICA,
+          y: vrhBloka + 10,
+          scale: QR_STRANICA / qr.sirina,
+          color: CRNA,
+          borderWidth: 0,
+        });
+      } catch {
+        // QR se ne smije srušiti render računa — JIR/ZKI tekst je dovoljan za provjeru.
+      }
+    }
+    c.y = Math.min(c.y, vrhBloka + 10 - QR_STRANICA) - 16;
   }
 
   // ── Podaci za plaćanje + HUB3 barkod (samo izdani dokumenti s IBAN-om) ──

@@ -373,17 +373,25 @@ elementa koji se potpisuje. Potpisuje se uvijek **root element zahtjeva** (npr.
 
 ### 6.1 Fiksni algoritmi (zahtjev → CIS)
 
+> ❗ **ISPRAVAK — EMPIRIJSKI NALAZ (2026-07-05, CIS TEST, faza 2 implementacije):**
+> RSA-SHA1 + SHA1 digest iz spec. v2.6 **danas vraća `s004 Neispravan digitalni
+> potpis`** na CIS TEST-u. CIS je prešao na **SHA-256**: radi kombinacija
+> `SignatureMethod = http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` +
+> `DigestMethod = http://www.w3.org/2001/04/xmlenc#sha256` (potvrđeno dobivenim
+> JIR-om; isto koriste aktualne referentne implementacije, npr.
+> `nticaric/fiskalizacija` master). **ZKI i dalje koristi RSA-SHA1 + MD5** (PU
+> 4616) — to su dva neovisna potpisa. Tablica ispod je korigirana.
+
 | Element | Vrijednost (fiksna) |
 |---|---|
 | `CanonicalizationMethod` | `http://www.w3.org/2001/10/xml-exc-c14n#` (**Exclusive C14N**) |
-| `SignatureMethod` | `http://www.w3.org/2000/09/xmldsig#rsa-sha1` (**RSA-SHA1**) |
+| `SignatureMethod` | `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` (**RSA-SHA256**; ~~rsa-sha1 iz spec. v2.6~~ → `s004`) |
 | `Transforms[0]` | `http://www.w3.org/2000/09/xmldsig#enveloped-signature` |
 | `Transforms[1]` | `http://www.w3.org/2001/10/xml-exc-c14n#` |
-| `DigestMethod` | `http://www.w3.org/2000/09/xmldsig#sha1` (**SHA1**) |
+| `DigestMethod` | `http://www.w3.org/2001/04/xmlenc#sha256` (**SHA-256**; ~~sha1~~) |
 
-> ⚠️ **Uvijek RSA-SHA1 / SHA1, NE SHA256.** Fiskalizacija 1.0 koristi SHA1
-> (i za ZKI i za XML-DSIG). To je fiksirano specifikacijom; SHA256 se ovdje **ne**
-> koristi (za razliku od Fiskalizacije 2.0). Digest metoda je `sha1`.
+> Napomena: **ZKI ostaje RSA-SHA1 → MD5** (v. §2) — promjena na SHA-256 vrijedi
+> SAMO za XML-DSIG potpis poruke.
 
 > Napomena: **CIS u ODGOVORU** potpisuje **inkluzivnim** C14N
 > (`http://www.w3.org/TR/2001/REC-xml-c14n-20010315`), a **klijent u ZAHTJEVU mora
@@ -644,6 +652,30 @@ https://porezna.gov.hr/rn?zki=12345678123412341234123456789012&datv=20210205_080
 > `xml-crypto`) ili pažljiva ručna Exclusive-C14N implementacija. Odluka → `docs/knowledge/11-arhitektura-runtime.md`.
 
 ---
+
+## 12. Empirijski nalazi faze 2 (2026-07-05, CIS TEST, FINA DEMO cert)
+
+Nalazi iz stvarne implementacije (`backend/src/fiskal/*`) protiv
+`cistest.apis-it.hr:8449` — razrješavaju ⚠️ stavke iz §7.3 i `99-gap` R3:
+
+1. **XML-DSIG = RSA-SHA256 + SHA-256 digest** (v. ispravak u §6.1). SHA1 → `s004`.
+2. **Transportni mTLS NIJE obavezan** — klijentski certifikat se NE šalje na
+   TLS razini; XML-DSIG potpis u poruci je dovoljan (Echo i `RacunZahtjev`
+   prošli, JIR dobiven). Time otpada i zadnji tehnički razlog za sidecar (11-* §2).
+3. **CIS poslužiteljski certifikat izdaje Fina** (test: `Fina Demo CA 2020`,
+   prod: `Fina RDC 2020`) — privatni CA, NIJE u javnim trust storeovima. Server
+   ne šalje lanac (samo leaf). Posljedica za Workers: `fetch()` ne dopušta port
+   8449, a `connect()`/`node:tls` odbijaju certifikat bez opcije vlastitog CA →
+   transport ide **sirovi TCP (`cloudflare:sockets`) + TLS 1.3 u JS-u (`subtls`)**
+   s bundlanim Fina sub-CA PEM-om kao trust anchorom. CIS TEST i PROD podržavaju
+   TLS 1.3 + `TLS_AES_128_GCM_SHA256` + P-256 (jedina subtls kombinacija).
+   AIA URL za produkcijski CA: `http://rdc.fina.hr/RDC2020/FinaRDCCA2020.cer`.
+4. **Exclusive C14N "po konstrukciji" radi**: XML se serijalizira izravno u
+   kanonskom obliku (bez whitespacea, xmlns prije atributa, escape `&<>`,
+   prazni elementi kao par tagova) pa nije potreban `xml-crypto`; provjereno
+   bajt-za-bajt protiv `lxml` exc-C14N i prihvaćeno od CIS-a.
+5. **Prijava poslovnog prostora**: SOAP metoda ne postoji u aktualnoj shemi —
+   prijava ide kroz ePoreznu; u TEST okolini CIS ne provjerava prostor.
 
 ## Izvori
 

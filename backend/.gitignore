@@ -1,3 +1,6 @@
 node_modules/
 .wrangler/
 .dev.vars
+
+# Tajne za lokalni razvoj/onboarding (certifikati, lozinke) — NIKAD u repo (javan!)
+.tajne/

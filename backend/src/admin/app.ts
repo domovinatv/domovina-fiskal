@@ -26,8 +26,11 @@ import {
   listTenants,
   searchKpd,
   setApiKljucAktivan,
+  setProstorCisStatus,
   zabiljeziSlanjeEmaila,
 } from '../db';
+import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
+import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
@@ -194,8 +197,9 @@ admin.post('/tenant/:id/kljucevi/:kid/:akcija', async (c) => {
   return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
-// Upload certifikata — SAMO sprema enkriptirano (envelope AES-256-GCM);
-// koristi se tek od faze 2. Plaintext P12 živi isključivo u memoriji zahtjeva.
+// Upload certifikata (faza 2): P12 + LOZINKA se parsiraju u memoriji zahtjeva
+// (node-forge) → privatni ključ (PKCS8) enkriptiran at-rest, cert PEM plaintext.
+// Lozinka se NE sprema; plaintext ključ nikad ne napušta memoriju zahtjeva.
 admin.post('/tenant/:id/certifikati', async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
@@ -205,6 +209,7 @@ admin.post('/tenant/:id/certifikati', async (c) => {
   }
   const form = await c.req.parseBody();
   const datoteka = form.p12;
+  const lozinka = String(form.lozinka ?? '');
   const okolina = String(form.okolina ?? 'test') === 'prod' ? 'prod' : 'test';
   if (!(datoteka instanceof File) || datoteka.size === 0) {
     return c.html(renderTenantDetaljPage({ ...d, greska: 'Odaberi P12/PFX datoteku.' }), 400);
@@ -212,10 +217,20 @@ admin.post('/tenant/:id/certifikati', async (c) => {
   if (datoteka.size > 64 * 1024) {
     return c.html(renderTenantDetaljPage({ ...d, greska: 'Datoteka je prevelika za certifikat (limit 64 KB).' }), 400);
   }
+  if (!lozinka) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: 'Lozinka P12 kontejnera je obavezna (potrebna za izvlačenje ključa za potpisivanje).' }), 400);
+  }
   try {
     const p12 = await datoteka.arrayBuffer();
+    const parsirano = parsirajP12(p12, lozinka);
+    if (parsirano.oib && parsirano.oib !== d.tenant.oib) {
+      return c.html(
+        renderTenantDetaljPage({ ...d, greska: `OIB u certifikatu (${parsirano.oib}) ne odgovara OIB-u tenanta (${d.tenant.oib}) — CIS bi odbio poruke (s005).` }),
+        400,
+      );
+    }
     const otisak = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', p12)));
-    const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, p12);
+    const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, p12, parsirano.privatniKljucPem);
     await createCertifikat(c.env.DB, tenantId, {
       okolina,
       pkcs12Encrypted: enc.pkcs12Encrypted,
@@ -224,10 +239,41 @@ admin.post('/tenant/:id/certifikati', async (c) => {
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: otisak,
+      kljucPemEncrypted: enc.kljucPemEncrypted,
+      kljucIv: enc.kljucIv,
+      certPem: parsirano.certPem,
+      certIssuer: parsirano.issuerDn,
+      certSerialDec: parsirano.serialDec,
+      oibCertifikata: parsirano.oib,
+      subjectDn: parsirano.subjectDn,
+      serialHex: parsirano.serialHex,
+      notBefore: parsirano.notBefore,
+      notAfter: parsirano.notAfter,
     });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    return c.html(renderTenantDetaljPage({ ...d, greska: `Enkripcija/spremanje nije uspjelo: ${e}` }), 500);
+    return c.html(renderTenantDetaljPage({ ...d, greska: `Parsiranje/enkripcija certifikata nije uspjelo: ${(e as Error).message}` }), 400);
+  }
+});
+
+// Ručno označavanje CIS statusa poslovnog prostora — prijava/odjava prostora od
+// 2017. ide isključivo kroz ePoreznu (SOAP metoda ukinuta), pa je ovo evidencija.
+admin.post('/tenant/:id/prostori/:pid/cis-status', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const pid = Number(c.req.param('pid'));
+  const form = await c.req.parseBody();
+  const status = String(form.status) === 'prijavljen' ? 'prijavljen' : 'neposlano';
+  await setProstorCisStatus(c.env.DB, tenantId, pid, status);
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+// CIS Echo proba (bez potpisa/certifikata) — dokazuje mrežni put do CIS-a.
+admin.get('/cis/echo', async (c) => {
+  try {
+    const rezultat = await cisEcho(c.env);
+    return c.json({ okolina: okolinaIzEnv(c.env), ...rezultat });
+  } catch (e) {
+    return c.json({ okolina: okolinaIzEnv(c.env), ok: false, greska: (e as Error).message }, 502);
   }
 });
 
@@ -364,7 +410,7 @@ admin.post('/tenant/:id/dokument/novi', async (c) => {
     const detalji = formatirajGreske(parsed.error).map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
     return ponovnaForma(detalji, 400);
   }
-  const rezultat = await kreirajDokument(c.env.DB, tenant, parsed.data);
+  const rezultat = await kreirajDokument(c.env, tenant, parsed.data);
   if ('greska' in rezultat) {
     const detalji = rezultat.detalji?.map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
     return ponovnaForma(detalji ? `${rezultat.greska} — ${detalji}` : rezultat.greska, rezultat.status);
@@ -419,6 +465,21 @@ admin.post('/racun/:id/izdaj', async (c) => {
     datumVrijeme: sada.toISOString(),
   });
   return c.redirect(`/admin/racun/${id}`, 303);
+});
+
+// Ručno okidanje (naknadne) fiskalizacije iz admin detalja računa.
+admin.post('/racun/:id/fiskaliziraj', async (c) => {
+  const id = Number(c.req.param('id'));
+  const k = await adminRacunKontekst(c, id);
+  if (!k) return c.text('Dokument ne postoji', 404);
+  if (k.racun.tip_dokumenta !== 'fiskalni_b2c') {
+    return c.html(renderRacunDetaljPage(k, { greska: 'Samo fiskalni B2C računi se fiskaliziraju.' }), 409);
+  }
+  const ishod = await fiskalizirajRacun(c.env, k.racun.tenant_id, id).catch((e) => ({
+    ok: false as const, greska: (e as Error).message,
+  }));
+  const poruka = ishod.ok ? `Fiskalizirano — JIR ${ishod.jir}` : `Fiskalizacija nije uspjela: ${ishod.greska}`;
+  return c.redirect(`/admin/racun/${id}?ok=${encodeURIComponent(poruka)}`, 303);
 });
 
 admin.post('/racun/:id/posalji', async (c) => {

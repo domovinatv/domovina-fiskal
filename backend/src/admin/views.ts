@@ -20,7 +20,7 @@ import { iznosHr } from '../pdf/racun-pdf';
 import { escapeHtml } from '../util';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
-export const APP_VERSION = 'v0.2.0';
+export const APP_VERSION = 'v0.3.0';
 
 const HEADER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="36" height="36" aria-hidden="true">
 <defs>
@@ -180,7 +180,11 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   const prostoriRedovi = d.prostori
     .map(
       (p) => `<tr><td class="mono">${escapeHtml(p.oznaka)}</td><td>${escapeHtml(p.adr_ulica ?? '')} ${escapeHtml(p.adr_naselje ?? '')}</td>
-<td class="mono">${escapeHtml(p.datum_pocetka_primjene)}</td><td>${pillStatus(p.cis_status)}</td></tr>`,
+<td class="mono">${escapeHtml(p.datum_pocetka_primjene)}</td><td>${pillStatus(p.cis_status)}</td>
+<td><form method="post" action="${baza}/prostori/${p.id}/cis-status" style="display:inline">
+  <input type="hidden" name="status" value="${p.cis_status === 'prijavljen' ? 'neposlano' : 'prijavljen'}">
+  <button type="submit" style="background:#5A6570">${p.cis_status === 'prijavljen' ? 'Poništi prijavu' : 'Označi prijavljen (ePorezna)'}</button>
+</form></td></tr>`,
     )
     .join('');
 
@@ -214,7 +218,7 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   const certifikatiRedovi = d.certifikati
     .map(
       (cert) => `<tr><td>${pillStatus(cert.okolina)}</td><td class="mono">${escapeHtml((cert.fingerprint_sha256 ?? '').slice(0, 16))}…</td>
-<td class="mono">${escapeHtml(cert.enc_alg)}</td><td>${cert.aktivan ? pillStatus('aktivan') : pillStatus('zamijenjen')}</td>
+<td class="mono">${escapeHtml(cert.not_after ?? '—')}</td><td>${cert.aktivan ? pillStatus('aktivan') : pillStatus('zamijenjen')}</td>
 <td class="mono">${escapeHtml(cert.created_at)}</td></tr>`,
     )
     .join('');
@@ -253,8 +257,9 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
   <div class="field"><label>Primjena od *</label><input name="datum_pocetka" type="date" required></div>
   <button type="submit">Dodaj prostor</button>
 </form></div>
-<table><thead><tr><th>Oznaka</th><th>Adresa</th><th>Primjena od</th><th>CIS status</th></tr></thead>
-<tbody>${prostoriRedovi || '<tr><td colspan="4" class="prazno">Nema prostora.</td></tr>'}</tbody></table>
+<table><thead><tr><th>Oznaka</th><th>Adresa</th><th>Primjena od</th><th>CIS status</th><th></th></tr></thead>
+<tbody>${prostoriRedovi || '<tr><td colspan="5" class="prazno">Nema prostora.</td></tr>'}</tbody></table>
+<p style="font-size:.8rem;color:var(--muted)">Prijava/odjava poslovnog prostora od 2017. ide isključivo kroz <strong>ePoreznu</strong> (SOAP metoda je ukinuta) — ovdje se samo evidentira da je obavljena; fiskalni računi traže status „prijavljen".</p>
 
 <h2>Naplatni uređaji</h2>
 <div class="box"><form method="post" action="${baza}/uredjaji">
@@ -287,12 +292,13 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
 <h2>Certifikati (fiskalizacija)</h2>
 <div class="box"><form method="post" action="${baza}/certifikati" enctype="multipart/form-data">
   <div class="field"><label>P12/PFX datoteka *</label><input name="p12" type="file" required accept=".p12,.pfx"></div>
+  <div class="field"><label>Lozinka P12 *</label><input name="lozinka" type="password" required autocomplete="off"></div>
   <div class="field"><label>Okolina</label>
     <select name="okolina"><option value="test">test</option><option value="prod">prod</option></select></div>
   <button type="submit">Učitaj (enkriptira se at-rest)</button>
 </form>
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Sprema se AES-256-GCM enkriptirano (envelope: per-cert DEK + KEK iz Worker Secreta). Koristi se tek od faze 2 (ZKI/CIS).</p></div>
-<table><thead><tr><th>Okolina</th><th>Otisak (SHA-256)</th><th>Enkripcija</th><th>Status</th><th>Učitan</th></tr></thead>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">P12 se parsira u memoriji (lozinka se NE sprema); privatni ključ ide AES-256-GCM enkriptiran (envelope: per-cert DEK + KEK iz Worker Secreta). ZKI i XML-DSIG potpis se rade ovim ključem.</p></div>
+<table><thead><tr><th>Okolina</th><th>Otisak (SHA-256)</th><th>Vrijedi do</th><th>Status</th><th>Učitan</th></tr></thead>
 <tbody>${certifikatiRedovi || '<tr><td colspan="5" class="prazno">Nema certifikata.</td></tr>'}</tbody></table>
 
 <h2>Proizvodi (katalog s KPD 2025)</h2>
@@ -366,7 +372,7 @@ export function renderNoviDokumentPage(
 <form method="post" action="${baza}/dokument/novi">
 <div class="box" style="display:flex;flex-wrap:wrap;gap:.7rem;align-items:flex-end">
   <div class="field"><label>Vrsta *</label>
-    <select name="tip"><option value="RACUN">Račun</option><option value="PONUDA">Ponuda</option><option value="PREDRACUN">Predračun</option></select></div>
+    <select name="tip"><option value="RACUN">Račun</option><option value="PONUDA">Ponuda</option><option value="PREDRACUN">Predračun</option><option value="FISKALNI_B2C">Fiskalni B2C (ZKI/JIR)</option></select></div>
   <div class="field"><label>Prostor / uređaj *</label><select name="pp_nu" required>${uredjajOpcije}</select></div>
   <div class="field"><label>Operater</label><select name="operater">${operaterOpcije}</select></div>
   <div class="field"><label>Način plaćanja</label>
@@ -459,7 +465,15 @@ ${poruka?.ok ? `<div class="flash">${escapeHtml(poruka.ok)}</div>` : ''}
   ${!jeSkica ? `<form method="post" action="/admin/racun/${r.id}/posalji" style="display:flex;gap:.5rem">
     <input name="na" type="email" placeholder="${escapeHtml(k.kupac?.email ?? 'email primatelja')}" style="border:1px solid var(--border);border-radius:.4rem;padding:.45rem .6rem">
     <button type="submit">✉️ Pošalji e-mailom</button></form>` : ''}
+  ${r.tip_dokumenta === 'fiskalni_b2c' && !r.jir ? `<form method="post" action="/admin/racun/${r.id}/fiskaliziraj"><button type="submit" style="background:var(--red)">⚡ Fiskaliziraj (CIS)</button></form>` : ''}
 </div>
+${r.tip_dokumenta === 'fiskalni_b2c' ? `<div class="box" style="display:block">
+  <strong>Fiskalizacija</strong><br>
+  ZKI: <span class="mono">${escapeHtml(r.zki ?? '— (još nije izračunat)')}</span><br>
+  JIR: ${r.jir ? `<span class="mono">${escapeHtml(r.jir)}</span> ${pillStatus('fiskaliziran')}` : `<em>čeka JIR (naknadna dostava: rok 2 radna dana, čl. 21. st. 2.)</em>`}<br>
+  ${r.qr_payload ? `QR: <span class="mono" style="font-size:.75rem">${escapeHtml(r.qr_payload)}</span><br>` : ''}
+  ${r.fiskal_greska ? `<span style="color:var(--danger)">Zadnja greška (pokušaj ${r.fiskal_pokusaja}): ${escapeHtml(r.fiskal_greska)}</span>` : ''}
+</div>` : ''}
 <p>Kupac: <strong>${escapeHtml(k.kupac?.naziv ?? 'krajnji kupac')}</strong>${k.kupac?.oib ? ` (OIB ${escapeHtml(k.kupac.oib)})` : ''}
  · datum: <span class="mono">${escapeHtml(r.datum_vrijeme)}</span>
  · plaćanje: ${escapeHtml(r.nacin_placanja ?? '—')}

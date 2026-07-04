@@ -194,6 +194,7 @@ export const racunModelShema = z
     kupac: kupacShema.optional(),
     stavke: z.array(stavkaShema).min(1, 'racun mora imati barem jednu stavku').max(500, 'najviše 500 stavki'),
     status: z.enum(['nacrt', 'izdano']).default('izdano'), // 'nacrt' = skica bez broja
+    stornoZaId: z.number().int().positive().optional(), // interna veza storna na original (10-* §2.3)
   })
   .superRefine((r, ctx) => {
     if ((r.tip === 'ERACUN_B2B' || r.tip === 'ERACUN_B2G') && !r.kupac?.oib) {
@@ -202,6 +203,24 @@ export const racunModelShema = z
         path: ['kupac', 'oib'],
         message: `kupac.oib je obavezan za tip '${r.tip}' (Primatelj oibPorezniBroj, BT-48)`,
       });
+    }
+    if (r.tip === 'FISKALNI_B2C') {
+      // CIS RacunZahtjev: OibOper je obavezan element (02-* §4.3).
+      if (!r.operaterOib) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['operaterOib'],
+          message: "operaterOib je obavezan za tip 'FISKALNI_B2C' (CIS element OibOper)",
+        });
+      }
+      // Fiskalni račun je izdan u trenutku kreiranja (ZKI odmah) — skica nema smisla.
+      if (r.status === 'nacrt') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['status'],
+          message: "tip 'FISKALNI_B2C' ne podržava skicu — račun se izdaje i fiskalizira odmah",
+        });
+      }
     }
   });
 

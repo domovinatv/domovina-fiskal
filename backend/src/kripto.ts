@@ -19,17 +19,29 @@ export interface EnkriptiraniCertifikat {
   encIv: string;      // hex
   dekWrapped: string; // hex
   dekIv: string;      // hex
+  // Faza 2: privatni ključ (PKCS8 PEM) izvučen iz P12, enkriptiran ISTIM DEK-om
+  // uz ZASEBAN IV — potpisivanje ne mora ponovno parsirati P12.
+  kljucPemEncrypted: ArrayBuffer;
+  kljucIv: string;    // hex
 }
 
 export async function enkriptirajCertifikat(
   masterHex: string,
   p12: ArrayBuffer,
+  kljucPem: string,
 ): Promise<EnkriptiraniCertifikat> {
   const kek = await uvoziKek(masterHex);
   const dek = (await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt'])) as CryptoKey;
 
   const encIv = crypto.getRandomValues(new Uint8Array(12));
   const pkcs12Encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: encIv }, dek, p12);
+
+  const kljucIv = crypto.getRandomValues(new Uint8Array(12));
+  const kljucPemEncrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: kljucIv },
+    dek,
+    new TextEncoder().encode(kljucPem),
+  );
 
   const dekRaw = (await crypto.subtle.exportKey('raw', dek)) as ArrayBuffer;
   const dekIv = crypto.getRandomValues(new Uint8Array(12));
@@ -40,15 +52,24 @@ export async function enkriptirajCertifikat(
     encIv: hex(encIv),
     dekWrapped: hex(new Uint8Array(dekWrapped)),
     dekIv: hex(dekIv),
+    kljucPemEncrypted,
+    kljucIv: hex(kljucIv),
   };
 }
 
-// Dekripcija — u fazi 0 se NE koristi (certifikat se samo sprema); treba je faza 2
-// u trenutku potpisivanja. DEK i plaintext žive samo u memoriji poziva.
-export async function dekriptirajCertifikat(
+// D1 BLOB stupci se u rezultatima znaju vratiti kao Array<number> (ne
+// ArrayBuffer) — normaliziraj prije predaje WebCrypto API-ju.
+function uBafer(b: ArrayBuffer | ArrayLike<number>): ArrayBuffer {
+  if (b instanceof ArrayBuffer) return b;
+  return new Uint8Array(b).buffer;
+}
+
+// Dekripcija privatnog ključa (PKCS8 PEM) u trenutku potpisivanja — DEK i
+// plaintext žive isključivo u memoriji poziva, nikad se ne perzistiraju/logiraju.
+export async function dekriptirajKljucPem(
   masterHex: string,
-  enkriptirano: { pkcs12Encrypted: ArrayBuffer; encIv: string; dekWrapped: string; dekIv: string },
-): Promise<ArrayBuffer> {
+  enkriptirano: { kljucPemEncrypted: ArrayBuffer | ArrayLike<number>; kljucIv: string; dekWrapped: string; dekIv: string },
+): Promise<string> {
   const kek = await uvoziKek(masterHex);
   const dekRaw = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: izHexa(enkriptirano.dekIv) },
@@ -56,9 +77,10 @@ export async function dekriptirajCertifikat(
     izHexa(enkriptirano.dekWrapped),
   );
   const dek = await crypto.subtle.importKey('raw', dekRaw, 'AES-GCM', false, ['decrypt']);
-  return crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: izHexa(enkriptirano.encIv) },
+  const pem = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: izHexa(enkriptirano.kljucIv) },
     dek,
-    enkriptirano.pkcs12Encrypted,
+    uBafer(enkriptirano.kljucPemEncrypted),
   );
+  return new TextDecoder().decode(pem);
 }

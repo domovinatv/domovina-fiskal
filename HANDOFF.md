@@ -50,7 +50,16 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   proizvodi + **službeni KPD 2025** šifrarnik (migracija 0003), PDF (pdf-lib +
   DejaVu subset, čl. 79 elementi, HUB3 PDF417 za plaćanje), email dual-channel
   (CF Email Service binding → Resend fallback; E2E potvrđen kanal cloudflare).
+- ✅ **Faza 2 gotova** — B2C fiskalizacija 1.0 (v0.3.0): ZKI na Workeru
+  (RSA-SHA1+MD5), `RacunZahtjev` s XML-DSIG (exc-C14N kanonski-po-konstrukciji,
+  **RSA-SHA256/SHA-256** — SHA1 iz spec. v2.6 vraća `s004`, v. `02-*` §6.1/§12!),
+  transport `cloudflare:sockets`+`subtls` (CIS cert = privatni Fina CA; mTLS NIJE
+  obavezan → **bez sidecara**), naknadna dostava (cron */15, `NakDost=true`,
+  novi `IdPoruke`), fiskalni QR na PDF-u, P12 parsiranje pri uploadu (node-forge,
+  ključ enkriptiran at-rest). E2E na CIS TEST: **JIR dobiven** (ITalk d.o.o.,
+  FINA DEMO cert). Lokalne tajne (certovi/lozinke): `backend/.tajne/` (gitignored).
 - ⚠️ Napomene za sljedeće faze: KPD 2025 je restrukturiran vs. stara CPA
   (v. dopunu u `06-*`); R16 (čl. 90 st. 1) razriješen u `99-*`; verify recept
-  u `.claude/skills/verify/SKILL.md`.
-- ⏭️ **Sljedeće: faza 2** — `docs/handoff/faza-2-fiskalizacija-b2c.md` (nova sesija).
+  u `.claude/skills/verify/SKILL.md`; prije prelaska na PROD CIS: min. 2 dana
+  stabilnog TEST rada, `OKOLINA=prod`, prod cert (uploadan, okolina 'prod').
+- ⏭️ **Sljedeće: faza 3** — `docs/handoff/faza-3-eracun-2.0.md` (nova sesija).

@@ -6,6 +6,7 @@ import type { ApiVarijable, Env, RacunRow, TenantRow } from '../types';
 import {
   findOrCreateKupac,
   findTenantByApiKeyHash,
+  getAktivniCertifikat,
   getNaplatniUredajByOznaka,
   getOperaterByOib,
   getPdvRaspodjela,
@@ -24,6 +25,7 @@ import {
   type NoviRacunStavka,
   type SekvencaVrsta,
 } from '../db';
+import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { godinaZagreb, sha256Hex } from '../util';
@@ -60,11 +62,13 @@ const SEKVENCA_ZA_TIP: Record<string, SekvencaVrsta> = {
   PONUDA: 'ponuda',
   PREDRACUN: 'ponuda', // ponude i predračuni dijele slijed (Fira: tab "Ponude/Predračuni")
   RACUN: 'racun',
+  FISKALNI_B2C: 'fiskalni', // odvojeni slijed — brojčana oznaka ide u ZKI/CIS
 };
-const TIP_U_DB: Record<string, 'ponuda' | 'predracun' | 'racun'> = {
+const TIP_U_DB: Record<string, 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c'> = {
   PONUDA: 'ponuda',
   PREDRACUN: 'predracun',
   RACUN: 'racun',
+  FISKALNI_B2C: 'fiskalni_b2c',
 };
 
 // Razrješavanje stavki: proizvodId → podaci iz kataloga (polja u payloadu nadjačavaju).
@@ -111,13 +115,43 @@ async function razrijesiStavke(
 
 // Zajednička logika kreiranja dokumenta — koristi je API (JSON) i admin (forma).
 export async function kreirajDokument(
-  db: D1Database,
+  env: Env,
   tenant: TenantRow,
   model: RacunModel,
 ): Promise<{ racun: RacunRow } | { status: 400 | 404 | 409; greska: string; detalji?: { polje: string; poruka: string }[] }> {
+  const db = env.DB;
   const pp = await getPoslovniProstorByOznaka(db, tenant.id, model.poslovniProstor);
   if (!pp) return { status: 404, greska: `Poslovni prostor s oznakom '${model.poslovniProstor}' ne postoji` };
   if (pp.datum_zatvaranja) return { status: 409, greska: `Poslovni prostor '${pp.oznaka}' je zatvoren (${pp.datum_zatvaranja})` };
+
+  // Fiskalni B2C preduvjeti se provjeravaju PRIJE trošenja broja iz sekvence —
+  // izdani fiskalni račun bez certifikata bio bi trajno nefiskalizabilan.
+  if (model.tip === 'FISKALNI_B2C') {
+    if (pp.cis_status !== 'prijavljen') {
+      return {
+        status: 409,
+        greska: `Poslovni prostor '${pp.oznaka}' nije označen kao prijavljen u CIS (prijava ide kroz ePoreznu; označi je u adminu)`,
+      };
+    }
+    const okolina = okolinaIzEnv(env);
+    const cert = await getAktivniCertifikat(db, tenant.id, okolina);
+    if (!cert) return { status: 409, greska: `Tenant nema aktivan certifikat za okolinu '${okolina}' — uploadaj P12 u adminu` };
+    if (!cert.kljuc_pem_encrypted) {
+      return { status: 409, greska: 'Certifikat je spremljen bez izvučenog ključa (prije faze 2) — ponovno ga uploadaj s lozinkom' };
+    }
+    const sAe = model.stavke.findIndex((s) => s.pdvKategorija === 'AE');
+    if (sAe >= 0) {
+      return {
+        status: 400,
+        greska: 'Validacija nije prošla',
+        detalji: [{ polje: `stavke.${sAe}.pdvKategorija`, poruka: "prijenos porezne obveze ('AE') je B2B mehanizam — ne može na B2C fiskalni račun" }],
+      };
+    }
+    if (model.stornoZaId) {
+      const original = await getRacun(db, tenant.id, model.stornoZaId);
+      if (!original) return { status: 404, greska: `Original za storno (id ${model.stornoZaId}) ne postoji` };
+    }
+  }
 
   const nu = await getNaplatniUredajByOznaka(db, pp.id, model.naplatniUredaj);
   if (!nu) return { status: 404, greska: `Naplatni uređaj s oznakom '${model.naplatniUredaj}' ne postoji u prostoru '${pp.oznaka}'` };
@@ -198,6 +232,7 @@ export async function kreirajDokument(
     status: model.status,
     stavke: stavkeZaUpis,
     pdvRaspodjela: iznosi.raspodjela,
+    stornoRacunId: model.stornoZaId ?? null,
   });
   return { racun };
 }
@@ -225,11 +260,54 @@ apiV1.post('/racun', async (c) => {
     );
   }
 
-  const rezultat = await kreirajDokument(c.env.DB, c.get('tenant'), model);
+  const tenant = c.get('tenant');
+  const rezultat = await kreirajDokument(c.env, tenant, model);
   if ('greska' in rezultat) {
     return c.json({ greska: rezultat.greska, ...(rezultat.detalji ? { detalji: rezultat.detalji } : {}) }, rezultat.status);
   }
+
+  // Fiskalni B2C: ZKI + pokušaj JIR-a odmah (CIS cilja < 2 s). Ako CIS ne
+  // odgovori, račun OSTAJE izdan (ZKI je dovoljan) — JIR stiže naknadnom
+  // dostavom (cron sweep ili POST /racun/:id/fiskaliziraj).
+  if (model.tip === 'FISKALNI_B2C') {
+    const fiskal = await fiskalizirajRacun(c.env, tenant.id, rezultat.racun.id).catch((e) => ({
+      ok: false as const, greska: `Fiskalizacija nije uspjela: ${(e as Error).message}`, retryable: true,
+    }));
+    const svjezi = (await getRacun(c.env.DB, tenant.id, rezultat.racun.id)) ?? rezultat.racun;
+    return c.json(
+      {
+        ...(await racunUOdgovor(c.env.DB, svjezi)),
+        fiskalizacija: fiskal.ok
+          ? { status: 'fiskaliziran' }
+          : { status: 'ceka_jir', greska: fiskal.greska ?? null, automatskiRetry: fiskal.retryable ?? false },
+      },
+      201,
+    );
+  }
   return c.json(await racunUOdgovor(c.env.DB, rezultat.racun), 201);
+});
+
+// Ručno okidanje (naknadne) fiskalizacije — npr. nakon ispravka certifikata.
+apiV1.post('/racun/:id/fiskaliziraj', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+  const tenant = c.get('tenant');
+  const racun = await getRacun(c.env.DB, tenant.id, id);
+  if (!racun) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
+  if (racun.tip_dokumenta !== 'fiskalni_b2c') return c.json({ greska: 'Samo FISKALNI_B2C dokumenti se fiskaliziraju' }, 409);
+  if (racun.jir) return c.json({ greska: `Račun je već fiskaliziran (JIR ${racun.jir})` }, 409);
+
+  const fiskal = await fiskalizirajRacun(c.env, tenant.id, id);
+  const svjezi = (await getRacun(c.env.DB, tenant.id, id)) ?? racun;
+  return c.json(
+    {
+      ...(await racunUOdgovor(c.env.DB, svjezi)),
+      fiskalizacija: fiskal.ok
+        ? { status: 'fiskaliziran' }
+        : { status: 'ceka_jir', greska: fiskal.greska ?? null, automatskiRetry: fiskal.retryable ?? false },
+    },
+    fiskal.ok ? 200 : 502,
+  );
 });
 
 // Izdavanje skice: dodijeli broj + status 'izdano'.
@@ -400,8 +478,17 @@ async function racunUOdgovor(db: D1Database, r: RacunRow) {
     })),
     pdf: `/api/v1/racun/${r.id}/pdf`,
     poslanoEmail: r.poslano_email_ts ? { kada: r.poslano_email_ts, na: r.poslano_email_na } : null,
-    // JIR/ZKI/QR dolaze s fiskalizacijom (faza 2) — do tada null.
+    // Fiskalizacija (faza 2) — popunjeno samo za tip fiskalni_b2c.
     zki: r.zki,
     jir: r.jir,
+    fiskalniQr: r.qr_payload,
+    ...(r.tip_dokumenta === 'fiskalni_b2c'
+      ? {
+          fiskalGreska: r.fiskal_greska,
+          fiskalPokusaja: r.fiskal_pokusaja,
+          naknadnaDostava: !!r.fiskal_nak_dost,
+          stornoZaId: r.storno_racun_id,
+        }
+      : {}),
   };
 }

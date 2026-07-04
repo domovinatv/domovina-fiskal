@@ -114,6 +114,12 @@ export interface RacunRow {
   poslano_email_na: string | null;
   zki: string | null;
   jir: string | null;
+  qr_payload: string | null;
+  fiskal_nak_dost: number;
+  fiskal_pokusaja: number;
+  fiskal_zadnji_pokusaj: string | null;
+  fiskal_greska: string | null;
+  storno_racun_id: number | null;
   status: string;
   created_at: string;
 }

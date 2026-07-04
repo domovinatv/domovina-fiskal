@@ -36,10 +36,28 @@ npx wrangler dev --port 8787      # pozadinski; server je spreman kad GET / vrat
 - Paralelno izdavanje (10× curl u pozadini) pa provjera numeracije direktno u D1:
   `npx wrangler d1 execute fiskal_domovina --local --command "SELECT COUNT(*), COUNT(DISTINCT redni_broj), MAX(redni_broj) FROM racun" --json`
   — broj redaka = distinct = max → bez rupa.
-- `tip: FISKALNI_B2C` mora vratiti 501 (fiskalizacija je faza 2).
-- Upload certifikata: `curl -F 'p12=@file' -F 'okolina=test' /admin/tenant/:id/certifikati`;
-  u D1 `length(pkcs12_encrypted)` = original + 16 (GCM tag), `fingerprint_sha256`
-  = sha256 originala.
+- Upload certifikata (od faze 2 traži i LOZINKU — P12 se parsira, ključ izvlači):
+  `curl -F 'p12=@file' -F 'lozinka=…' -F 'okolina=test' /admin/tenant/:id/certifikati`;
+  u D1 provjeri `oib_certifikata` = tenant OIB i `length(kljuc_pem_encrypted) > 0`.
+
+## Fiskalizacija B2C (faza 2) — E2E protiv CIS TEST-a
+
+Preduvjeti: FINA DEMO cert + lozinka (lokalno u `backend/.tajne/`, gitignored);
+prostor mora biti označen „prijavljen" (`POST /admin/tenant/:id/prostori/:pid/cis-status`).
+CIS TEST servisni prozori: radnim danom 16–17 h, nedjeljom 8–12 h.
+
+1. `GET /admin/cis/echo` (Basic Auth) → `{"ok":true}` — mrežni put (subtls) radi.
+2. `POST /api/v1/racun` s `tip: "FISKALNI_B2C"`, `operaterOib` (obavezan),
+   `nacinPlacanja: "GOTOVINA"` → 201 s `zki` (32 hex), `jir` (UUID od CIS-a),
+   `fiskalniQr` (`porezna.gov.hr/rn?jir=…`), `status: "fiskaliziran"`.
+3. PDF (`GET /api/v1/racun/:id/pdf`) nosi blok „Fiskalni podaci" (ZKI, JIR, QR).
+4. Offline/naknadna dostava: privremeno pokvari TEST host u `src/fiskal/cis.ts`
+   → račun ostane `izdano` sa ZKI + `fiskal_nak_dost=1`; vrati host pa
+   `curl "http://localhost:8787/__scheduled?cron=*/15+*+*+*+*"` (dev pokrenut s
+   `--test-scheduled`) → sweep šalje `NakDost=true` s NOVIM IdPoruke → JIR.
+5. Audit: `poruka_log` ima zahtjev+odgovor XML za svaki pokušaj.
+
+Zamka: XML-DSIG je RSA-SHA256/SHA-256 (SHA1 → `s004`); ZKI je RSA-SHA1+MD5.
 
 ## Zamke
 
