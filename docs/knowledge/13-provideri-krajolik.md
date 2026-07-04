@@ -135,3 +135,63 @@ Fakturiranje/ERP/POS aplikacije koje 2.0 kanal dobivaju preko posrednika iz (A):
 - ePoslovanje — `eposlovanje.hr/za-developere/`, `/fiskalizacija-2-0/`. Pristupljeno **2026-07-04**.
 - FINA — `fina.hr/digitalizacija-poslovanja/e-racun/*`. Pristupljeno **2026-07-04**.
 - Interni: `docs/reference/fira-ui-walkthrough.md` §5, `docs/knowledge/07-fira-analiza.md`.
+
+## Razrješenje otvorenih ⚠️ (krug 2 — 2026-07-04)
+
+> Ključni proboj: `api.doku.hr/docs` je Scalar (ASP.NET Core) SPA, ali **sirovi OpenAPI 3.1.1
+> spec je javno dostupan** na `https://api.doku.hr/openapi/v1.json` (~179 KB). Iz njega su
+> izvučeni auth, base URL, endpointi, webhook i rate-limit detalji. `/ping` (prod) vraća
+> `{"message":"Hello PRODUCTION @ ..."}`.
+
+- ✅ **doku API autentikacija (format ključa, base URL)** → Dva zaglavlja: (1) `Authorization: API-TOKEN <token>`
+  — apiKey u headeru, token izdan **po doku računu** (literalni prefiks `API-TOKEN` + razmak + token);
+  (2) `SOFTWARE-API-TOKEN` — GUID koji identificira **integraciju/software** (ne pozivatelja), obavezan na
+  svakom ne-anonimnom endpointu. Base URL PROD: `https://api.doku.hr` (portal `https://portal.doku.hr`);
+  TEST: `https://api-test.doku.hr` (portal `https://portal-test.doku.hr`). Pristupne podatke tražiš mailom
+  na `hello@doku.hr`. Izvor: `https://api.doku.hr/openapi/v1.json` (`info.description`, `components.securitySchemes.ApiToken`).
+- ⚠️ **doku rate limiti** → **Nema javno dokumentiranog globalnog rate-limita/kvote** (nema `X-RateLimit`
+  zaglavlja ni quota tablice u specu). Jedini throttling u specu je na `POST /accounts/me/ams`
+  (registracija sudionika na AMS) → HTTP **429** sa `retryAfterSeconds` (shema `MeAMSCreateRateLimited`).
+  Ostali endpointi bez deklariranog limita — realni limiti vjerojatno postoje server-side ali nisu objavljeni.
+  Izvor: `openapi/v1.json` paths + `components.schemas.MeAMSCreateRateLimited`.
+- ⚠️/✅ **White-label / partner / sub-tenant** → **Tehnički building-block POSTOJI, formalni reseller ugovor NIJE javan.**
+  `POST /accounts` („Registration") programatski kreira novi račun, dodjeljuje mu API token, **automatski
+  registrira tvrtku na AMS za eDelivery** i vraća aktivacijski e-mail + generiranu lozinku + API token —
+  poziva se s `SOFTWARE-API-TOKEN` (identifikator tvoje integracije). Tj. integrator može **programatski
+  provisionirati račun po svom kupcu ispod svog software-tokena** → de-facto multi-tenant onboarding.
+  ALI: **javno nema formalnog white-label/reseller/agencijskog ugovora ni konsolidirane sub-tenant naplate**
+  (spomen „partner" na `/usluge` i `/o-nama` je marketinški, ne cjenik); komercijalni uvjeti idu preko
+  `hello@doku.hr`. Zaključak: sub-account API = ✅ potvrđeno; formalni reseller model = ⚠️ iza kontakta.
+  Izvor: `openapi/v1.json` `paths./accounts.post` + `RegistrationDTO`.
+- ✅ **Podržava li doku Peppol?** → **NE (nije Peppol).** doku radi na **hrvatskoj nacionalnoj eDelivery mreži
+  preko AMS-a** (Adresar metapodatkovnih servisa): `POST /ams` = „Check the Adresar metapodatkovnih servisa
+  (AMS)... provide OIB or GLN... returns the **MPS endpoint URL** if recipient found". **Nigdje u specu ni na
+  webu nema spomena Peppola.** Znači razlika prema FINA-i stoji: **FINA = Peppol pristupna točka**, dok je
+  **doku AMS/MPS (RH F2.0) pristupna točka** (`ap.doku.hr (Porezna uprava)` naveden na status-boardu).
+  Izvor: `openapi/v1.json` `paths./ams`, `/accounts` opis, `tags` (AMS: „Check AMS by participant identifier").
+- ✅ **Webhook garancije** → Događaj **`document.status_change`**: okida se na *document imported / delivered /
+  fiscalized* (ulazni i izlazni). **Auth: HTTP Basic** (ako je konfiguriran na računu). **Retry: do 3 pokušaja
+  s eksponencijalnim backoffom.** **Timeout: 2 sekunde** (obradi asinkrono). Vrati **2xx** za ack. URL se
+  konfigurira u **Portal → Settings → API**. Izvor: `openapi/v1.json` `webhooks."document.status_change"`.
+- ⚠️ **doku SLA / uptime brojke** → **Nema objavljene numeričke SLA/uptime garancije.** `doku.hr/api-status`
+  je **live status-board** (servisi: Web servis, Notifikacije, `api.doku.hr`, `api-test.doku.hr`,
+  `portal.doku.hr`, `portal-test.doku.hr`, **`ap.doku.hr (Porezna uprava)`**, **Webhooks**) koji trenutno
+  pokazuje „**Svi servici funkcionalni**", ali **uptime trake se renderiraju klijentski bez objavljenog % ni
+  SLA obveze**. `api-changelog` ima samo 2 unosa (2025-11-01 prva verzija API docs; 2026-04-01 dorađeni OpenAPI)
+  — bez SLA/uptime brojki. Izvori: `https://doku.hr/api-status`, `https://doku.hr/api-changelog`.
+- ✅ **Usporedni cjenik po eRačunu (doku vs Pondi/ePoslovanje vs FINA)** →
+  - **doku** (`doku.hr/`): besplatno **3 eRačuna/mj** (poslani+primljeni); **5 €/mj** (PDV uključen) za
+    **50 eRačuna** + **0,10 €** po dodatnom nakon 50; **>2000/mj** paket po mjeri. **Bez ugovorne obveze.**
+  - **Pondi / ePoslovanje** (`eposlovanje.hr/cjenik/`): **0,08 € + PDV po eRačunu**, min. naplata **4,00 € + PDV**
+    (prepaid: iznos se troši 6 mj / postpaid: 4 €/mj uključuje 50 računa, iznad 50 → 0,08 €). Primanje i arhiva
+    **besplatni**. Fiskalizacijski certifikat preko njih **10 € + PDV**.
+  - **FINA e-Račun** (`fina.hr/.../cjenik-fina-e-racuna`): **0,30 € po poslanom eRačunu** (bez PDV-a) + **0,93 €/certifikat**
+    mjesečno; PLUS paketi po volumenu (XS 15 = 8,20 €, S 30 = 12,20 €, S 55 = 20,75 €, M 200 = 63,70 €, L 500 = 137,00 €,
+    XL 650+ na upit); +0,93 € po dodatnom subjektu za opunomoćenike; **ugovorna obveza 24 mjeseca**. Primanje se ne naplaćuje.
+  - **Poanta:** doku najjeftiniji na malom volumenu i **bez ugovora** (PDV već uključen ~5 € ≈ 4 € + PDV);
+    **Pondi najniža jedinična cijena na skali (0,08 €)**; **FINA najskuplja jedinično (0,30 €) + 24-mj lock-in**,
+    ali je jedina **Peppol AP**. Izvori: `doku.hr/`, `eposlovanje.hr/cjenik/`, `fina.hr/digitalizacija-poslovanja/e-racun/cjenik-fina-e-racuna`.
+
+### Napomena o zabuni imena
+`DOKU.com` / `api.doku.com` / `dashboard.doku.com` je **indonezijski payment gateway** — nije povezan s
+hrvatskim **doku.hr (monoform d.o.o.)**. Sav gornji nalaz odnosi se isključivo na `doku.hr` / `api.doku.hr`.
