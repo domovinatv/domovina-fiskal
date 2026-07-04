@@ -274,13 +274,18 @@ export async function listCertifikati(db: D1Database, tenantId: number): Promise
 
 export interface NoviRacunStavka {
   naziv: string;
+  opis?: string | null;
   kolicina: string;       // decimalni string
   jedinicaMjere: string;
   netoCijena: string;     // decimalni string
+  popustPosto: string;    // '0' … '99.99'
   pdvKategorija: string;
   pdvStopa: string;       // '25' | '13' | '5' | '0'
   kpd?: string | null;
+  proizvodId?: number | null;
 }
+
+export type SekvencaVrsta = 'ponuda' | 'racun' | 'fiskalni';
 
 export interface NoviRacun {
   tenantId: number;
@@ -293,9 +298,17 @@ export interface NoviRacun {
   oznNU: string;
   godina: number;
   datumVrijeme: string; // ISO 8601
-  tipDokumenta: 'ponuda' | 'racun';
+  tipDokumenta: 'ponuda' | 'predracun' | 'racun';
+  sekvencaVrsta: SekvencaVrsta;
   valuta: string;
   nacinPlacanja: string | null;
+  datumDospijeca: string | null;
+  vrijediDo: string | null;
+  datumIsporuke: string | null;
+  napomena: string | null;
+  internaBiljeska: string | null;
+  uvjeti: string | null;
+  klauzulaPdv: string | null;
   neto: string;
   iznosBezPdv: string;
   pdv: string;
@@ -306,112 +319,78 @@ export interface NoviRacun {
   pdvRaspodjela: { kategorija: string; stopa: string; oporeziviIznos: string; iznosPoreza: string }[];
 }
 
-// Atomsko izdavanje: sekvenca++ + INSERT racun + stavke + PDV raščlamba u JEDNOM
-// D1 batchu (transakcija) — pravilo numeriranja iz 05-* §3 (bez rupa, godišnji
-// reset, razina P/N po internom aktu tenanta). Broj se dodjeljuje subselectom iz
-// sekvence jer se rezultati statementa unutar batcha ne mogu vezati u sljedeći.
-export async function izdajRacun(db: D1Database, r: NoviRacun): Promise<RacunRow> {
+// Upis dokumenta. status 'izdano' → atomski batch: sekvenca++ (po vrsti!) +
+// INSERT racun + stavke + PDV raščlamba u jednoj transakciji, s brojem iz
+// subselecta (05-* §3: bez rupa, godišnji reset, razina P/N po internom aktu).
+// status 'nacrt' (skica) → INSERT BEZ broja; broj se dodjeljuje u izdajSkicu().
+export async function upisiRacun(db: D1Database, r: NoviRacun): Promise<RacunRow> {
+  if (r.status === 'nacrt') return upisiSkicu(db, r);
+
   const razinaTip = r.oznakaSlijednosti === 'P' ? 'PP' : 'NU';
   const razinaId = r.oznakaSlijednosti === 'P' ? r.poslovniProstorId : r.naplatniUredajId;
 
-  const sekvencaUvjet = `s.tenant_id = ?1 AND s.razina_tip = ?2 AND s.razina_id = ?3 AND s.godina = ?4`;
-  const racunUvjet = `r.tenant_id = ?1 AND r.godina = ?4 AND r.poslovni_prostor_id = ?5
-                      AND r.naplatni_uredaj_id = ?6 AND r.redni_broj = s.zadnji_broj`;
+  // Uvjeti subselecta; ?1 tenant, ?2 vrsta sekvence, ?3 razina_tip, ?4 razina_id,
+  // ?5 godina, ?6 PP, ?7 NU — konzistentno u SVIM statementima ovog batcha.
+  const sekvencaUvjet = `s.tenant_id = ?1 AND s.vrsta = ?2 AND s.razina_tip = ?3 AND s.razina_id = ?4 AND s.godina = ?5`;
+  const racunUvjet = `r.tenant_id = ?1 AND r.sekvenca_vrsta = ?2 AND r.godina = ?5
+                      AND r.poslovni_prostor_id = ?6 AND r.naplatni_uredaj_id = ?7
+                      AND r.redni_broj = s.zadnji_broj`;
+  const kontekst = [r.tenantId, r.sekvencaVrsta, razinaTip, razinaId, r.godina, r.poslovniProstorId, r.naplatniUredajId] as const;
 
   const stmts: D1PreparedStatement[] = [
     db
       .prepare(
-        `INSERT INTO sekvenca (tenant_id, razina_tip, razina_id, godina, zadnji_broj)
-         VALUES (?1, ?2, ?3, ?4, 1)
-         ON CONFLICT (tenant_id, razina_tip, razina_id, godina)
+        `INSERT INTO sekvenca (tenant_id, vrsta, razina_tip, razina_id, godina, zadnji_broj)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1)
+         ON CONFLICT (tenant_id, vrsta, razina_tip, razina_id, godina)
          DO UPDATE SET zadnji_broj = zadnji_broj + 1`,
       )
-      .bind(r.tenantId, razinaTip, razinaId, r.godina),
+      .bind(...kontekst.slice(0, 5)),
     db
       .prepare(
         `INSERT INTO racun (
            tenant_id, poslovni_prostor_id, naplatni_uredaj_id, operater_id, kupac_id,
-           redni_broj, godina, broj_racuna_full, oznaka_slijednosti, datum_vrijeme,
-           tip_dokumenta, valuta, nacin_placanja,
+           sekvenca_vrsta, redni_broj, godina, broj_racuna_full, oznaka_slijednosti,
+           datum_vrijeme, tip_dokumenta, valuta, nacin_placanja,
+           datum_dospijeca, vrijedi_do, datum_isporuke, model_placanja, poziv_na_broj,
+           napomena, interna_biljeska, uvjeti, klauzula_pdv,
            neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, status
          )
-         SELECT ?1, ?5, ?6, ?7, ?8,
-                s.zadnji_broj, ?4, s.zadnji_broj || '/' || ?9 || '/' || ?10, ?2, ?11,
-                ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19, ?20
-         FROM sekvenca s
-         WHERE s.tenant_id = ?1 AND s.razina_tip = ?21 AND s.razina_id = ?3 AND s.godina = ?4
+         SELECT ?1, ?6, ?7, ?8, ?9,
+                ?2, s.zadnji_broj, ?5, s.zadnji_broj || '/' || ?10 || '/' || ?11, ?12,
+                ?13, ?14, ?15, ?16,
+                ?17, ?18, ?19, 'HR00', s.zadnji_broj || '-' || CAST(?5 AS INTEGER),
+                ?20, ?21, ?22, ?23,
+                ?24, ?25, ?26, ?27, ?28, 'izdano'
+         FROM sekvenca s WHERE ${sekvencaUvjet}
          RETURNING id`,
       )
       .bind(
-        r.tenantId,
-        r.oznakaSlijednosti,
-        razinaId,
-        r.godina,
-        r.poslovniProstorId,
-        r.naplatniUredajId,
-        r.operaterId,
-        r.kupacId,
-        r.oznPP,
-        r.oznNU,
-        r.datumVrijeme,
-        r.tipDokumenta,
-        r.valuta,
-        r.nacinPlacanja,
-        r.neto,
-        r.iznosBezPdv,
-        r.pdv,
-        r.iznosSPdv,
-        r.dospijevaZaPlacanje,
-        r.status,
-        razinaTip, // ?21 — 'PP'/'NU' za subselect sekvence (?2 je 'P'/'N' za oznaku slijednosti)
+        ...kontekst,
+        r.operaterId,          // ?8
+        r.kupacId,             // ?9
+        r.oznPP,               // ?10
+        r.oznNU,               // ?11
+        r.oznakaSlijednosti,   // ?12
+        r.datumVrijeme,        // ?13
+        r.tipDokumenta,        // ?14
+        r.valuta,              // ?15
+        r.nacinPlacanja,       // ?16
+        r.datumDospijeca,      // ?17
+        r.vrijediDo,           // ?18
+        r.datumIsporuke,       // ?19
+        r.napomena,            // ?20
+        r.internaBiljeska,     // ?21
+        r.uvjeti,              // ?22
+        r.klauzulaPdv,         // ?23
+        r.neto,                // ?24
+        r.iznosBezPdv,         // ?25
+        r.pdv,                 // ?26
+        r.iznosSPdv,           // ?27
+        r.dospijevaZaPlacanje, // ?28
       ),
+    ...stavkeIPdvStmts(db, r, `FROM racun r JOIN sekvenca s ON ${sekvencaUvjet} WHERE ${racunUvjet}`, [...kontekst]),
   ];
-
-  // ?2 u subselectima = razina_tip ('PP'/'NU'), za razliku od ?2 gore ('P'/'N').
-  for (let i = 0; i < r.stavke.length; i++) {
-    const st = r.stavke[i];
-    stmts.push(
-      db
-        .prepare(
-          `INSERT INTO stavka (racun_id, redni_broj, naziv, kolicina, jedinica_mjere,
-                               neto_cijena, pdv_kategorija, pdv_stopa, kpd)
-           SELECT r.id, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
-           FROM racun r JOIN sekvenca s ON ${sekvencaUvjet}
-           WHERE ${racunUvjet}`,
-        )
-        .bind(
-          r.tenantId,
-          razinaTip,
-          razinaId,
-          r.godina,
-          r.poslovniProstorId,
-          r.naplatniUredajId,
-          i + 1,
-          st.naziv,
-          st.kolicina,
-          st.jedinicaMjere,
-          st.netoCijena,
-          st.pdvKategorija,
-          st.pdvStopa,
-          st.kpd ?? null,
-        ),
-    );
-  }
-
-  for (const p of r.pdvRaspodjela) {
-    stmts.push(
-      db
-        .prepare(
-          `INSERT INTO pdv_raspodjela (racun_id, kategorija_pdv, stopa, oporezivi_iznos, iznos_poreza)
-           SELECT r.id, ?7, ?8, ?9, ?10
-           FROM racun r JOIN sekvenca s ON ${sekvencaUvjet}
-           WHERE ${racunUvjet}`,
-        )
-        .bind(r.tenantId, razinaTip, razinaId, r.godina, r.poslovniProstorId, r.naplatniUredajId,
-              p.kategorija, p.stopa, p.oporeziviIznos, p.iznosPoreza),
-    );
-  }
 
   const rezultati = await db.batch<{ id: number }>(stmts);
   const racunId = rezultati[1]?.results?.[0]?.id;
@@ -420,6 +399,153 @@ export async function izdajRacun(db: D1Database, r: NoviRacun): Promise<RacunRow
   const racun = await getRacun(db, r.tenantId, racunId);
   if (!racun) throw new Error('Izdani račun nije pronađen nakon upisa');
   return racun;
+}
+
+// Statementi za stavke + PDV raščlambu; `izvorRacunId` je FROM/WHERE fragment
+// koji pronalazi racun.id (subselect kod izdavanja), `prefiksParams` njegovi
+// parametri (?1…?N); vrijednosti stavki se nastavljaju iza njih.
+function stavkeIPdvStmts(
+  db: D1Database,
+  r: Pick<NoviRacun, 'stavke' | 'pdvRaspodjela'>,
+  izvorRacunId: string,
+  prefiksParams: unknown[],
+): D1PreparedStatement[] {
+  const n = prefiksParams.length;
+  const p = (i: number) => `?${n + i}`; // 1-bazirano iza prefiksa
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < r.stavke.length; i++) {
+    const st = r.stavke[i];
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO stavka (racun_id, redni_broj, naziv, opis, kolicina, jedinica_mjere,
+                               neto_cijena, popust_posto, pdv_kategorija, pdv_stopa, kpd, proizvod_id)
+           SELECT r.id, ${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, ${p(7)}, ${p(8)}, ${p(9)}, ${p(10)}, ${p(11)}
+           ${izvorRacunId}`,
+        )
+        .bind(
+          ...prefiksParams,
+          i + 1,
+          st.naziv,
+          st.opis ?? null,
+          st.kolicina,
+          st.jedinicaMjere,
+          st.netoCijena,
+          st.popustPosto,
+          st.pdvKategorija,
+          st.pdvStopa,
+          st.kpd ?? null,
+          st.proizvodId ?? null,
+        ),
+    );
+  }
+  for (const pr of r.pdvRaspodjela) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO pdv_raspodjela (racun_id, kategorija_pdv, stopa, oporezivi_iznos, iznos_poreza)
+           SELECT r.id, ${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}
+           ${izvorRacunId}`,
+        )
+        .bind(...prefiksParams, pr.kategorija, pr.stopa, pr.oporeziviIznos, pr.iznosPoreza),
+    );
+  }
+  return stmts;
+}
+
+// Skica: INSERT bez broja (redni_broj NULL), pa stavke vezane na poznati id.
+async function upisiSkicu(db: D1Database, r: NoviRacun): Promise<RacunRow> {
+  const red = await db
+    .prepare(
+      `INSERT INTO racun (
+         tenant_id, poslovni_prostor_id, naplatni_uredaj_id, operater_id, kupac_id,
+         sekvenca_vrsta, oznaka_slijednosti, datum_vrijeme, tip_dokumenta, valuta,
+         nacin_placanja, datum_dospijeca, vrijedi_do, datum_isporuke,
+         napomena, interna_biljeska, uvjeti, klauzula_pdv,
+         neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nacrt')
+       RETURNING id`,
+    )
+    .bind(
+      r.tenantId, r.poslovniProstorId, r.naplatniUredajId, r.operaterId, r.kupacId,
+      r.sekvencaVrsta, r.oznakaSlijednosti, r.datumVrijeme, r.tipDokumenta, r.valuta,
+      r.nacinPlacanja, r.datumDospijeca, r.vrijediDo, r.datumIsporuke,
+      r.napomena, r.internaBiljeska, r.uvjeti, r.klauzulaPdv,
+      r.neto, r.iznosBezPdv, r.pdv, r.iznosSPdv, r.dospijevaZaPlacanje,
+    )
+    .first<{ id: number }>();
+  if (!red) throw new Error('INSERT skice nije vratio id');
+  try {
+    await db.batch(stavkeIPdvStmts(db, r, `FROM racun r WHERE r.id = ?1 AND r.tenant_id = ?2`, [red.id, r.tenantId]));
+  } catch (e) {
+    // Kompenzacija: skica bez stavki je nekonzistentna — obriši pa propagiraj.
+    await db.prepare(`DELETE FROM racun WHERE id = ? AND tenant_id = ?`).bind(red.id, r.tenantId).run();
+    throw e;
+  }
+  const racun = await getRacun(db, r.tenantId, red.id);
+  if (!racun) throw new Error('Skica nije pronađena nakon upisa');
+  return racun;
+}
+
+// Izdavanje skice: atomski dodijeli broj iz sekvence (UPDATE … FROM) i
+// prebaci status u 'izdano'. Vraća null ako skica ne postoji / nije nacrt.
+export async function izdajSkicu(
+  db: D1Database,
+  args: {
+    tenantId: number;
+    racunId: number;
+    sekvencaVrsta: SekvencaVrsta;
+    oznakaSlijednosti: 'P' | 'N';
+    poslovniProstorId: number;
+    naplatniUredajId: number;
+    oznPP: string;
+    oznNU: string;
+    godina: number;
+    datumVrijeme: string;
+  },
+): Promise<RacunRow | null> {
+  const razinaTip = args.oznakaSlijednosti === 'P' ? 'PP' : 'NU';
+  const razinaId = args.oznakaSlijednosti === 'P' ? args.poslovniProstorId : args.naplatniUredajId;
+  // Inkrement sekvence je UVJETOVAN time da je skica još 'nacrt' — inače bi
+  // ponovljeni/konkurentni "izdaj" potrošio broj bez računa (rupa u nizu).
+  const skicaJeNacrt = `EXISTS (SELECT 1 FROM racun WHERE id = ?6 AND tenant_id = ?1 AND status = 'nacrt')`;
+  const rezultati = await db.batch<{ id: number }>([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO sekvenca (tenant_id, vrsta, razina_tip, razina_id, godina, zadnji_broj)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0)`,
+      )
+      .bind(args.tenantId, args.sekvencaVrsta, razinaTip, razinaId, args.godina),
+    db
+      .prepare(
+        `UPDATE sekvenca SET zadnji_broj = zadnji_broj + 1
+         WHERE tenant_id = ?1 AND vrsta = ?2 AND razina_tip = ?3 AND razina_id = ?4
+           AND godina = ?5 AND ${skicaJeNacrt}`,
+      )
+      .bind(args.tenantId, args.sekvencaVrsta, razinaTip, razinaId, args.godina, args.racunId),
+    db
+      .prepare(
+        `UPDATE racun SET
+           redni_broj = s.zadnji_broj,
+           godina = ?5,
+           broj_racuna_full = s.zadnji_broj || '/' || ?6 || '/' || ?7,
+           datum_vrijeme = ?8,
+           model_placanja = 'HR00',
+           poziv_na_broj = s.zadnji_broj || '-' || CAST(?5 AS INTEGER),
+           status = 'izdano',
+           updated_at = datetime('now')
+         FROM sekvenca s
+         WHERE racun.id = ?9 AND racun.tenant_id = ?1 AND racun.status = 'nacrt'
+           AND s.tenant_id = ?1 AND s.vrsta = ?2 AND s.razina_tip = ?3
+           AND s.razina_id = ?4 AND s.godina = ?5
+         RETURNING racun.id`,
+      )
+      .bind(args.tenantId, args.sekvencaVrsta, razinaTip, razinaId, args.godina,
+            args.oznPP, args.oznNU, args.datumVrijeme, args.racunId),
+  ]);
+  const id = rezultati[2]?.results?.[0]?.id;
+  if (!id) return null; // nije nacrt / ne postoji — sekvenca NIJE uvećana (uvjet gore)
+  return getRacun(db, args.tenantId, id);
 }
 
 export async function getRacun(db: D1Database, tenantId: number, id: number): Promise<RacunRow | null> {
@@ -507,6 +633,147 @@ export async function findOrCreateKupac(db: D1Database, tenantId: number, k: Nov
     .first<{ id: number }>();
   if (!row) throw new Error('INSERT kupac nije vratio redak');
   return row.id;
+}
+
+// ───────────────────────── Proizvodi (katalog s KPD 2025) ─────────────────────────
+
+export interface ProizvodRow {
+  id: number;
+  tenant_id: number;
+  naziv: string;
+  sifra: string | null;
+  jedinica_mjere: string;
+  neto_cijena: string;
+  pdv_stopa: string;
+  pdv_kategorija: string;
+  kpd: string;
+  opis: string | null;
+  aktivan: number;
+  created_at: string;
+}
+
+export async function createProizvod(
+  db: D1Database,
+  tenantId: number,
+  p: {
+    naziv: string;
+    sifra?: string | null;
+    jedinicaMjere: string;
+    netoCijena: string;
+    pdvStopa: string;
+    pdvKategorija: string;
+    kpd: string;
+    opis?: string | null;
+  },
+): Promise<ProizvodRow> {
+  const row = await db
+    .prepare(
+      `INSERT INTO proizvod (tenant_id, naziv, sifra, jedinica_mjere, neto_cijena,
+                             pdv_stopa, pdv_kategorija, kpd, opis)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    )
+    .bind(tenantId, p.naziv, p.sifra ?? null, p.jedinicaMjere, p.netoCijena,
+          p.pdvStopa, p.pdvKategorija, p.kpd, p.opis ?? null)
+    .first<ProizvodRow>();
+  if (!row) throw new Error('INSERT proizvod nije vratio redak');
+  return row;
+}
+
+export async function listProizvodi(db: D1Database, tenantId: number): Promise<ProizvodRow[]> {
+  const r = await db
+    .prepare(`SELECT * FROM proizvod WHERE tenant_id = ? ORDER BY naziv`)
+    .bind(tenantId)
+    .all<ProizvodRow>();
+  return r.results;
+}
+
+export async function getProizvod(db: D1Database, tenantId: number, id: number): Promise<ProizvodRow | null> {
+  return db.prepare(`SELECT * FROM proizvod WHERE id = ? AND tenant_id = ? AND aktivan = 1`).bind(id, tenantId).first<ProizvodRow>();
+}
+
+// ───────────────────────── KPD 2025 šifrarnik ─────────────────────────
+
+export interface KpdRow {
+  sifra: string;
+  naziv: string;
+}
+
+// Pretraga po šifri (s točkama ili bez) ILI nazivu; za KPD picker u adminu.
+export async function searchKpd(db: D1Database, upit: string, limit = 20): Promise<KpdRow[]> {
+  const q = upit.trim();
+  const like = `%${q.replace(/[%_]/g, '')}%`;
+  const bezTocaka = `%${q.replace(/[^0-9]/g, '')}%`;
+  const r = await db
+    .prepare(
+      `SELECT sifra, naziv FROM kpd_sifrarnik
+       WHERE naziv LIKE ?1 COLLATE NOCASE
+          OR sifra LIKE ?1
+          OR (?2 <> '%%' AND replace(sifra, '.', '') LIKE ?2)
+       ORDER BY sifra LIMIT ?3`,
+    )
+    .bind(like, bezTocaka, Math.min(Math.max(limit, 1), 100))
+    .all<KpdRow>();
+  return r.results;
+}
+
+export async function getKpd(db: D1Database, sifra: string): Promise<KpdRow | null> {
+  return db.prepare(`SELECT sifra, naziv FROM kpd_sifrarnik WHERE sifra = ?`).bind(sifra).first<KpdRow>();
+}
+
+// ───────────────────────── Email evidencija ─────────────────────────
+
+export async function zabiljeziSlanjeEmaila(db: D1Database, tenantId: number, racunId: number, na: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE racun SET poslano_email_ts = datetime('now'), poslano_email_na = ?, updated_at = datetime('now')
+       WHERE id = ? AND tenant_id = ?`,
+    )
+    .bind(na, racunId, tenantId)
+    .run();
+}
+
+// ───────────────────────── Kontekst za PDF (svi podaci jednim dohvatom) ─────────────────────────
+
+export interface RacunKontekst {
+  racun: RacunRow;
+  stavke: StavkaRow[];
+  raspodjela: PdvRaspodjelaRow[];
+  tenant: TenantRow;
+  ppOznaka: string;
+  nuOznaka: string;
+  operaterIme: string | null;
+  operaterOib: string | null;
+  kupac: { naziv: string; oib: string | null; adr_ulica: string | null; adr_grad: string | null; adr_postanski_broj: string | null; adr_drzava: string | null; email: string | null } | null;
+}
+
+export async function getRacunKontekst(db: D1Database, tenantId: number, racunId: number): Promise<RacunKontekst | null> {
+  const racun = await getRacun(db, tenantId, racunId);
+  if (!racun) return null;
+  const [stavke, raspodjela, tenant, pp, nu, operater, kupac] = await Promise.all([
+    getStavke(db, racun.id),
+    getPdvRaspodjela(db, racun.id),
+    getTenant(db, tenantId),
+    db.prepare(`SELECT oznaka FROM poslovni_prostor WHERE id = ?`).bind(racun.poslovni_prostor_id).first<{ oznaka: string }>(),
+    db.prepare(`SELECT oznaka FROM naplatni_uredaj WHERE id = ?`).bind(racun.naplatni_uredaj_id).first<{ oznaka: string }>(),
+    racun.operater_id
+      ? db.prepare(`SELECT ime, oib_operatera FROM operater WHERE id = ?`).bind(racun.operater_id).first<{ ime: string | null; oib_operatera: string }>()
+      : Promise.resolve(null),
+    racun.kupac_id
+      ? db.prepare(`SELECT naziv, oib, adr_ulica, adr_grad, adr_postanski_broj, adr_drzava, email FROM kupac WHERE id = ?`).bind(racun.kupac_id).first<RacunKontekst['kupac']>()
+      : Promise.resolve(null),
+  ]);
+  if (!tenant || !pp || !nu) return null;
+  return {
+    racun,
+    stavke,
+    raspodjela,
+    tenant,
+    ppOznaka: pp.oznaka,
+    nuOznaka: nu.oznaka,
+    operaterIme: operater?.ime ?? null,
+    operaterOib: operater?.oib_operatera ?? null,
+    kupac: kupac ?? null,
+  };
 }
 
 // ───────────────────────── Brojači za health/admin ─────────────────────────

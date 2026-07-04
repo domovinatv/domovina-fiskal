@@ -378,3 +378,18 @@ Izvor: [Peppol BIS — UNCL4461](https://docs.peppol.eu/poacc/billing/3.0/codeli
 - [moj-eRačun — Klasifikacija proizvoda po djelatnostima (KPD)](https://portal.moj-eracun.hr/blog/klasifikacija-proizvoda-po-djelatnostima/) — NKD vs KPD, primjeri šifri (neslužbeno, pristup 2026-07-04)
 </content>
 </invoke>
+
+---
+
+## Dopuna (2026-07-04, faza 1 implementacije) — KPD 2025 preuzet i uočena promjena šifri
+
+- **Službeni strojno čitljivi KPD 2025** postoji na [data.gov.hr, dataset `kpd-2025`](https://data.gov.hr/ckan/dataset/kpd-2025)
+  (DZS/KLASUS, JSON, 5.828 zapisa; **3.359 potkategorija** razine 6). Uvezen u
+  `backend/migrations/0003_kpd2025.sql` kao tablica `kpd_sifrarnik` — pretraga i validacija po stavci.
+- ⚠️ **KPD 2025 je restrukturiran u odnosu na staru CPA 2.1 nomenklaturu:** primjeri poput
+  `62.02.30` (korišteni u `05-*` §7 i FIRA referenci) **ne postoje** u KPD 2025 — IT savjetovanje
+  je sada npr. `62.20.20` („Usluge savjetovanja o sustavima i softveru"). **Ne prenositi stare
+  CPA šifre napamet** — uvijek validirati protiv službenog šifrarnika (naš servis to radi
+  na unosu proizvoda).
+- Format u šifrarniku: **s točkama** (`NN.NN.NN`), kako ga DZS objavljuje. Otvoreno pitanje
+  formata u eRačun XML-u (s/bez točaka, v. R8 u `99-*`) ostaje za fazu 3.

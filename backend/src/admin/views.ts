@@ -15,10 +15,12 @@ import type {
   RacunRow,
   TenantRow,
 } from '../types';
+import type { ProizvodRow, RacunKontekst } from '../db';
+import { iznosHr } from '../pdf/racun-pdf';
 import { escapeHtml } from '../util';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
-export const APP_VERSION = 'v0.1.0';
+export const APP_VERSION = 'v0.2.0';
 
 const HEADER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="36" height="36" aria-hidden="true">
 <defs>
@@ -165,6 +167,7 @@ export interface TenantDetaljData {
   operateri: OperaterRow[];
   kljucevi: ApiKljucRow[];
   certifikati: CertifikatRow[];
+  proizvodi: ProizvodRow[];
   racuni: RacunRow[];
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
@@ -218,9 +221,19 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
 
   const racuniRedovi = d.racuni
     .map(
-      (r) => `<tr><td class="mono">${escapeHtml(r.broj_racuna_full)}</td><td>${escapeHtml(r.tip_dokumenta)}</td>
-<td>${pillStatus(r.status)}</td><td class="mono">${escapeHtml(r.iznos_s_pdv ?? '')} ${escapeHtml(r.valuta)}</td>
-<td class="mono">${escapeHtml(r.datum_vrijeme)}</td></tr>`,
+      (r) => `<tr><td class="mono"><a href="/admin/racun/${r.id}">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</a></td><td>${escapeHtml(r.tip_dokumenta)}</td>
+<td>${pillStatus(r.status)}</td><td class="mono">${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</td>
+<td class="mono">${escapeHtml(r.datum_vrijeme)}</td>
+<td><a href="/admin/racun/${r.id}/pdf" target="_blank">PDF</a></td></tr>`,
+    )
+    .join('');
+
+  const proizvodiRedovi = d.proizvodi
+    .map(
+      (p) => `<tr><td>${escapeHtml(p.naziv)}</td><td class="mono">${escapeHtml(p.sifra ?? '')}</td>
+<td class="mono">${iznosHr(p.neto_cijena)}</td><td class="mono">${escapeHtml(p.jedinica_mjere)}</td>
+<td class="mono">${escapeHtml(p.pdv_stopa)}% (${escapeHtml(p.pdv_kategorija)})</td>
+<td class="mono">${escapeHtml(p.kpd)}</td></tr>`,
     )
     .join('');
 
@@ -282,9 +295,185 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
 <table><thead><tr><th>Okolina</th><th>Otisak (SHA-256)</th><th>Enkripcija</th><th>Status</th><th>Učitan</th></tr></thead>
 <tbody>${certifikatiRedovi || '<tr><td colspan="5" class="prazno">Nema certifikata.</td></tr>'}</tbody></table>
 
-<h2>Zadnji računi</h2>
-<table><thead><tr><th>Broj</th><th>Tip</th><th>Status</th><th>Iznos</th><th>Izdan</th></tr></thead>
-<tbody>${racuniRedovi || '<tr><td colspan="5" class="prazno">Nema računa.</td></tr>'}</tbody></table>`,
+<h2>Proizvodi (katalog s KPD 2025)</h2>
+<div class="box"><form method="post" action="${baza}/proizvodi">
+  <div class="field"><label>Naziv *</label><input name="naziv" required placeholder="Konzultacije"></div>
+  <div class="field"><label>Šifra</label><input name="sifra" placeholder="KONZ-1"></div>
+  <div class="field"><label>Neto cijena *</label><input name="cijena" required placeholder="500.00" pattern="-?\\d+(\\.\\d{1,2})?"></div>
+  <div class="field"><label>Jedinica</label>
+    <select name="jedinica"><option value="H87">kom (H87)</option><option value="HUR">sat (HUR)</option><option value="DAY">dan (DAY)</option><option value="MON">mjesec (MON)</option><option value="KGM">kg (KGM)</option><option value="LTR">l (LTR)</option><option value="MTR">m (MTR)</option><option value="MTK">m² (MTK)</option></select></div>
+  <div class="field"><label>PDV stopa</label>
+    <select name="stopa"><option value="25">25 %</option><option value="13">13 %</option><option value="5">5 %</option><option value="0">0 %</option></select></div>
+  <div class="field" style="min-width:22rem"><label>KPD 2025 * (pretraži šifru ili naziv)</label>
+    <input name="kpd" id="kpd-input" required placeholder="npr. 62.02 ili 'savjetovanje'" list="kpd-lista" autocomplete="off">
+    <datalist id="kpd-lista"></datalist></div>
+  <button type="submit">Dodaj proizvod</button>
+</form></div>
+<table><thead><tr><th>Naziv</th><th>Šifra</th><th>Cijena</th><th>JM</th><th>PDV</th><th>KPD</th></tr></thead>
+<tbody>${proizvodiRedovi || '<tr><td colspan="6" class="prazno">Nema proizvoda.</td></tr>'}</tbody></table>
+<script>
+// KPD picker: pretraga službenog šifrarnika (DZS KPD 2025) uz tipkanje.
+const kpdInput = document.getElementById('kpd-input');
+const kpdLista = document.getElementById('kpd-lista');
+let kpdTimer;
+kpdInput?.addEventListener('input', () => {
+  clearTimeout(kpdTimer);
+  const q = kpdInput.value.trim();
+  if (q.length < 2) return;
+  kpdTimer = setTimeout(async () => {
+    const r = await fetch('/admin/api/kpd?q=' + encodeURIComponent(q));
+    if (!r.ok) return;
+    const { rezultati } = await r.json();
+    kpdLista.innerHTML = rezultati.map(k =>
+      '<option value="' + k.sifra + '">' + k.sifra + ' — ' + k.naziv.replaceAll('<','&lt;') + '</option>').join('');
+  }, 200);
+});
+</script>
+
+<h2>Dokumenti <a href="${baza}/dokument/novi" style="font-size:.85rem;margin-left:.6rem">➕ novi dokument</a></h2>
+<table><thead><tr><th>Broj</th><th>Tip</th><th>Status</th><th>Iznos</th><th>Izdan</th><th></th></tr></thead>
+<tbody>${racuniRedovi || '<tr><td colspan="6" class="prazno">Nema dokumenata.</td></tr>'}</tbody></table>`,
+  );
+}
+
+// ───────────────────────── Novi dokument (forma) ─────────────────────────
+
+export function renderNoviDokumentPage(
+  tenant: TenantRow,
+  uredjaji: (NaplatniUredajRow & { pp_oznaka: string })[],
+  operateri: OperaterRow[],
+  proizvodi: ProizvodRow[],
+  greska?: string,
+): string {
+  const baza = `/admin/tenant/${tenant.id}`;
+  const uredjajOpcije = uredjaji
+    .filter((u) => u.aktivan)
+    .map((u) => `<option value="${escapeHtml(u.pp_oznaka)}|${escapeHtml(u.oznaka)}">${escapeHtml(u.pp_oznaka)} / ${escapeHtml(u.oznaka)}${u.opis ? ` — ${escapeHtml(u.opis)}` : ''}</option>`)
+    .join('');
+  const operaterOpcije = ['<option value="">—</option>']
+    .concat(operateri.filter((o) => o.aktivan).map((o) => `<option value="${escapeHtml(o.oib_operatera)}">${escapeHtml(o.ime ?? o.oib_operatera)}</option>`))
+    .join('');
+  const proizvodOpcije = ['<option value="">— slobodna stavka —</option>']
+    .concat(proizvodi.filter((p) => p.aktivan).map((p) =>
+      `<option value="${p.id}" data-naziv="${escapeHtml(p.naziv)}" data-cijena="${escapeHtml(p.neto_cijena)}" data-jm="${escapeHtml(p.jedinica_mjere)}" data-stopa="${escapeHtml(p.pdv_stopa)}" data-kpd="${escapeHtml(p.kpd)}">${escapeHtml(p.naziv)}</option>`))
+    .join('');
+
+  return layout(
+    `Novi dokument — ${tenant.naziv}`,
+    `${greska ? `<div class="greska">${escapeHtml(greska)}</div>` : ''}
+<h1>Novi dokument <span class="pill p-info">${escapeHtml(tenant.naziv)}</span></h1>
+<p><a href="${baza}">← natrag na tenanta</a></p>
+<form method="post" action="${baza}/dokument/novi">
+<div class="box" style="display:flex;flex-wrap:wrap;gap:.7rem;align-items:flex-end">
+  <div class="field"><label>Vrsta *</label>
+    <select name="tip"><option value="RACUN">Račun</option><option value="PONUDA">Ponuda</option><option value="PREDRACUN">Predračun</option></select></div>
+  <div class="field"><label>Prostor / uređaj *</label><select name="pp_nu" required>${uredjajOpcije}</select></div>
+  <div class="field"><label>Operater</label><select name="operater">${operaterOpcije}</select></div>
+  <div class="field"><label>Način plaćanja</label>
+    <select name="nacin"><option value="TRANSAKCIJSKI">transakcijski</option><option value="KARTICA">kartica</option><option value="GOTOVINA">gotovina</option><option value="OSTALO">ostalo</option></select></div>
+  <div class="field"><label>Dospijeće</label><input name="dospijece" type="date"></div>
+  <div class="field"><label>Vrijedi do (ponuda)</label><input name="vrijedi_do" type="date"></div>
+</div>
+<div class="box" style="display:flex;flex-wrap:wrap;gap:.7rem;align-items:flex-end">
+  <div class="field"><label>Kupac (naziv)</label><input name="kupac_naziv" placeholder="prazno = krajnji kupac"></div>
+  <div class="field"><label>OIB kupca</label><input name="kupac_oib" pattern="\\d{11}"></div>
+  <div class="field"><label>Email kupca</label><input name="kupac_email" type="email"></div>
+  <div class="field"><label>Ulica</label><input name="kupac_ulica"></div>
+  <div class="field"><label>Grad</label><input name="kupac_grad"></div>
+  <div class="field"><label>Pošt. broj</label><input name="kupac_pbr"></div>
+</div>
+<div class="box">
+  <table id="stavke"><thead><tr><th>Proizvod</th><th>Naziv *</th><th>Kol.</th><th>JM</th><th>Cijena *</th><th>Popust %</th><th>PDV %</th><th>KPD</th></tr></thead>
+  <tbody></tbody></table>
+  <button type="button" onclick="dodajRed()" style="margin-top:.6rem;background:#5A6570">+ stavka</button>
+</div>
+<div class="box" style="display:flex;flex-direction:column;gap:.7rem">
+  <div class="field"><label>Napomena (na PDF-u)</label><input name="napomena"></div>
+  <div class="field"><label>Uvjeti (footer PDF-a)</label><input name="uvjeti" placeholder="npr. Plaćanje u roku 15 dana od izdavanja."></div>
+</div>
+<div style="display:flex;gap:.7rem">
+  <button type="submit" name="akcija" value="izdaj">Izdaj dokument</button>
+  <button type="submit" name="akcija" value="skica" style="background:#5A6570">Spremi kao skicu</button>
+</div>
+</form>
+<template id="red-stavke"><tr>
+  <td><select name="st_proizvod[]" onchange="popuniIzKataloga(this)">${proizvodOpcije}</select></td>
+  <td><input name="st_naziv[]" style="width:11rem"></td>
+  <td><input name="st_kolicina[]" value="1" style="width:3.5rem"></td>
+  <td><input name="st_jm[]" value="H87" style="width:3.2rem"></td>
+  <td><input name="st_cijena[]" style="width:5rem" placeholder="0.00"></td>
+  <td><input name="st_popust[]" value="0" style="width:3.5rem"></td>
+  <td><select name="st_stopa[]">${tenant.u_sustavu_pdv ? '<option>25</option><option>13</option><option>5</option><option>0</option>' : '<option>0</option>'}</select></td>
+  <td><input name="st_kpd[]" style="width:5.5rem" placeholder="NN.NN.NN"></td>
+</tr></template>
+<script>
+const PDV_OBVEZNIK = ${tenant.u_sustavu_pdv ? 'true' : 'false'};
+function dodajRed() {
+  const tpl = document.getElementById('red-stavke');
+  document.querySelector('#stavke tbody').appendChild(tpl.content.cloneNode(true));
+}
+function popuniIzKataloga(sel) {
+  const o = sel.selectedOptions[0];
+  const tr = sel.closest('tr');
+  if (!o || !o.value) return;
+  tr.querySelector('[name="st_naziv[]"]').value = o.dataset.naziv;
+  tr.querySelector('[name="st_cijena[]"]').value = o.dataset.cijena;
+  tr.querySelector('[name="st_jm[]"]').value = o.dataset.jm;
+  tr.querySelector('[name="st_stopa[]"]').value = PDV_OBVEZNIK ? o.dataset.stopa : '0';
+  tr.querySelector('[name="st_kpd[]"]').value = o.dataset.kpd;
+}
+dodajRed();
+</script>`,
+  );
+}
+
+// ───────────────────────── Detalj dokumenta ─────────────────────────
+
+export function renderRacunDetaljPage(k: RacunKontekst, poruka?: { ok?: string; greska?: string }): string {
+  const r = k.racun;
+  const jeSkica = r.status === 'nacrt';
+  const stavkeRedovi = k.stavke
+    .map(
+      (s) => `<tr><td>${s.redni_broj}</td><td>${escapeHtml(s.naziv)}${s.kpd ? `<br><span class="mono" style="font-size:.72rem;color:var(--muted)">KPD ${escapeHtml(s.kpd)}</span>` : ''}</td>
+<td class="mono">${escapeHtml(s.kolicina)} ${escapeHtml(s.jedinica_mjere)}</td>
+<td class="mono">${iznosHr(s.neto_cijena)}</td><td class="mono">${escapeHtml(s.popust_posto)}%</td>
+<td class="mono">${escapeHtml(s.pdv_stopa)}% (${escapeHtml(s.pdv_kategorija)})</td></tr>`,
+    )
+    .join('');
+  const raspodjelaRedovi = k.raspodjela
+    .map(
+      (p) => `<tr><td class="mono">${escapeHtml(p.stopa)}% (${escapeHtml(p.kategorija_pdv)})</td>
+<td class="mono">${iznosHr(p.oporezivi_iznos)}</td><td class="mono">${iznosHr(p.iznos_poreza)}</td></tr>`,
+    )
+    .join('');
+
+  return layout(
+    `Dokument ${r.broj_racuna_full ?? `#${r.id}`}`,
+    `${poruka?.greska ? `<div class="greska">${escapeHtml(poruka.greska)}</div>` : ''}
+${poruka?.ok ? `<div class="flash">${escapeHtml(poruka.ok)}</div>` : ''}
+<h1>${escapeHtml(r.tip_dokumenta)} <span class="mono">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</span> ${pillStatus(r.status)}</h1>
+<p><a href="/admin/tenant/${r.tenant_id}">← ${escapeHtml(k.tenant.naziv)}</a> ·
+   <a href="/admin/racun/${r.id}/pdf" target="_blank"><strong>📄 PDF</strong></a></p>
+<div style="display:flex;gap:.7rem;margin:.8rem 0">
+  ${jeSkica ? `<form method="post" action="/admin/racun/${r.id}/izdaj"><button type="submit">Izdaj (dodijeli broj)</button></form>` : ''}
+  ${!jeSkica ? `<form method="post" action="/admin/racun/${r.id}/posalji" style="display:flex;gap:.5rem">
+    <input name="na" type="email" placeholder="${escapeHtml(k.kupac?.email ?? 'email primatelja')}" style="border:1px solid var(--border);border-radius:.4rem;padding:.45rem .6rem">
+    <button type="submit">✉️ Pošalji e-mailom</button></form>` : ''}
+</div>
+<p>Kupac: <strong>${escapeHtml(k.kupac?.naziv ?? 'krajnji kupac')}</strong>${k.kupac?.oib ? ` (OIB ${escapeHtml(k.kupac.oib)})` : ''}
+ · datum: <span class="mono">${escapeHtml(r.datum_vrijeme)}</span>
+ · plaćanje: ${escapeHtml(r.nacin_placanja ?? '—')}
+ ${r.poziv_na_broj ? `· poziv na broj: <span class="mono">${escapeHtml(r.model_placanja ?? '')} ${escapeHtml(r.poziv_na_broj)}</span>` : ''}
+ ${r.poslano_email_ts ? `· ✉️ poslano ${escapeHtml(r.poslano_email_ts)} na ${escapeHtml(r.poslano_email_na ?? '')}` : ''}</p>
+${r.klauzula_pdv ? `<p><em>${escapeHtml(r.klauzula_pdv)}</em></p>` : ''}
+<h2>Stavke</h2>
+<table><thead><tr><th>#</th><th>Naziv</th><th>Količina</th><th>Cijena</th><th>Popust</th><th>PDV</th></tr></thead>
+<tbody>${stavkeRedovi}</tbody></table>
+<h2>PDV raščlamba</h2>
+<table style="max-width:30rem"><thead><tr><th>Stopa</th><th>Osnovica</th><th>PDV</th></tr></thead>
+<tbody>${raspodjelaRedovi || '<tr><td colspan="3" class="prazno">Bez PDV-a.</td></tr>'}</tbody></table>
+<p style="font-size:1.05rem"><strong>Ukupno: ${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</strong>
+ (bez PDV-a ${iznosHr(r.iznos_bez_pdv)}, PDV ${iznosHr(r.pdv)})</p>`,
   );
 }
 
@@ -293,16 +482,17 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
 export function renderRacuniPage(racuni: (RacunRow & { tenant_naziv?: string })[]): string {
   const redovi = racuni
     .map(
-      (r) => `<tr><td>${escapeHtml(r.tenant_naziv ?? r.tenant_id)}</td><td class="mono">${escapeHtml(r.broj_racuna_full)}</td>
+      (r) => `<tr><td>${escapeHtml(r.tenant_naziv ?? r.tenant_id)}</td><td class="mono"><a href="/admin/racun/${r.id}">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</a></td>
 <td>${escapeHtml(r.tip_dokumenta)}</td><td>${pillStatus(r.status)}</td>
-<td class="mono">${escapeHtml(r.iznos_s_pdv ?? '')} ${escapeHtml(r.valuta)}</td>
-<td class="mono">${escapeHtml(r.datum_vrijeme)}</td></tr>`,
+<td class="mono">${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</td>
+<td class="mono">${escapeHtml(r.datum_vrijeme)}</td>
+<td><a href="/admin/racun/${r.id}/pdf" target="_blank">PDF</a></td></tr>`,
     )
     .join('');
   return layout(
     'DOMOVINA Fiskal — računi',
-    `<h1>Računi</h1>
-<table><thead><tr><th>Tenant</th><th>Broj</th><th>Tip</th><th>Status</th><th>Iznos</th><th>Izdan</th></tr></thead>
-<tbody>${redovi || '<tr><td colspan="6" class="prazno">Još nema računa.</td></tr>'}</tbody></table>`,
+    `<h1>Dokumenti</h1>
+<table><thead><tr><th>Tenant</th><th>Broj</th><th>Tip</th><th>Status</th><th>Iznos</th><th>Izdan</th><th></th></tr></thead>
+<tbody>${redovi || '<tr><td colspan="7" class="prazno">Još nema dokumenata.</td></tr>'}</tbody></table>`,
   );
 }

@@ -1,11 +1,14 @@
 // Zajednički tipovi — Env bindings + redovi iz D1 (podskup stupaca koji se koriste).
 
+import type { SendEmailBinding } from './email';
+
 export interface Env {
   DB: D1Database;
   OKOLINA: string; // 'test' | 'prod' — zadana okolina za certifikate
   ADMIN_USER?: string; // Basic Auth za /admin (wrangler secret)
   ADMIN_PASS?: string;
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
+  EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
 }
 
 export interface TenantRow {
@@ -83,19 +86,31 @@ export interface RacunRow {
   naplatni_uredaj_id: number;
   operater_id: number | null;
   kupac_id: number | null;
-  redni_broj: number;
-  godina: number;
-  broj_racuna_full: string;
+  sekvenca_vrsta: 'ponuda' | 'racun' | 'fiskalni';
+  redni_broj: number | null; // NULL = skica
+  godina: number | null;
+  broj_racuna_full: string | null;
   oznaka_slijednosti: 'P' | 'N';
   datum_vrijeme: string;
   tip_dokumenta: string;
   valuta: string;
   nacin_placanja: string | null;
+  datum_dospijeca: string | null;
+  vrijedi_do: string | null;
+  datum_isporuke: string | null;
+  model_placanja: string | null;
+  poziv_na_broj: string | null;
   neto: string | null;
   iznos_bez_pdv: string | null;
   pdv: string | null;
   iznos_s_pdv: string | null;
   dospijeva_za_placanje: string | null;
+  klauzula_pdv: string | null;
+  napomena: string | null;
+  interna_biljeska: string | null;
+  uvjeti: string | null;
+  poslano_email_ts: string | null;
+  poslano_email_na: string | null;
   zki: string | null;
   jir: string | null;
   status: string;
@@ -107,13 +122,16 @@ export interface StavkaRow {
   racun_id: number;
   redni_broj: number;
   naziv: string;
+  opis: string | null;
   kolicina: string;
   jedinica_mjere: string;
   neto_cijena: string;
+  popust_posto: string;
   pdv_kategorija: string;
   pdv_stopa: string;
   kpd: string | null;
   kpd_shema: string;
+  proizvod_id: number | null;
 }
 
 export interface PdvRaspodjelaRow {

@@ -15,6 +15,17 @@ custom_domain = true
 [observability]
 enabled = true
 
+# Fontovi za PDF (DejaVu subset s HR dijakriticima) bundlaju se kao binarni podaci.
+[[rules]]
+type = "Data"
+globs = ["**/*.ttf"]
+fallthrough = true
+
+# Cloudflare Email Service — slanje dokumenata (racuni@domovina.ai).
+# Preduvjet (jednom po accountu/zoni): `wrangler email sending enable domovina.ai`.
+[[send_email]]
+name = "EMAIL"
+
 # D1 — kreiraj s: wrangler d1 create fiskal_domovina
 # Zalijepi database_id koji ispiše komanda (placeholder radi samo za --local).
 [[d1_databases]]

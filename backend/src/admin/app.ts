@@ -10,20 +10,37 @@ import {
   createNaplatniUredaj,
   createOperater,
   createPoslovniProstor,
+  createProizvod,
   createTenant,
+  getKpd,
+  getRacunKontekst,
   getTenant,
+  izdajSkicu,
   listApiKljucevi,
   listCertifikati,
   listNaplatniUredjaji,
   listOperateri,
   listPoslovniProstori,
+  listProizvodi,
   listRacuni,
   listTenants,
+  searchKpd,
   setApiKljucAktivan,
+  zabiljeziSlanjeEmaila,
 } from '../db';
+import { posaljiRacunEmailom } from '../email';
+import { kreirajDokument } from '../api/racuni';
+import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat } from '../kripto';
-import { hex, normalizirajTekst, validanOib } from '../util';
-import { renderRacuniPage, renderTenantDetaljPage, renderTenantiPage } from './views';
+import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
+import { formatirajGreske, racunModelShema } from '../validacija';
+import {
+  renderNoviDokumentPage,
+  renderRacunDetaljPage,
+  renderRacuniPage,
+  renderTenantDetaljPage,
+  renderTenantiPage,
+} from './views';
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -77,15 +94,16 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, racuni] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
     listApiKljucevi(c.env.DB, tenantId),
     listCertifikati(c.env.DB, tenantId),
+    listProizvodi(c.env.DB, tenantId),
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, racuni };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni };
 }
 
 admin.get('/tenant/:id', async (c) => {
@@ -213,7 +231,219 @@ admin.post('/tenant/:id/certifikati', async (c) => {
   }
 });
 
-// Globalni popis računa (svi tenanti).
+// ───────────────────────── Proizvodi (katalog s KPD 2025) ─────────────────────────
+
+admin.post('/tenant/:id/proizvodi', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const form = await c.req.parseBody();
+  const naziv = normalizirajTekst(String(form.naziv ?? ''));
+  const cijena = String(form.cijena ?? '').trim();
+  const kpd = String(form.kpd ?? '').trim();
+  if (!naziv || !/^-?\d+(\.\d{1,2})?$/.test(cijena)) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: 'Naziv i neto cijena (decimalna točka, 2 decimale) su obavezni.' }), 400);
+  }
+  // KPD mora postojati u službenom šifrarniku (DZS KPD 2025) — kao Firin picker.
+  const kpdZapis = await getKpd(c.env.DB, kpd);
+  if (!kpdZapis) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `KPD šifra '${kpd}' ne postoji u KPD 2025 šifrarniku — koristi pretragu.` }), 400);
+  }
+  const stopa = ['25', '13', '5', '0'].includes(String(form.stopa)) ? String(form.stopa) : '25';
+  try {
+    await createProizvod(c.env.DB, tenantId, {
+      naziv,
+      sifra: String(form.sifra ?? '').trim() || null,
+      jedinicaMjere: String(form.jedinica ?? 'H87').trim() || 'H87',
+      netoCijena: cijena,
+      pdvStopa: d.tenant.u_sustavu_pdv ? stopa : '0',
+      pdvKategorija: d.tenant.u_sustavu_pdv ? (stopa === '0' ? 'Z' : 'S') : 'E',
+      kpd,
+    });
+    return c.redirect(`/admin/tenant/${tenantId}`, 303);
+  } catch (e) {
+    const poruka = String(e).includes('UNIQUE') ? `Proizvod sa šifrom već postoji.` : `Greška: ${e}`;
+    return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
+  }
+});
+
+// KPD pretraga za picker (JSON; Basic Auth naslijeđen).
+admin.get('/api/kpd', async (c) => {
+  const q = c.req.query('q') ?? '';
+  if (q.trim().length < 2) return c.json({ rezultati: [] });
+  return c.json({ rezultati: await searchKpd(c.env.DB, q, 15) });
+});
+
+// ───────────────────────── Novi dokument (forma → kreirajDokument) ─────────────────────────
+
+admin.get('/tenant/:id/dokument/novi', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const tenant = await getTenant(c.env.DB, tenantId);
+  if (!tenant) return c.text('Tenant ne postoji', 404);
+  const [uredjaji, operateri, proizvodi] = await Promise.all([
+    listNaplatniUredjaji(c.env.DB, tenantId),
+    listOperateri(c.env.DB, tenantId),
+    listProizvodi(c.env.DB, tenantId),
+  ]);
+  return c.html(renderNoviDokumentPage(tenant, uredjaji, operateri, proizvodi));
+});
+
+admin.post('/tenant/:id/dokument/novi', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const tenant = await getTenant(c.env.DB, tenantId);
+  if (!tenant) return c.text('Tenant ne postoji', 404);
+  const form = await c.req.parseBody({ all: true });
+  const s = (k: string) => String((form as Record<string, unknown>)[k] ?? '').trim();
+  const niz = (k: string): string[] => {
+    const v = (form as Record<string, unknown>)[k];
+    return Array.isArray(v) ? v.map(String) : v !== undefined ? [String(v)] : [];
+  };
+
+  const [ppOznaka, nuOznaka] = s('pp_nu').split('|');
+  const proizvodi = niz('st_proizvod[]');
+  const nazivi = niz('st_naziv[]');
+  const kolicine = niz('st_kolicina[]');
+  const jms = niz('st_jm[]');
+  const cijene = niz('st_cijena[]');
+  const popusti = niz('st_popust[]');
+  const stope = niz('st_stopa[]');
+  const kpdovi = niz('st_kpd[]');
+
+  const stavke = nazivi
+    .map((_, i) => ({
+      ...(proizvodi[i] ? { proizvodId: Number(proizvodi[i]) } : {}),
+      ...(nazivi[i] ? { naziv: nazivi[i] } : {}),
+      kolicina: kolicine[i] || '1',
+      ...(jms[i] ? { jedinicaMjere: jms[i] } : {}),
+      ...(cijene[i] ? { netoCijena: cijene[i] } : {}),
+      popustPosto: popusti[i] || '0',
+      ...(stope[i] ? { pdvStopa: stope[i] } : {}),
+      ...(kpdovi[i] ? { kpd: kpdovi[i] } : {}),
+    }))
+    .filter((st) => 'naziv' in st || 'proizvodId' in st); // preskoči prazne retke
+
+  const kandidat = {
+    tip: s('tip'),
+    poslovniProstor: ppOznaka ?? '',
+    naplatniUredaj: nuOznaka ?? '',
+    ...(s('operater') ? { operaterOib: s('operater') } : {}),
+    nacinPlacanja: s('nacin') || 'TRANSAKCIJSKI',
+    ...(s('dospijece') ? { datumDospijeca: s('dospijece') } : {}),
+    ...(s('vrijedi_do') ? { vrijediDo: s('vrijedi_do') } : {}),
+    ...(s('napomena') ? { napomena: s('napomena') } : {}),
+    ...(s('uvjeti') ? { uvjeti: s('uvjeti') } : {}),
+    ...(s('kupac_naziv')
+      ? {
+          kupac: {
+            naziv: s('kupac_naziv'),
+            ...(s('kupac_oib') ? { oib: s('kupac_oib') } : {}),
+            ...(s('kupac_email') ? { email: s('kupac_email') } : {}),
+            adresa: {
+              ...(s('kupac_ulica') ? { ulica: s('kupac_ulica') } : {}),
+              ...(s('kupac_grad') ? { grad: s('kupac_grad') } : {}),
+              ...(s('kupac_pbr') ? { postanskiBroj: s('kupac_pbr') } : {}),
+            },
+          },
+        }
+      : {}),
+    stavke,
+    status: s('akcija') === 'skica' ? 'nacrt' : 'izdano',
+  };
+
+  const ponovnaForma = async (greska: string, status: 400 | 404 | 409) => {
+    const [uredjaji, operateri, katalog] = await Promise.all([
+      listNaplatniUredjaji(c.env.DB, tenantId),
+      listOperateri(c.env.DB, tenantId),
+      listProizvodi(c.env.DB, tenantId),
+    ]);
+    return c.html(renderNoviDokumentPage(tenant, uredjaji, operateri, katalog, greska), status);
+  };
+
+  const parsed = racunModelShema.safeParse(kandidat);
+  if (!parsed.success) {
+    const detalji = formatirajGreske(parsed.error).map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
+    return ponovnaForma(detalji, 400);
+  }
+  const rezultat = await kreirajDokument(c.env.DB, tenant, parsed.data);
+  if ('greska' in rezultat) {
+    const detalji = rezultat.detalji?.map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
+    return ponovnaForma(detalji ? `${rezultat.greska} — ${detalji}` : rezultat.greska, rezultat.status);
+  }
+  return c.redirect(`/admin/racun/${rezultat.racun.id}`, 303);
+});
+
+// ───────────────────────── Detalj dokumenta + akcije ─────────────────────────
+
+// Kontekst dokumenta preko bilo kojeg tenanta (admin vidi sve) — tenant_id iz računa.
+async function adminRacunKontekst(c: { env: Env }, racunId: number) {
+  const red = await c.env.DB.prepare(`SELECT tenant_id FROM racun WHERE id = ?`).bind(racunId).first<{ tenant_id: number }>();
+  if (!red) return null;
+  return getRacunKontekst(c.env.DB, red.tenant_id, racunId);
+}
+
+admin.get('/racun/:id', async (c) => {
+  const k = await adminRacunKontekst(c, Number(c.req.param('id')));
+  if (!k) return c.text('Dokument ne postoji', 404);
+  const ok = c.req.query('ok');
+  return c.html(renderRacunDetaljPage(k, ok ? { ok } : undefined));
+});
+
+admin.get('/racun/:id/pdf', async (c) => {
+  const k = await adminRacunKontekst(c, Number(c.req.param('id')));
+  if (!k) return c.text('Dokument ne postoji', 404);
+  const pdf = await generirajRacunPdf(k);
+  return new Response(pdf.buffer as ArrayBuffer, {
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${k.racun.tip_dokumenta}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf"`,
+    },
+  });
+});
+
+admin.post('/racun/:id/izdaj', async (c) => {
+  const id = Number(c.req.param('id'));
+  const k = await adminRacunKontekst(c, id);
+  if (!k) return c.text('Dokument ne postoji', 404);
+  if (k.racun.status !== 'nacrt') return c.html(renderRacunDetaljPage(k, { greska: 'Dokument je već izdan.' }), 409);
+  const sada = new Date();
+  await izdajSkicu(c.env.DB, {
+    tenantId: k.racun.tenant_id,
+    racunId: id,
+    sekvencaVrsta: k.racun.sekvenca_vrsta,
+    oznakaSlijednosti: k.racun.oznaka_slijednosti,
+    poslovniProstorId: k.racun.poslovni_prostor_id,
+    naplatniUredajId: k.racun.naplatni_uredaj_id,
+    oznPP: k.ppOznaka,
+    oznNU: k.nuOznaka,
+    godina: godinaZagreb(sada),
+    datumVrijeme: sada.toISOString(),
+  });
+  return c.redirect(`/admin/racun/${id}`, 303);
+});
+
+admin.post('/racun/:id/posalji', async (c) => {
+  const id = Number(c.req.param('id'));
+  const k = await adminRacunKontekst(c, id);
+  if (!k) return c.text('Dokument ne postoji', 404);
+  if (!c.env.EMAIL) {
+    return c.html(renderRacunDetaljPage(k, { greska: 'Slanje e-maila nije konfigurirano (Email Sending nije uključen za domenu).' }), 503);
+  }
+  const form = await c.req.parseBody();
+  const na = String(form.na ?? '').trim() || k.kupac?.email || '';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(na)) {
+    return c.html(renderRacunDetaljPage(k, { greska: 'Upiši valjanu e-mail adresu primatelja.' }), 400);
+  }
+  const pdf = await generirajRacunPdf(k);
+  try {
+    await posaljiRacunEmailom(c.env.EMAIL, k, pdf, na);
+  } catch (e) {
+    return c.html(renderRacunDetaljPage(k, { greska: `Slanje nije uspjelo: ${(e as Error).message}` }), 502);
+  }
+  await zabiljeziSlanjeEmaila(c.env.DB, k.racun.tenant_id, id, na);
+  return c.redirect(`/admin/racun/${id}?ok=${encodeURIComponent(`Poslano na ${na}`)}`, 303);
+});
+
+// Globalni popis dokumenata (svi tenanti).
 admin.get('/racuni', async (c) => {
   const racuni = await listRacuni(c.env.DB, { limit: 100 });
   return c.html(renderRacuniPage(racuni));

@@ -11,12 +11,17 @@ app.get('/', async (c) => {
   const counts = await brojaci(c.env.DB).catch(() => ({ tenanti: -1, racuni: -1 }));
   return c.json({
     servis: 'fiskal.domovina.ai',
-    svrha: 'open-source SaaS za izdavanje HR (fiskaliziranih) računa — faza 0: skela',
+    svrha: 'open-source SaaS za izdavanje HR (fiskaliziranih) računa — faza 1: nefiskalni dokumenti + PDF + HUB3 + email',
     admin: '/admin',
     api: {
-      izdaj: 'POST /api/v1/racun',
+      izdaj: 'POST /api/v1/racun (PONUDA | PREDRACUN | RACUN; status nacrt = skica)',
+      izdajSkicu: 'POST /api/v1/racun/:id/izdaj',
       dohvat: 'GET /api/v1/racun/:id',
+      pdf: 'GET /api/v1/racun/:id/pdf',
+      posalji: 'POST /api/v1/racun/:id/posalji',
       popis: 'GET /api/v1/racun',
+      proizvodi: 'GET /api/v1/proizvod',
+      kpd: 'GET /api/v1/kpd?q=…',
       auth: 'Bearer <API ključ>',
     },
     brojaci: counts,
