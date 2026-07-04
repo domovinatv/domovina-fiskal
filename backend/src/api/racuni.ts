@@ -24,7 +24,7 @@ import {
   type NoviRacunStavka,
   type SekvencaVrsta,
 } from '../db';
-import { posaljiRacunEmailom } from '../email';
+import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { godinaZagreb, sha256Hex } from '../util';
 import {
@@ -283,8 +283,8 @@ apiV1.get('/racun/:id/pdf', async (c) => {
 
 // Slanje dokumenta e-mailom (PDF privitak). Body: { "na": "adresa" } — default kupčev email.
 apiV1.post('/racun/:id/posalji', async (c) => {
-  if (!c.env.EMAIL) {
-    return c.json({ greska: 'Slanje e-maila nije konfigurirano (send_email binding / Email Sending nije uključen za domenu)' }, 503);
+  if (!emailKonfiguriran(c.env)) {
+    return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
   }
   const id = Number(c.req.param('id'));
   const tenant = c.get('tenant');
@@ -299,14 +299,15 @@ apiV1.post('/racun/:id/posalji', async (c) => {
   }
 
   const pdf = await generirajRacunPdf(k);
+  let kanal: string;
   try {
-    await posaljiRacunEmailom(c.env.EMAIL, k, pdf, na);
+    ({ kanal } = await posaljiRacunEmailom(c.env, k, pdf, na));
   } catch (e) {
     const kod = (e as { code?: string }).code ?? '';
     return c.json({ greska: `Slanje nije uspjelo${kod ? ` (${kod})` : ''}: ${(e as Error).message}` }, 502);
   }
   await zabiljeziSlanjeEmaila(c.env.DB, tenant.id, id, na);
-  return c.json({ ok: true, poslanoNa: na });
+  return c.json({ ok: true, poslanoNa: na, kanal });
 });
 
 apiV1.get('/racun', async (c) => {

@@ -7,3 +7,7 @@ ADMIN_PASS=promijeni-me
 # Master ključ (KEK) za envelope enkripciju certifikata at-rest (AES-256-GCM).
 # Generiraj s: openssl rand -hex 32
 ENC_MASTER_KEY=0000000000000000000000000000000000000000000000000000000000000000
+
+# Resend fallback kanal za slanje emailova (dok Cloudflare Email Sending nije aktiviran).
+# Ključ iz https://resend.com/api-keys (domena domovina.ai je već verificirana).
+RESEND_API_KEY=re_xxxxxxxxxxxx

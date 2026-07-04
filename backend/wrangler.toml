@@ -42,3 +42,4 @@ OKOLINA = "test"
 #   ADMIN_USER      # Basic Auth user za /admin
 #   ADMIN_PASS      # Basic Auth pass za /admin
 #   ENC_MASTER_KEY  # 64 hex znaka (32 bajta) — KEK za envelope enkripciju certifikata
+#   RESEND_API_KEY  # Resend fallback za slanje emailova (dok CF Email Sending nije aktiviran)

@@ -28,7 +28,7 @@ import {
   setApiKljucAktivan,
   zabiljeziSlanjeEmaila,
 } from '../db';
-import { posaljiRacunEmailom } from '../email';
+import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat } from '../kripto';
@@ -425,8 +425,8 @@ admin.post('/racun/:id/posalji', async (c) => {
   const id = Number(c.req.param('id'));
   const k = await adminRacunKontekst(c, id);
   if (!k) return c.text('Dokument ne postoji', 404);
-  if (!c.env.EMAIL) {
-    return c.html(renderRacunDetaljPage(k, { greska: 'Slanje e-maila nije konfigurirano (Email Sending nije uključen za domenu).' }), 503);
+  if (!emailKonfiguriran(c.env)) {
+    return c.html(renderRacunDetaljPage(k, { greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY).' }), 503);
   }
   const form = await c.req.parseBody();
   const na = String(form.na ?? '').trim() || k.kupac?.email || '';
@@ -434,13 +434,14 @@ admin.post('/racun/:id/posalji', async (c) => {
     return c.html(renderRacunDetaljPage(k, { greska: 'Upiši valjanu e-mail adresu primatelja.' }), 400);
   }
   const pdf = await generirajRacunPdf(k);
+  let kanal: string;
   try {
-    await posaljiRacunEmailom(c.env.EMAIL, k, pdf, na);
+    ({ kanal } = await posaljiRacunEmailom(c.env, k, pdf, na));
   } catch (e) {
     return c.html(renderRacunDetaljPage(k, { greska: `Slanje nije uspjelo: ${(e as Error).message}` }), 502);
   }
   await zabiljeziSlanjeEmaila(c.env.DB, k.racun.tenant_id, id, na);
-  return c.redirect(`/admin/racun/${id}?ok=${encodeURIComponent(`Poslano na ${na}`)}`, 303);
+  return c.redirect(`/admin/racun/${id}?ok=${encodeURIComponent(`Poslano na ${na} (${kanal})`)}`, 303);
 });
 
 // Globalni popis dokumenata (svi tenanti).

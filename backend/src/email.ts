@@ -1,14 +1,19 @@
-// Slanje dokumenta (PDF privitak) e-mailom — Cloudflare Email Service binding.
-// Preduvjeti: domena onboardana (`wrangler email sending enable domovina.ai`,
-// SPF/DKIM/DMARC postavlja Cloudflare) i `send_email` binding u wrangler.toml.
-// Bez bindinga endpoint vraća 503 s jasnom porukom (safe default).
+// Slanje dokumenta (PDF privitak) e-mailom — dva kanala:
+//   1. Cloudflare Email Service `send_email` binding (preferiran kad je Email
+//      Sending aktiviran za domovina.ai — Workers Paid + beta aktivacija),
+//   2. Resend REST API (RESEND_API_KEY secret) — aktivni kanal dok CF nije
+//      aktiviran; domena domovina.ai je već verificirana na Resendu.
+// Redoslijed: pokušaj binding → na grešku/nedostupnost padni na Resend.
+// Bez ijednog kanala endpoint vraća 503 s jasnom porukom (safe default).
 
 import type { RacunKontekst } from './db';
 import { iznosHr } from './pdf/racun-pdf';
 import { escapeHtml } from './util';
 
-// Privitci ≤ 6 MB (Fira paritet; CF limit je 25 MiB — držimo se konzervativnijeg).
-export const MAX_PRIVITAK_BAJTOVA = 6 * 1024 * 1024;
+// Privitci ≤ 4 MB: Cloudflare Email Sending limitira CIJELU poruku na 5 MB za
+// proizvoljne primatelje (25 MB samo za verificirane adrese) — ostavljamo
+// prostor za MIME overhead i tijelo. (Fira dopušta 6 MB, mi smo konzervativniji.)
+export const MAX_PRIVITAK_BAJTOVA = 4 * 1024 * 1024;
 
 export const EMAIL_POSILJATELJ = { email: 'racuni@domovina.ai', name: 'Domovina Fiskal' };
 
@@ -30,15 +35,24 @@ export interface SendEmailBinding {
   }): Promise<{ messageId?: string }>;
 }
 
+export interface EmailKanali {
+  EMAIL?: SendEmailBinding;
+  RESEND_API_KEY?: string;
+}
+
+export function emailKonfiguriran(env: EmailKanali): boolean {
+  return !!env.EMAIL || !!env.RESEND_API_KEY;
+}
+
 export async function posaljiRacunEmailom(
-  email: SendEmailBinding,
+  env: EmailKanali,
   k: RacunKontekst,
   pdf: Uint8Array,
   na: string,
   replyTo?: string | null,
-): Promise<void> {
+): Promise<{ kanal: 'cloudflare' | 'resend' }> {
   if (pdf.byteLength > MAX_PRIVITAK_BAJTOVA) {
-    throw new Error(`PDF privitak je prevelik (${Math.round(pdf.byteLength / 1024)} KB > 6 MB)`);
+    throw new Error(`PDF privitak je prevelik (${Math.round(pdf.byteLength / 1024)} KB > 4 MB)`);
   }
   const naslov = NASLOVI[k.racun.tip_dokumenta] ?? 'Dokument';
   const broj = k.racun.broj_racuna_full ?? '(skica)';
@@ -61,23 +75,62 @@ export async function posaljiRacunEmailom(
 ${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code>, model i poziv na broj <code>${escapeHtml(k.racun.model_placanja ?? 'HR00')} ${escapeHtml(k.racun.poziv_na_broj ?? '')}</code>.</p>` : ''}
 <p>S poštovanjem,<br>${escapeHtml(k.tenant.naziv)}<br>OIB: ${escapeHtml(k.tenant.oib)}</p>`;
 
-  // Kopija bajtova u samostalni ArrayBuffer (binding ne prima SharedArrayBuffer/view offset).
-  const privitak = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
+  const imeDatoteke = `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;
 
-  await email.send({
-    to: na,
-    from: EMAIL_POSILJATELJ,
-    ...(replyTo ? { replyTo } : {}),
-    subject,
-    html,
-    text,
-    attachments: [
-      {
-        content: privitak,
-        filename: `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`,
-        type: 'application/pdf',
-        disposition: 'attachment',
-      },
-    ],
+  // 1) Cloudflare binding (preferiran čim Email Sending bude aktiviran).
+  if (env.EMAIL) {
+    try {
+      // Kopija u samostalni ArrayBuffer (binding ne prima view s offsetom).
+      const privitak = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
+      await env.EMAIL.send({
+        to: na,
+        from: EMAIL_POSILJATELJ,
+        ...(replyTo ? { replyTo } : {}),
+        subject,
+        html,
+        text,
+        attachments: [{ content: privitak, filename: imeDatoteke, type: 'application/pdf', disposition: 'attachment' }],
+      });
+      return { kanal: 'cloudflare' };
+    } catch (e) {
+      // Email Sending još nije aktiviran (ili privremena greška) → probaj Resend.
+      if (!env.RESEND_API_KEY) throw e;
+      console.log(`EMAIL binding nije uspio (${(e as Error).message}) — fallback na Resend`);
+    }
+  }
+
+  // 2) Resend REST API.
+  if (!env.RESEND_API_KEY) {
+    throw new Error('Nijedan email kanal nije konfiguriran (send_email binding ni RESEND_API_KEY)');
+  }
+  const odgovor = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: `${EMAIL_POSILJATELJ.name} <${EMAIL_POSILJATELJ.email}>`,
+      to: [na],
+      ...(replyTo ? { reply_to: replyTo } : {}),
+      subject,
+      html,
+      text,
+      attachments: [{ filename: imeDatoteke, content: uBase64(pdf) }],
+    }),
   });
+  if (!odgovor.ok) {
+    const tijelo = await odgovor.text().catch(() => '');
+    throw new Error(`Resend ${odgovor.status}: ${tijelo.slice(0, 300)}`);
+  }
+  return { kanal: 'resend' };
+}
+
+function uBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const KORAK = 0x8000; // izbjegni prekoračenje stoga kod String.fromCharCode(...veliki_niz)
+  for (let i = 0; i < bytes.length; i += KORAK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + KORAK));
+  }
+  return btoa(bin);
 }

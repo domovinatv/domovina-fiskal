@@ -9,6 +9,7 @@ export interface Env {
   ADMIN_PASS?: string;
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
+  RESEND_API_KEY?: string; // Resend fallback kanal (wrangler secret)
 }
 
 export interface TenantRow {
