@@ -20,7 +20,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "fiskal_domovina"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "65077e4a-440e-4cfe-8ea3-fddcf421a237"
 migrations_dir = "migrations"
 
 [vars]
