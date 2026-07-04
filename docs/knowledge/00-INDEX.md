@@ -28,6 +28,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 ## Reference (iz prve ruke)
 
 - [`../reference/fira-custom-webshop-api.md`](../reference/fira-custom-webshop-api.md) — Fira API dizajn (uzor za naš API)
+- [`../reference/fira-ui-walkthrough.md`](../reference/fira-ui-walkthrough.md) — Fira UI obilazak (IA, ekrani, polja, tokovi) iz prve ruke
 - [`../reference/lokalni-artefakti.md`](../reference/lokalni-artefakti.md) — postojeći kod/repoi
 
 ## Destilat — ključne činjenice i odluke (stanje 2026-07-04)
