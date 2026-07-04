@@ -133,10 +133,81 @@ Polja izdavatelja (= naš `tenant`): `Naziv poslovnog subjekta *`, `OIB *`, `Bro
 (toggle), `Odaberi jezik`, `Ulica poslovnog subjekta *`, `Grad poslovnog subjekta *` (+ dodatna
 polja niže). Zaglavlje svake postavke prikazuje karticu tvrtke (naziv, OIB, adresa).
 
-## 10. Ostali moduli (u navigaciji, nisu duboko obiđeni)
-Bankarstvo (`/accounts`), Troškovi (auto-uvoz ulaznih eRačuna), Unos sati (`/time-tracker`),
-Skladište (`/warehouse`), Izvješća (`/reports`), Klijenti (`/clients`), Webshop postavke,
-**Teya POS integracija**, Erste Bank integracija, FIRA paketi (`/pricing-plan`), Korisnici (višekorisnički pristup).
+## 10. Puni pregled svih modula (cijeli obilazak)
+
+### 10.1 Dokumenti (izdavanje)
+- **Ponude** (`/user/offers`) — vrste `PONUDA`, `PREDRAČUN`. Lista + forma **identična** formi računa (§4), samo `Vrsta`. „Nova ponuda".
+- **Računi** (`/user/invoices`) — vrste `RAČUN_ZA_PREDUJAM`, `RAČUN`, `STORNO_RAČUN`, `E_RAČUN` (§3–§4).
+- **Fiskalni računi** (`/user/invoices/fiscal`) — vrste `FISKALNI_RAČUN`, `FISKALNI_STORNO_RAČUN`.
+  Dodatni filteri: **Fiskalni status** (odražava JIR/uspjeh fiskalizacije) i **Način plaćanja**. „Novi fiskalni račun".
+- Sve liste dijele stupce: Klijent · Vrsta · Datum · Broj · Ukupno · PDV · Osnovica · Dospijeće · Detalji · Akcije; filteri razdoblja + Vrsta + Status.
+
+### 10.2 Klijenti (`/user/clients`)
+Kartični prikaz: **Naziv, OIB, Adresa (grad, zemlja), Email**. „+" novi klijent. (= naš `kupac`.)
+
+### 10.3 Proizvodi (`/user/products`) — vidi §8 (KPD 2025 obavezan, Excel uvoz).
+
+### 10.4 Troškovi (`/user/expenses`)
+Ulazni računi/troškovi; **auto-uvoz zaprimljenih eRačuna** kao troškova (notifikacije „Preuzet je novi ulazni eRačun"). Filteri Status/Datum, „Novi trošak". Osnova za pretporez + eIzvještavanje o naplati/odbijanju.
+
+### 10.5 Bankarstvo (`/user/banking`)
+**Open Banking (PSD2)** preko **GoCardless** portala — poveži bankovni račun (Agram, BKS, Erste, HPB, Istarska, OTP, POBA, PBZ…) za dohvat transakcija i **usklađivanje plaćanja** (naplata računa). Napredni upsell.
+
+### 10.6 Unos sati (`/user/time-tracker`)
+Tjedni **timesheet** (Klijent × Proizvod × dani u tjednu → Ukupno sati). Za naplatu po satu → pretače se u račun. Upsell (freelanceri/agencije).
+
+### 10.7 Skladište (`/user/warehouse`) `Novo`
+Više **skladišta**, svako sa svojom listom praćenih proizvoda (stanje zaliha). Upsell.
+
+### 10.8 Izvješća (`/user/reports`)
+Financijski dashboard (EUR): **Prihodi i rashodi** (bar chart po mjesecu; Prihodi=izlazni računi, Rashodi=troškovi), „Prihodi i rashodi detaljno", **PDV prognoza**.
+
+### 10.9 Postavke — pod-moduli
+- **Osnovni podaci** (`/basic-data`) — tenant (§9).
+- **Postavke računa** (`/invoice-settings`) — defaults: `Vrijeme dospijeća (dana)` (30), `Broj decimalnih mjesta kod proizvoda` (2), ☐ `Dvojezični računi`, ☐ `Opisi proizvoda na računima`, ☐ **`Uvijek printaj fiskalne račune u POS formatu`** (termalni ispis), izbor **PDF predloška** (thumbnail pokazuje **QR kod na dnu** fiskalnog računa).
+- **Slijedovi računa** (`/invoice-number-settings`) — numeriranje + operateri + webshop veza (§7).
+- **Korisnici** (`/users`) — višekorisnički pristup s **ulogama** (npr. „FIRA Pro **Vlasnik**"); „+" poziv korisnika.
+- **FIRA paketi** (`/pricing-plan`) — pretplatnički paketi (cjenik u `docs/knowledge/07-fira-analiza.md`).
+- **Fiskalizacija** (`/fiscal`) — F1 setup + certifikat (§6).
+- **eRačun** (`/einvoice`) — F2 setup preko posrednika (§5).
+- **Webshop** (`/webshop`) — API integracija (§10.10).
+- **Teya POS Integracija** — integracija s **Teya** POS/kartičnim terminalom (fiskalizacija na blagajni).
+- **Pozovi prijatelja** (`/invite-friends`) — referral.
+
+### 10.10 Webshop / API integracija (`/user/sme-settings/webshop`) — KLJUČNO
+- Integracije: **Shopify · WooCommerce · Custom** webshop. Više webshopova („+").
+- Po webshopu: **`Webshop domena *`** + **`Tajni ključ *`** (API secret, UUID).
+- Endpoint (potvrđuje `fira-custom-webshop-api.md`): **`https://app.fira.finance/api/v1/webshop/order/custom`** — tajni ključ ide u HTTP zaglavlje.
+- Webshop se veže na **slijed računa** (§7) → time na poslovni prostor/naplatni uređaj/operatera.
+- „API dokumentacija →" (live referenca).
+
+> **Multi-tenant lanac (potvrđen):** `Webshop(domena + tajni ključ/apiKey)` → `Slijed računa`
+> → `Poslovni prostor` + `Naplatni uređaj` + `Operater(OIB)` → `Račun`. Ovo je točno naš model.
+
+## 11. Funkcionalna analiza — što je jezgra, što upsell (za naš opseg)
+
+| Modul | Fira | Nama za MVP? |
+|---|---|---|
+| Ponude/Računi/Fiskalni/eRačun | ✅ jezgra | **DA** (jezgra) |
+| Klijenti | ✅ | **DA** |
+| Proizvodi + KPD 2025 picker | ✅ | **DA** (KPD obavezan) |
+| Postavke: certifikat, poslovni prostor, slijedovi, operateri | ✅ | **DA** |
+| Webshop/API (tajni ključ) | ✅ | **DA** (naš primarni ulaz) |
+| PDF predložak + QR + POS format | ✅ | **DA** (PDF/QR), POS kasnije |
+| Troškovi (ulazni eRačuni) + eIzvještavanje | ✅ | **DA za 2.0** (zaprimanje/izvještavanje) |
+| Korisnici/uloge | ✅ | Kasnije (MVP: 1 vlasnik) |
+| Izvješća (Prihodi/rashodi, PDV prognoza) | ✅ | Kasnije |
+| Bankarstvo (GoCardless PSD2) | ✅ | **Ne** (upsell) |
+| Unos sati (timesheet) | ✅ | **Ne** (upsell) |
+| Skladište | ✅ | **Ne** (upsell) |
+| Teya POS integracija | ✅ | **Ne** (kasnije) |
+
+**Zaključak:** Firina širina (Bankarstvo/Unos sati/Skladište/POS) su **upsell moduli**, ne jezgra
+fiskalizacije. Naš MVP = **izdavanje (ponuda/račun/fiskalni/eRačun) + klijenti + proizvodi(KPD) +
+postavke izdavatelja (certifikat/poslovni prostor/slijedovi/operateri) + Webshop API + PDF/QR/email +
+zaprimanje eRačuna/eIzvještavanje**. Admin ostaje **server-rendered i jednostavan** (`CLAUDE.md`);
+preuzimamo **IA + inventar polja + UX detalje** (skica, kopiranje dokumenta, višejezični Uvjeti,
+privitci ≤6 MB, KPD picker, POS format, PDF predložak s QR).
 
 ## 11. Zaključci za `domovina-fiskal` (UI/IA + arhitektura)
 - **eRačun 2.0 = preko posrednika (ePoslovanje/Pondi) + punomoć** → tenant bez vlastitog
