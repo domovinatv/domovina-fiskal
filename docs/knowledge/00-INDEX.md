@@ -23,6 +23,8 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 09 | [`09-pdf-racun-i-qr-kod.md`](./09-pdf-racun-i-qr-kod.md) | Obvezni elementi računa, PDF, QR, email |
 | 10 | [`10-edge-cases-validacije.md`](./10-edge-cases-validacije.md) | OIB, storno, offline, zaokruživanje, reverse charge… |
 | 11 | [`11-arhitektura-runtime.md`](./11-arhitektura-runtime.md) | Worker vs signing sidecar, WebCrypto/mTLS, PDF, Peppol |
+| 12 | [`12-vlastita-pristupna-tocka.md`](./12-vlastita-pristupna-tocka.md) | Postati vlastita PT/posrednik (AS4/Domibus, PTS, cert) — bez posrednika |
+| 13 | [`13-provideri-krajolik.md`](./13-provideri-krajolik.md) | Krajolik providera (doku, Pondi, FINA, MeR) — build vs buy |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
