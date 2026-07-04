@@ -41,5 +41,16 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 - Commit poruke i sve na hrvatskom. Push na `origin/main` (`domovinatv/domovina-fiskal`).
 - Nakon svake faze: `/verify` (pokreni app i dokaži da radi), pa commit.
 
-## Stanje repoa na dan handoffa (2026-07-04)
-Samo dokumentacija (17 knowledge + 3 reference docs). **Nema još koda.** Prvi kod = faza 0.
+## Stanje repoa (ažurirano 2026-07-05)
+- ✅ **Faza 0 gotova i deployana** — `backend/` (Worker+Hono+D1) živi na
+  **fiskal.domovina.ai** (D.O.M. account); D1 `fiskal_domovina` (EEUR), secreti
+  postavljeni (`ADMIN_*`, `ENC_MASTER_KEY`, `RESEND_API_KEY`).
+- ✅ **Faza 1 gotova i deployana** — nefiskalni dokumenti (PONUDA/PREDRAČUN/RAČUN,
+  odvojene sekvence po tipu, skice), PDV po skupini + klauzula čl. 90. st. 1.,
+  proizvodi + **službeni KPD 2025** šifrarnik (migracija 0003), PDF (pdf-lib +
+  DejaVu subset, čl. 79 elementi, HUB3 PDF417 za plaćanje), email dual-channel
+  (CF Email Service binding → Resend fallback; E2E potvrđen kanal cloudflare).
+- ⚠️ Napomene za sljedeće faze: KPD 2025 je restrukturiran vs. stara CPA
+  (v. dopunu u `06-*`); R16 (čl. 90 st. 1) razriješen u `99-*`; verify recept
+  u `.claude/skills/verify/SKILL.md`.
+- ⏭️ **Sljedeće: faza 2** — `docs/handoff/faza-2-fiskalizacija-b2c.md` (nova sesija).

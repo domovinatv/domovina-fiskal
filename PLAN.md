@@ -63,7 +63,24 @@ hosting sidecara (Mac Mini vs VPS) · izbor CA (FINA/AKD) · D1 vs Postgres.
 
 ---
 
-## Odmah sljedeći korak (kad se resetira session-limit u 04:50 Europe/Zagreb)
-Dovršiti web-istraživanje za `arhitektura-runtime` + `gap-critic` **resume-om istog
-workflowa** (`resumeFromRunId`), čime se preskaču 9 gotovih agenata i verificiraju
-CF Workers ograničenja (WebCrypto/mTLS) i cross-doc rupe. Zatim krenuti u Fazu 0.
+## Stanje (2026-07-05)
+- ✅ **Faza 0 (skela)** — deployano na `fiskal.domovina.ai` (D.O.M. account), D1 `fiskal_domovina`.
+- ✅ **Faza 1 (nefiskalni dokumenti)** — PONUDA/PREDRAČUN/RAČUN s odvojenim sekvencama,
+  skice, PDV po skupini, proizvodi + službeni KPD 2025 šifrarnik (3.359 potkategorija),
+  PDF (čl. 79 + HUB3 PDF417 za plaćanje), email (v. odluku niže). Detalji u commitovima
+  `2189281`, `dee741d`, `163f218`.
+- ⏭️ Sljedeće: **Faza 2** po `docs/handoff/faza-2-fiskalizacija-b2c.md` (nova sesija).
+
+## Odluka: kanal za slanje e-maila (2026-07-05)
+- **Dual-channel u `backend/src/email.ts`**: Cloudflare Email Service `send_email`
+  binding (preferiran) → fallback **Resend** (`RESEND_API_KEY` secret; domovina.ai
+  verificirana). E2E potvrđeno iz produkcije (kanal: cloudflare).
+- **Gmail/Workspace SMTP relay odbačen za servis**: Workers nemaju prirodan SMTP
+  (samo TCP socket + ručni klijent), relay s IP allowlistom otpada (nema statični
+  egress IP), kvote ~2k/dan po korisniku + rizik za primarni Workspace account,
+  bez bounce/suppression infrastrukture. Deliverability argument vrijedi za
+  human-mail, ne za transakcijske račune s ispravnim SPF/DKIM/DMARC.
+- 💡 **Backlog (premium ideja)**: per-tenant slanje kroz TENANTOV Gmail/Workspace
+  (Gmail API preko HTTP-a, OAuth2) — račun stiže s tenantove domene i ostaje mu
+  u Sent folderu. Kanal je izoliran iza sučelja u `email.ts` pa se dodaje bez
+  diranja ostatka.
