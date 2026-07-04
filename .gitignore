@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Secrets & certifikati — NIKAD u repo (repo je javan!)
+.dev.vars
+.env
+.env.local
+*.p12
+*.pfx
+*.pem
+*.key
+certs/
+secrets/
+
+# Cloudflare / Wrangler
+.wrangler/
+dist/
+
+# OS / editor
+.DS_Store
+*.log
+.idea/
+.vscode/
