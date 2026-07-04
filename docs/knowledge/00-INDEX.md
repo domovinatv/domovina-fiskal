@@ -25,6 +25,8 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 11 | [`11-arhitektura-runtime.md`](./11-arhitektura-runtime.md) | Worker vs signing sidecar, WebCrypto/mTLS, PDF, Peppol |
 | 12 | [`12-vlastita-pristupna-tocka.md`](./12-vlastita-pristupna-tocka.md) | Postati vlastita PT/posrednik (AS4/Domibus, PTS, cert) — bez posrednika |
 | 13 | [`13-provideri-krajolik.md`](./13-provideri-krajolik.md) | Krajolik providera (doku, Pondi, FINA, MeR) — build vs buy |
+| 14 | [`14-postupak-registracije-posrednika.md`](./14-postupak-registracije-posrednika.md) | Korak-po-korak: kako se upisati kao informacijski posrednik (PTS, čl. 61) |
+| 15 | [`15-ekonomija-i-troskovi.md`](./15-ekonomija-i-troskovi.md) | Troškovi: je li dostava eRačuna besplatna, break-even posrednik vs vlastita PT |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
