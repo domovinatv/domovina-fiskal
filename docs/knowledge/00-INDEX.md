@@ -27,6 +27,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 13 | [`13-provideri-krajolik.md`](./13-provideri-krajolik.md) | Krajolik providera (doku, Pondi, FINA, MeR) — build vs buy |
 | 14 | [`14-postupak-registracije-posrednika.md`](./14-postupak-registracije-posrednika.md) | Korak-po-korak: kako se upisati kao informacijski posrednik (PTS, čl. 61) |
 | 15 | [`15-ekonomija-i-troskovi.md`](./15-ekonomija-i-troskovi.md) | Troškovi: je li dostava eRačuna besplatna, break-even posrednik vs vlastita PT |
+| 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
