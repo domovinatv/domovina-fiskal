@@ -28,6 +28,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 14 | [`14-postupak-registracije-posrednika.md`](./14-postupak-registracije-posrednika.md) | Korak-po-korak: kako se upisati kao informacijski posrednik (PTS, čl. 61) |
 | 15 | [`15-ekonomija-i-troskovi.md`](./15-ekonomija-i-troskovi.md) | Troškovi: je li dostava eRačuna besplatna, break-even posrednik vs vlastita PT |
 | 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
+| 17 | [`17-licenca-onboarding.md`](./17-licenca-onboarding.md) | Samoposlužna kupnja godišnje licence → auto-kreiranje tenanta; dogfood račun kroz platformin (ITalk) tenant. Prompt: `../handoff/licenca-onboarding.md` |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
@@ -35,6 +36,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 - [`../reference/fira-custom-webshop-api.md`](../reference/fira-custom-webshop-api.md) — Fira API dizajn (uzor za naš API)
 - [`../reference/fira-ui-walkthrough.md`](../reference/fira-ui-walkthrough.md) — Fira UI obilazak (IA, ekrani, polja, tokovi) iz prve ruke
 - [`../reference/lokalni-artefakti.md`](../reference/lokalni-artefakti.md) — postojeći kod/repoi
+- [`../reference/akd-certilia-webshop-fiskalizacija.md`](../reference/akd-certilia-webshop-fiskalizacija.md) — AKD webshop fiskalizira B2B kartičnu prodaju kao 1.0 (čl. 39; dogfooding uzor)
 
 ## Destilat — ključne činjenice i odluke (stanje 2026-07-04)
 
