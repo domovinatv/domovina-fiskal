@@ -4,6 +4,7 @@
 import type {
   ApiKljucRow,
   CertifikatRow,
+  KorisnikTenantRow,
   NaplatniUredajRow,
   OperaterRow,
   PdvRaspodjelaRow,
@@ -932,6 +933,82 @@ export async function getRacunKontekst(db: D1Database, tenantId: number, racunId
     operaterOib: operater?.oib_operatera ?? null,
     kupac: kupac ?? null,
   };
+}
+
+// ───────────────────────── Dashboard korisnici (korisnik_tenant) ─────────────────────────
+// Identitet je u GoTrue-u; ovdje je SAMO autorizacija (membership + uloga).
+
+// Membership za JEDAN tenant: match po user_id (stabilan) ili — dok user_id još
+// nije vezan — po verificiranom emailu iz JWT-a (bootstrap na prvoj prijavi).
+export async function findKorisnikTenant(
+  db: D1Database,
+  tenantId: number,
+  userId: string,
+  email: string,
+): Promise<KorisnikTenantRow | null> {
+  return db
+    .prepare(
+      `SELECT * FROM korisnik_tenant
+       WHERE tenant_id = ? AND aktivan = 1
+         AND (user_id = ? OR (user_id IS NULL AND lower(user_email) = lower(?)))`,
+    )
+    .bind(tenantId, userId, email)
+    .first<KorisnikTenantRow>();
+}
+
+// Veže GoTrue sub na redak dodan po emailu (prva prijava) — od tada match ide po user_id.
+export async function bindKorisnikTenant(db: D1Database, id: number, userId: string): Promise<void> {
+  await db
+    .prepare(`UPDATE korisnik_tenant SET user_id = ?, bound_at = datetime('now') WHERE id = ? AND user_id IS NULL`)
+    .bind(userId, id)
+    .run();
+}
+
+// Svi membershipi korisnika (za dropdown tenant-switch) — samo aktivni tenanti.
+export async function listMojiTenanti(
+  db: D1Database,
+  userId: string,
+  email: string,
+): Promise<{ tenantId: number; oib: string; naziv: string; uloga: string }[]> {
+  const r = await db
+    .prepare(
+      `SELECT t.id AS tenantId, t.oib, t.naziv, kt.uloga
+       FROM korisnik_tenant kt JOIN tenant t ON t.id = kt.tenant_id
+       WHERE kt.aktivan = 1 AND t.status = 'active'
+         AND (kt.user_id = ? OR (kt.user_id IS NULL AND lower(kt.user_email) = lower(?)))
+       ORDER BY t.naziv`,
+    )
+    .bind(userId, email)
+    .all<{ tenantId: number; oib: string; naziv: string; uloga: string }>();
+  return r.results;
+}
+
+export async function listKorisniciTenanta(db: D1Database, tenantId: number): Promise<KorisnikTenantRow[]> {
+  const r = await db
+    .prepare(`SELECT * FROM korisnik_tenant WHERE tenant_id = ? ORDER BY id`)
+    .bind(tenantId)
+    .all<KorisnikTenantRow>();
+  return r.results;
+}
+
+export async function createKorisnikTenant(
+  db: D1Database,
+  tenantId: number,
+  k: { userEmail: string; uloga: 'vlasnik' | 'knjigovodja' | 'operater' },
+): Promise<KorisnikTenantRow> {
+  const row = await db
+    .prepare(`INSERT INTO korisnik_tenant (tenant_id, user_email, uloga) VALUES (?, ?, ?) RETURNING *`)
+    .bind(tenantId, k.userEmail, k.uloga)
+    .first<KorisnikTenantRow>();
+  if (!row) throw new Error('INSERT korisnik_tenant nije vratio redak');
+  return row;
+}
+
+export async function setKorisnikTenantAktivan(db: D1Database, tenantId: number, id: number, aktivan: boolean): Promise<void> {
+  await db
+    .prepare(`UPDATE korisnik_tenant SET aktivan = ? WHERE id = ? AND tenant_id = ?`)
+    .bind(aktivan ? 1 : 0, id, tenantId)
+    .run();
 }
 
 // ───────────────────────── Brojači za health/admin ─────────────────────────

@@ -10,6 +10,10 @@ export interface Env {
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
   RESEND_API_KEY?: string; // Resend fallback kanal (wrangler secret)
+  // Dashboard SSO (dijeljeni GoTrue) — vidi docs/knowledge/16-dashboard-sso.md.
+  SUPABASE_URL?: string; // https://api.domovina.ai (var)
+  SUPABASE_ANON_KEY?: string; // anon key je public-safe (var)
+  DASHBOARD_ORIGIN?: string; // CSV origina za CORS (dashboard domena + localhost)
 }
 
 export interface TenantRow {
@@ -150,8 +154,31 @@ export interface PdvRaspodjelaRow {
   iznos_poreza: string;
 }
 
-// Hono varijable postavljene u Bearer auth middlewareu.
+// Pristup krajnjih korisnika (dashboard) tenantima — autorizacija uz GoTrue identitet.
+export interface KorisnikTenantRow {
+  id: number;
+  tenant_id: number;
+  user_email: string;
+  user_id: string | null; // GoTrue sub (uuid); NULL dok se ne veže na prvoj prijavi
+  uloga: 'vlasnik' | 'knjigovodja' | 'operater';
+  aktivan: number;
+  bound_at: string | null;
+  created_at: string;
+}
+
+// Prijavljeni dashboard korisnik (JWT put) — postavlja auth middleware.
+// `uloga` postoji samo na tenant-scoped rutama (dolazi iz membershipa);
+// na rutama bez X-Tenant-Id (/moji-tenanti, /ja) je undefined.
+export interface ApiKorisnik {
+  sub: string; // GoTrue user id (uuid)
+  email: string;
+  uloga?: KorisnikTenantRow['uloga'];
+}
+
+// Hono varijable postavljene u Bearer auth middlewareu. Točno jedan od
+// apiKljucId (mašinski dfk_ put) / korisnik (dashboard JWT put) je postavljen.
 export interface ApiVarijable {
   tenant: TenantRow;
-  apiKljucId: number;
+  apiKljucId?: number;
+  korisnik?: ApiKorisnik;
 }

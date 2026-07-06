@@ -25,7 +25,9 @@ app.get('/', async (c) => {
       popis: 'GET /api/v1/racun',
       proizvodi: 'GET /api/v1/proizvod',
       kpd: 'GET /api/v1/kpd?q=…',
-      auth: 'Bearer <API ključ>',
+      mojiTenanti: 'GET /api/v1/moji-tenanti (samo korisnički JWT)',
+      postavke: 'GET /api/v1/postavke · POST /api/v1/postavke/{prostor|uredjaj|operater}',
+      auth: "Bearer <dfk_ API ključ> ILI Bearer <GoTrue JWT> + 'X-Tenant-Id' (dashboard)",
     },
     brojaci: counts,
   });

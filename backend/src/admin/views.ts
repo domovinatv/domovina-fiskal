@@ -9,6 +9,7 @@
 import type {
   ApiKljucRow,
   CertifikatRow,
+  KorisnikTenantRow,
   NaplatniUredajRow,
   OperaterRow,
   PoslovniProstorRow,
@@ -20,7 +21,7 @@ import { iznosHr } from '../pdf/racun-pdf';
 import { escapeHtml } from '../util';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
-export const APP_VERSION = 'v0.3.0';
+export const APP_VERSION = 'v0.4.0';
 
 const HEADER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="36" height="36" aria-hidden="true">
 <defs>
@@ -169,6 +170,7 @@ export interface TenantDetaljData {
   certifikati: CertifikatRow[];
   proizvodi: ProizvodRow[];
   racuni: RacunRow[];
+  korisnici: KorisnikTenantRow[];
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
 }
@@ -232,6 +234,18 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
     )
     .join('');
 
+  const korisniciRedovi = d.korisnici
+    .map(
+      (k) => `<tr><td>${escapeHtml(k.user_email)}</td><td>${pillStatus(k.uloga)}</td>
+<td>${k.user_id ? `<span class="pill p-ok">vezan</span> <span class="mono" style="font-size:.72rem">${escapeHtml(k.user_id.slice(0, 8))}…</span>` : '<span class="pill p-info">čeka prvu prijavu</span>'}</td>
+<td>${k.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td>
+<td class="mono">${escapeHtml(k.created_at)}</td>
+<td><form method="post" action="${baza}/korisnici/${k.id}/${k.aktivan ? 'deaktiviraj' : 'aktiviraj'}" style="display:inline">
+  <button type="submit">${k.aktivan ? 'Deaktiviraj' : 'Aktiviraj'}</button>
+</form></td></tr>`,
+    )
+    .join('');
+
   const proizvodiRedovi = d.proizvodi
     .map(
       (p) => `<tr><td>${escapeHtml(p.naziv)}</td><td class="mono">${escapeHtml(p.sifra ?? '')}</td>
@@ -288,6 +302,17 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
 </form></div>
 <table><thead><tr><th>Prefiks</th><th>Opis</th><th>Status</th><th>Zadnje korišten</th><th></th></tr></thead>
 <tbody>${kljuceviRedovi || '<tr><td colspan="5" class="prazno">Nema ključeva.</td></tr>'}</tbody></table>
+
+<h2>Dashboard pristup (SSO korisnici)</h2>
+<div class="box"><form method="post" action="${baza}/korisnici">
+  <div class="field"><label>E-mail *</label><input name="email" type="email" required placeholder="korisnik@primjer.hr"></div>
+  <div class="field"><label>Uloga</label>
+    <select name="uloga"><option value="vlasnik">vlasnik</option><option value="knjigovodja">knjigovođa</option><option value="operater">operater (bez postavki)</option></select></div>
+  <button type="submit">Dodaj pristup</button>
+</form>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Korisnik se prijavljuje na customer dashboard dijeljenim Domovina računom (GoTrue SSO, api.domovina.ai). Identitet (user_id) se veže automatski na prvoj prijavi s ovim e-mailom.</p></div>
+<table><thead><tr><th>E-mail</th><th>Uloga</th><th>Identitet</th><th>Status</th><th>Dodan</th><th></th></tr></thead>
+<tbody>${korisniciRedovi || '<tr><td colspan="6" class="prazno">Nema dashboard korisnika.</td></tr>'}</tbody></table>
 
 <h2>Certifikati (fiskalizacija)</h2>
 <div class="box"><form method="post" action="${baza}/certifikati" enctype="multipart/form-data">

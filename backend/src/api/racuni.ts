@@ -1,9 +1,19 @@
-// Javni Bearer API — /api/v1/*. API ključ = tenant identitet: sve o izdavatelju
-// (OIB, prostor, uređaji, slijednost) server-side; payload je kupac + stavke + tip.
+// Javni Bearer API — /api/v1/*. Dva auth moda na istim rutama:
+//   * mašinski: 'Bearer dfk_…' → SHA-256 → api_kljuc → tenant (webshop/integracija);
+//   * korisnički: 'Bearer <GoTrue JWT>' + 'X-Tenant-Id' → verify vs GoTrue →
+//     korisnik_tenant membership → tenant (customer dashboard).
+// Sve o izdavatelju (OIB, prostor, uređaji, slijednost) je server-side;
+// payload je kupac + stavke + tip. Vidi docs/knowledge/16-dashboard-sso.md.
 
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import type { ApiVarijable, Env, RacunRow, TenantRow } from '../types';
 import {
+  bindKorisnikTenant,
+  createNaplatniUredaj,
+  createOperater,
+  createPoslovniProstor,
+  findKorisnikTenant,
   findOrCreateKupac,
   findTenantByApiKeyHash,
   getAktivniCertifikat,
@@ -15,7 +25,12 @@ import {
   getRacun,
   getRacunKontekst,
   getStavke,
+  getTenant,
   izdajSkicu,
+  listMojiTenanti,
+  listNaplatniUredjaji,
+  listOperateri,
+  listPoslovniProstori,
   listProizvodi,
   listRacuni,
   searchKpd,
@@ -25,10 +40,11 @@ import {
   type NoviRacunStavka,
   type SekvencaVrsta,
 } from '../db';
+import { verificirajGotrueToken } from '../auth/gotrue';
 import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { godinaZagreb, sha256Hex } from '../util';
+import { godinaZagreb, normalizirajTekst, sha256Hex, validanOib } from '../util';
 import {
   formatirajGreske,
   izracunajIznose,
@@ -40,22 +56,116 @@ import {
 
 export const apiV1 = new Hono<{ Bindings: Env; Variables: ApiVarijable }>();
 
-// Bearer auth: 'Authorization: Bearer dfk_…' → SHA-256 → api_kljuc → tenant.
+// CORS za dashboard SPA (cross-origin) — MORA prije autha da preflight
+// (OPTIONS bez Authorization headera) prođe. Origini iz DASHBOARD_ORIGIN (CSV).
+apiV1.use('*', async (c, next) => {
+  const dozvoljeni = (c.env.DASHBOARD_ORIGIN ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const mw = cors({
+    origin: (origin) => (dozvoljeni.includes(origin) ? origin : null),
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Id'],
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    maxAge: 86400,
+  });
+  return mw(c, next);
+});
+
+// Korisničke rute BEZ tenant scopea — JWT je dovoljan (dropdown/profil se pune
+// prije nego što je tenant odabran).
+const RUTE_BEZ_TENANTA = new Set(['/api/v1/moji-tenanti', '/api/v1/ja']);
+
+// Bearer auth — grana po OBLIKU tokena (dfk_ prefiks vs JWT).
 apiV1.use('*', async (c, next) => {
   const auth = c.req.header('Authorization') ?? '';
   const m = auth.match(/^Bearer\s+(\S+)$/i);
   if (!m) {
-    return c.json({ greska: "Nedostaje 'Authorization: Bearer <API ključ>' zaglavlje" }, 401);
+    return c.json({ greska: "Nedostaje 'Authorization: Bearer <API ključ ili GoTrue JWT>' zaglavlje" }, 401);
   }
-  const hash = await sha256Hex(m[1]);
-  const rezultat = await findTenantByApiKeyHash(c.env.DB, hash);
-  if (!rezultat) {
-    return c.json({ greska: 'Nevažeći ili deaktiviran API ključ' }, 401);
+  const token = m[1];
+
+  // ── Mašinski put (postojeći): dfk_… → SHA-256 → api_kljuc → tenant ──
+  if (token.startsWith('dfk_')) {
+    const hash = await sha256Hex(token);
+    const rezultat = await findTenantByApiKeyHash(c.env.DB, hash);
+    if (!rezultat) {
+      return c.json({ greska: 'Nevažeći ili deaktiviran API ključ' }, 401);
+    }
+    c.set('tenant', rezultat.tenant);
+    c.set('apiKljucId', rezultat.apiKljucId);
+    c.executionCtx.waitUntil(touchApiKljuc(c.env.DB, rezultat.apiKljucId));
+    return next();
   }
-  c.set('tenant', rezultat.tenant);
-  c.set('apiKljucId', rezultat.apiKljucId);
-  c.executionCtx.waitUntil(touchApiKljuc(c.env.DB, rezultat.apiKljucId));
-  await next();
+
+  // ── Korisnički put (dashboard): GoTrue JWT + X-Tenant-Id ──
+  if (!/^eyJ[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) {
+    return c.json({ greska: 'Nevažeći token — očekivan API ključ (dfk_…) ili GoTrue JWT' }, 401);
+  }
+  if (!c.env.SUPABASE_URL || !c.env.SUPABASE_ANON_KEY) {
+    return c.json({ greska: 'Korisnička prijava nije konfigurirana (SUPABASE_URL/SUPABASE_ANON_KEY)' }, 503);
+  }
+  let gotrue;
+  try {
+    gotrue = await verificirajGotrueToken(c.env, token);
+  } catch (e) {
+    return c.json({ greska: `Provjera prijave nije uspjela (GoTrue nedostupan): ${(e as Error).message}` }, 502);
+  }
+  if (!gotrue) {
+    return c.json({ greska: 'Nevažeća ili istekla prijava — prijavi se ponovno' }, 401);
+  }
+
+  // Rute bez tenant scopea: dovoljan je identitet.
+  if (RUTE_BEZ_TENANTA.has(c.req.path)) {
+    c.set('korisnik', { sub: gotrue.sub, email: gotrue.email });
+    return next();
+  }
+
+  const tenantIdRaw = c.req.header('X-Tenant-Id') ?? '';
+  const tenantId = Number(tenantIdRaw);
+  if (!tenantIdRaw || !Number.isInteger(tenantId) || tenantId <= 0) {
+    return c.json({ greska: "Nedostaje 'X-Tenant-Id' zaglavlje (odaberi tenanta)" }, 400);
+  }
+
+  // Membership: match po user_id (stabilan) ili email-bind fallback (§4).
+  const kt = await findKorisnikTenant(c.env.DB, tenantId, gotrue.sub, gotrue.email);
+  if (!kt) {
+    return c.json({ greska: 'Korisnik nema pristup tom tenantu' }, 403);
+  }
+  if (!kt.user_id) {
+    // Prva prijava: veži GoTrue sub na redak dodan po (verificiranom) emailu.
+    await bindKorisnikTenant(c.env.DB, kt.id, gotrue.sub);
+  }
+  const tenant = await getTenant(c.env.DB, tenantId);
+  if (!tenant || tenant.status !== 'active') {
+    return c.json({ greska: 'Tenant nije aktivan' }, 403);
+  }
+  c.set('tenant', tenant);
+  c.set('korisnik', { sub: gotrue.sub, email: gotrue.email, uloga: kt.uloga });
+  return next();
+});
+
+// ── Korisnički endpointi (dashboard) ──
+
+// Membershipi prijavljenog korisnika — puni dropdown za tenant-switch.
+apiV1.get('/moji-tenanti', async (c) => {
+  const korisnik = c.get('korisnik');
+  if (!korisnik) {
+    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
+  }
+  return c.json({ tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email) });
+});
+
+// Profil + membershipi (opcionalni pogodniji oblik za frontend bootstrap).
+apiV1.get('/ja', async (c) => {
+  const korisnik = c.get('korisnik');
+  if (!korisnik) {
+    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
+  }
+  return c.json({
+    email: korisnik.email,
+    tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email),
+  });
 });
 
 const SEKVENCA_ZA_TIP: Record<string, SekvencaVrsta> = {
@@ -430,6 +540,91 @@ apiV1.get('/kpd', async (c) => {
   const q = c.req.query('q') ?? '';
   if (q.trim().length < 2) return c.json({ greska: "Parametar 'q' mora imati barem 2 znaka" }, 400);
   return c.json({ rezultati: await searchKpd(c.env.DB, q, Number(c.req.query('limit') ?? 20)) });
+});
+
+// ── Postavke (prostori / uređaji / operateri) — self-service za dashboard ──
+// Uloge (v1, minimalno): vlasnik/knjigovodja = puni pristup; operater smije
+// izdavati/fiskalizirati, ali NE mijenjati postavke. Mašinski dfk_ ključ
+// (bez korisnika) je tenant-scoped puni pristup — bez dodatnih ograničenja.
+
+function operaterBezPostavki(c: { get: (k: 'korisnik') => ApiVarijable['korisnik'] }): boolean {
+  return c.get('korisnik')?.uloga === 'operater';
+}
+
+apiV1.get('/postavke', async (c) => {
+  const tenant = c.get('tenant');
+  const [prostori, uredjaji, operateri] = await Promise.all([
+    listPoslovniProstori(c.env.DB, tenant.id),
+    listNaplatniUredjaji(c.env.DB, tenant.id),
+    listOperateri(c.env.DB, tenant.id),
+  ]);
+  return c.json({
+    tenant: { id: tenant.id, oib: tenant.oib, naziv: tenant.naziv, uSustavuPdv: !!tenant.u_sustavu_pdv },
+    prostori: prostori.map((p) => ({
+      id: p.id, oznaka: p.oznaka, ulica: p.adr_ulica, naselje: p.adr_naselje,
+      primjenaOd: p.datum_pocetka_primjene, zatvoren: p.datum_zatvaranja, cisStatus: p.cis_status,
+    })),
+    uredjaji: uredjaji.map((u) => ({
+      id: u.id, prostorOznaka: u.pp_oznaka, oznaka: u.oznaka, opis: u.opis, aktivan: !!u.aktivan,
+    })),
+    operateri: operateri.map((o) => ({ id: o.id, oib: o.oib_operatera, ime: o.ime, aktivan: !!o.aktivan })),
+  });
+});
+
+apiV1.post('/postavke/prostor', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const oznaka = normalizirajTekst(String(body.oznaka ?? ''));
+  const primjenaOd = String(body.primjenaOd ?? '').trim();
+  if (!oznaka || !/^\d{4}-\d{2}-\d{2}$/.test(primjenaOd)) {
+    return c.json({ greska: "Obavezno: 'oznaka' i 'primjenaOd' (YYYY-MM-DD)" }, 400);
+  }
+  try {
+    const p = await createPoslovniProstor(c.env.DB, c.get('tenant').id, {
+      oznaka,
+      adrUlica: String(body.ulica ?? '').trim() || null,
+      adrNaselje: String(body.naselje ?? '').trim() || null,
+      datumPocetkaPrimjene: primjenaOd,
+    });
+    return c.json({ id: p.id, oznaka: p.oznaka }, 201);
+  } catch (e) {
+    if (String(e).includes('UNIQUE')) return c.json({ greska: `Prostor '${oznaka}' već postoji` }, 409);
+    throw e;
+  }
+});
+
+apiV1.post('/postavke/uredjaj', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const prostorOznaka = String(body.prostorOznaka ?? '').trim();
+  const oznaka = normalizirajTekst(String(body.oznaka ?? ''));
+  if (!prostorOznaka || !oznaka) return c.json({ greska: "Obavezno: 'prostorOznaka' i 'oznaka'" }, 400);
+  const pp = await getPoslovniProstorByOznaka(c.env.DB, c.get('tenant').id, prostorOznaka);
+  if (!pp) return c.json({ greska: `Poslovni prostor '${prostorOznaka}' ne postoji` }, 404);
+  try {
+    const u = await createNaplatniUredaj(c.env.DB, pp.id, { oznaka, opis: String(body.opis ?? '').trim() || null });
+    return c.json({ id: u.id, oznaka: u.oznaka }, 201);
+  } catch (e) {
+    if (String(e).includes('UNIQUE')) return c.json({ greska: `Uređaj '${oznaka}' već postoji u tom prostoru` }, 409);
+    throw e;
+  }
+});
+
+apiV1.post('/postavke/operater', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const oib = String(body.oib ?? '').trim();
+  if (!validanOib(oib)) return c.json({ greska: `OIB operatera '${oib}' nije valjan` }, 400);
+  try {
+    const o = await createOperater(c.env.DB, c.get('tenant').id, {
+      oibOperatera: oib,
+      ime: normalizirajTekst(String(body.ime ?? '')) || null,
+    });
+    return c.json({ id: o.id, oib: o.oib_operatera }, 201);
+  } catch (e) {
+    if (String(e).includes('UNIQUE')) return c.json({ greska: `Operater ${oib} već postoji` }, 409);
+    throw e;
+  }
 });
 
 // Puni JSON prikaz dokumenta (za 201 i GET po id-u).

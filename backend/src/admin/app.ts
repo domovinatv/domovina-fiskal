@@ -8,6 +8,7 @@ import {
   createApiKljuc,
   createCertifikat,
   createNaplatniUredaj,
+  createKorisnikTenant,
   createOperater,
   createPoslovniProstor,
   createProizvod,
@@ -18,6 +19,7 @@ import {
   izdajSkicu,
   listApiKljucevi,
   listCertifikati,
+  listKorisniciTenanta,
   listNaplatniUredjaji,
   listOperateri,
   listPoslovniProstori,
@@ -26,6 +28,7 @@ import {
   listTenants,
   searchKpd,
   setApiKljucAktivan,
+  setKorisnikTenantAktivan,
   setProstorCisStatus,
   zabiljeziSlanjeEmaila,
 } from '../db';
@@ -97,7 +100,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni, korisnici] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -105,8 +108,9 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     listCertifikati(c.env.DB, tenantId),
     listProizvodi(c.env.DB, tenantId),
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
+    listKorisniciTenanta(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni, korisnici };
 }
 
 admin.get('/tenant/:id', async (c) => {
@@ -175,6 +179,39 @@ admin.post('/tenant/:id/operateri', async (c) => {
     const poruka = String(e).includes('UNIQUE') ? `Operater ${oib} već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
+});
+
+// ── Dashboard pristup (korisnik_tenant) — superuser dodaje po EMAILU ──
+// Identitet je u GoTrue-u; user_id (sub) se veže sam na prvoj prijavi korisnika.
+
+admin.post('/tenant/:id/korisnici', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const form = await c.req.parseBody();
+  const email = String(form.email ?? '').trim().toLowerCase();
+  const uloga = ['vlasnik', 'knjigovodja', 'operater'].includes(String(form.uloga))
+    ? (String(form.uloga) as 'vlasnik' | 'knjigovodja' | 'operater')
+    : 'vlasnik';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `E-mail '${email}' nije valjan.` }), 400);
+  }
+  try {
+    await createKorisnikTenant(c.env.DB, tenantId, { userEmail: email, uloga });
+    return c.redirect(`/admin/tenant/${tenantId}`, 303);
+  } catch (e) {
+    const poruka = String(e).includes('UNIQUE') ? `Korisnik ${email} već ima pristup ovom tenantu.` : `Greška: ${e}`;
+    return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
+  }
+});
+
+admin.post('/tenant/:id/korisnici/:kid/:akcija', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const kid = Number(c.req.param('kid'));
+  const akcija = c.req.param('akcija');
+  if (akcija !== 'aktiviraj' && akcija !== 'deaktiviraj') return c.text(`Nepoznata akcija: ${akcija}`, 400);
+  await setKorisnikTenantAktivan(c.env.DB, tenantId, kid, akcija === 'aktiviraj');
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
 // Kreiraj API ključ → re-renderaj detalj sa sirovim ključem prikazanim JEDNOM.

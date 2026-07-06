@@ -49,6 +49,15 @@ migrations_dir = "migrations"
 # Zadana okolina fiskalizacije za nove certifikate/poruke ('test' | 'prod').
 OKOLINA = "test"
 
+# Dashboard SSO — dijeljeni GoTrue (domovina-api). JWT-ovi se verificiraju
+# delegacijom na GET /auth/v1/user; anon key je PUBLIC-SAFE (isti je već u
+# javnom pinka.io bundleu) — HS256 JWT_SECRET NIKAD ne ide ovamo.
+SUPABASE_URL = "https://api.domovina.ai"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc3OTExMTcxMywiZXhwIjo0OTMyNzExNzEzLCJyb2xlIjoiYW5vbiJ9.Q4Ef7xMc2dmjMyfJebPDyqNirnARZzMxTWe7i0dASPI"
+
+# CORS origini za customer dashboard (CSV). Prod domena + lokalni razvoj.
+DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.pages.dev,http://localhost:3000"
+
 # Secrets — postavi s `wrangler secret put` (lokalno u .dev.vars):
 #   ADMIN_USER      # Basic Auth user za /admin
 #   ADMIN_PASS      # Basic Auth pass za /admin
