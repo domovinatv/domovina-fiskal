@@ -20,8 +20,12 @@ mu kroz domovina-fiskal izda račun za licencu (dogfooding, AKD obrazac).
 - Model: **godišnja fiksna** licenca (`LICENCA_CIJENA_EUR` env; obnova = nova
   kupnja koja produži `vrijedi_do`).
 - Kupnja **auto-kreira tenant** — bez admin odobrenja.
-- Dogfood račun je **`RACUN` (transakcijski)**, ne FISKALNI_B2C (SEPA nije
-  fiskalizacijski okidač) — vidi `17-*` §1.
+- Dogfood račun — **grana po vrsti kupca** (`17-*` §1 + `01-*` §3.1; wizard pita
+  "kupujem kao firma / kao građanin"): **B2B** → `RACUN` (PDF) kao pomoćni
+  dokument + ⚠️ ITalk ručno izda eRačun svojim kanalom (stablecoin/SEPA =
+  transakcijski → čl. 39 ne vrijedi → eRačun obveza; automatizacija = faza 3);
+  **B2C** → `FISKALNI_B2C` (svi B2C računi od 2026. se fiskaliziraju neovisno
+  o plaćanju; traži ITalk certifikat u prod tenantu).
 - Enforcement isteka v1 = samo banner u dashboardu, bez blokiranja (§4).
 
 ## Zadaci — BACKEND (ovaj repo, `backend/`)

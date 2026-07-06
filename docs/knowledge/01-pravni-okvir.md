@@ -241,6 +241,35 @@ Ključno: to **nisu** dvije odvojene stvari koje se biraju — od 2026. većina
 obveznika ima **oboje**: nastavlja fiskalizirati B2C račune **i** izdaje/zaprima
 fiskalizirane eRačune u B2B/B2G.
 
+### 3.1. Kripto/stablecoin plaćanja = transakcijski način plaćanja
+
+> Izvor: Matija (2026-07-06), na temelju službenih mišljenja Porezne uprave o
+> kriptovalutama/stablecoinima. ⚠️ Bez konkretnog URL-a mišljenja — potvrditi s
+> knjigovođom/PU prije oslanjanja u produkcijskim tokovima.
+
+Plaćanje u **stablecoinu** (EURe, USDC, USDT…) na javnim blockchain mrežama
+(npr. Gnosis Chain) Porezna uprava tretira kao **transakcijsku uplatu**
+(virmansko plaćanje, "račun na račun"), **ne** kao gotovinu ni karticu:
+
+- **Nije gotovina/kartica:** zakonska definicija "gotovine" obuhvaća novčanice
+  i kovanice, kartice (uz kartičnu kuću koja autorizira kroz bankarski sustav)
+  i čekove. Kripto/stablecoin novčanik (Metamask, Safe multisig…) nema kartičnu
+  kuću ni autorizaciju kroz bankarski sustav → ne ulazi u tu definiciju.
+- **Jest transakcijska uplata:** on-chain prijenos tokena s adrese na adresu
+  ekvivalentan je prijenosu s računa na račun → pravni status **bezgotovinskog
+  (virmanskog) plaćanja**.
+
+**Posljedice za izdavanje računa (od 2026.):**
+
+| Kupac | Plaćeno stablecoinom / transakcijski | Obveza |
+|---|---|---|
+| **B2B** (porezni obveznik) | transakcijska uplata → **čl. 39 iznimka NE vrijedi** (ona pokriva samo gotovinu/kartice) | Račun **mora** ići kao **eRačun (Fiskalizacija 2.0)**. Fiskalizacija 1.0 (JIR/ZKI) tu **zakonski ne prolazi**. |
+| **B2C** (građanin) | neovisno o načinu plaćanja (gotovina, kartica, transakcijski — uklj. stablecoin) | Od 2026. **svi B2C računi** prolaze fiskalizaciju računa (JIR, ZKI, QR). |
+
+Praktično za domovina-fiskal: naplata preko pay.domovina.ai raila (SEPA →
+Monerium → **EURe na Gnosisu**) prema B2B kupcu znači **obvezu eRačuna**, ne
+transakcijskog PDF računa ni FISKALNI_B2C — vidi `17-licenca-onboarding.md` §1.
+
 ---
 
 ## 4. Poveznice na druge propise

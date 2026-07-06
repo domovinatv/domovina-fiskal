@@ -25,9 +25,13 @@ certifikatom** — kupnja proizvoda je ujedno živi demo proizvoda.
 
 Isti obrazac za domovina-fiskal: **prodaja licence/pristupa dashboardu naplaćena
 karticom fiskalizira se KROZ domovina-fiskal sam** (tenant vlasnika platforme).
-Kupac (i kad je firma) dobije fiskalni B2C račun s JIR/ZKI + čl. 39 napomenu —
-bez potrebe za eRačunom/posrednikom u v1. Uz to: od 1. 1. 2026. fiskalizacija
-kartičnih/digitalnih naplata je i ZAKONSKA OBVEZA, ne samo demo.
+Kupac (i kad je firma) dobije fiskalni B2C račun s JIR/ZKI + čl. 39 napomenu.
 
-Implementacijska posljedica: napomena po čl. 39 ide u `napomena` polje računa
-(ispisuje se na PDF-u); ništa novo u backendu nije potrebno za sam račun.
+⚠️ **Ograničenje obrasca:** čl. 39 iznimka vrijedi SAMO za gotovinu/kartice.
+Kod transakcijske naplate (SEPA virman, ali i **stablecoin/kripto** — PU ih
+tretira kao virman, vidi `../knowledge/01-pravni-okvir.md` §3.1) B2B račun
+**mora ići kao eRačun**, pa se AKD obrazac ne može preslikati na
+pay.domovina.ai rail (SEPA→EURe) za B2B kupce — vidi `17-licenca-onboarding.md` §1.
+
+Implementacijska posljedica (kad se doda kartična naplata): napomena po čl. 39
+ide u `napomena` polje računa (ispisuje se na PDF-u); ništa novo u backendu.

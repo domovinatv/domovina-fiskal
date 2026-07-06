@@ -13,13 +13,27 @@ licence se **fakturira kroz domovina-fiskal sam** — kupac (i kad je firma) dob
 račun izdan ovim servisom, kao živi demo proizvoda kojeg kupuje (AKD obrazac:
 oni fiskaliziraju prodaju fiskalizacijskih certifikata vlastitim certifikatom).
 
-⚠️ **Vrsta dogfood računa u v1: obični `RACUN` (transakcijski), NE `FISKALNI_B2C`.**
-Rail naplaćuje **SEPA credit transferom** (EPC QR), a izravna transakcija na račun
-nije okidač fiskalizacije 1.0 (vidi `01-pravni-okvir.md` §2). AKD-ov čl.-39 obrazac
-(JIR/ZKI + „nije izdan kao eRačun") vrijedi tek ako/kad dodamo kartičnu naplatu
-(Stripe/Corvus — v2 kandidat). ⚠️ Otvoreno pravno pitanje za knjigovođu: tretman
-uplate koja ide preko Monerium IBAN-a (EE…) pa se forwarda — smatramo je izravnom
-transakcijom na račun (bez fiskalizacije), ali potvrditi.
+**Vrsta dogfood računa — pravna analiza (ažurirano 2026-07-06, vidi
+`01-pravni-okvir.md` §3.1):** rail naplaćuje SEPA-om, a ITalk prima **EURe
+(stablecoin) na Gnosisu** — oboje je **transakcijska uplata** (ne gotovina/
+kartica), pa **čl. 39 iznimka NE vrijedi**. Posljedice po tipu kupca:
+
+- **B2B kupac (firma — glavni slučaj):** račun **mora ići kao eRačun
+  (Fiskalizacija 2.0)** — transakcijski PDF `RACUN` nije zakonski dovoljan, a
+  `FISKALNI_B2C` (JIR/ZKI) tu ne prolazi. Platforma eRačun još NE podržava
+  (faza 3) → **v1 prijelazno rješenje:** servis izda `RACUN` (PDF) kao pomoćni
+  dokument + **ITalk paralelno izda eRačun kroz svoj postojeći kanal**
+  (posrednik/ePorezna tok kojim ITalk već izdaje B2B eRačune od 1.1.2026.).
+  ⚠️ Ručni korak dok faza 3 (eRačun) ne stigne — tada dogfood postaje potpun.
+- **B2C kupac (građanin, npr. paušalac u osnivanju):** od 2026. SVI B2C računi
+  se fiskaliziraju neovisno o načinu plaćanja → `FISKALNI_B2C` (JIR/ZKI/QR) —
+  to servis već podržava. (Zahtijeva ITalk certifikat u produkcijskom tenantu.)
+- AKD-ov čl.-39 obrazac (kartica → 1.0 fiskalni račun i za B2B kupca) vrijedi
+  tek ako/kad dodamo **kartičnu naplatu** (Stripe/Corvus — v2 kandidat).
+
+⚠️ Potvrditi s knjigovođom prije produkcije (izvor za §3.1 su mišljenja PU bez
+URL-a); v1 wizard neka pita kupca "kupujem kao firma / kao građanin" i prema
+tome grana vrstu računa.
 
 ## 2. Rail — činjenice (istraženo 2026-07-06, repo `pay.domovina.ai`)
 
@@ -178,7 +192,10 @@ se ne koristi). V2: webhook fan-out u railu (`INTENT_WEBHOOK_URL` lista).
 
 - ⚠️ Cijena (`LICENCA_CIJENA_EUR`) i KPD šifra usluge (62.01 vs 63.11 — provjeriti).
 - ⚠️ `LICENCA_SAFE_ADDRESS` (ITalk Gnosis Safe za primanje EURe).
-- ⚠️ Knjigovodstveni tretman rail uplate (vidi §1) — prije produkcije.
-- V2 kandidati: kartična naplata (→ FISKALNI_B2C + čl. 39 napomena, puni AKD
-  dogfood), webhook umjesto pollinga, self-service upload certifikata,
-  automatska deaktivacija nakon isteka + grace period.
+- ⚠️ Potvrda knjigovođe za §1 (stablecoin=transakcijski; B2B→eRačun obveza) i
+  dogovor ITalk-ovog kanala za ručno izdavanje eRačuna B2B kupcima u v1.
+- ⚠️ ITalk fiskalizacijski certifikat (AKD — kupljen 5.7.2026.) u prod tenant,
+  za B2C granu (`FISKALNI_B2C`).
+- V2 kandidati: eRačun (faza 3) → automatski B2B dogfood; kartična naplata
+  (→ čl. 39 obrazac kao AKD), webhook umjesto pollinga, self-service upload
+  certifikata, automatska deaktivacija nakon isteka + grace period.
