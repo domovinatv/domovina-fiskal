@@ -196,10 +196,15 @@ Implementirano u ovom repou (v0.4.0) i u novom repou `domovinatv/domovina-fiskal
 - **Domena (odluka):** `fiskal-app.domovina.ai` — jedna razina ispod `domovina.ai`
   (universal SSL ne pokriva `*.fiskal.domovina.ai`). `DASHBOARD_ORIGIN` u
   `wrangler.toml` = ta domena + `domovina-fiskal-app.pages.dev` + `http://localhost:3000`.
-- ⚠️ **Preostalo (izvan ovog repoa):** produkcijski deploy backenda (`npm run
-  db:migrate:prod` + `wrangler deploy`), CF Pages projekt za frontend, i dodavanje
-  `https://fiskal-app.domovina.ai/**` u `ADDITIONAL_REDIRECT_URLS` u `domovina-api`
-  Coolify env (`http://localhost:3000/**` već postoji, provjereno 2026-07-06).
+- **Produkcija (2026-07-06):** backend deployan (migracija 0005 remote + `wrangler
+  deploy`, verzija `9bf7769b`); frontend deployan na CF Pages projekt
+  `domovina-fiskal-app` (https://domovina-fiskal-app.pages.dev, radi); custom domena
+  `fiskal-app.domovina.ai` dodana na Pages projekt (status *pending*).
+- ⚠️ **Preostalo (ručno):** (1) DNS CNAME `fiskal-app` → `domovina-fiskal-app.pages.dev`
+  (proxied) u zoni `domovina.ai` — lokalni CF tokeni nemaju DNS write scope;
+  (2) dodati `https://fiskal-app.domovina.ai/**` i `https://domovina-fiskal-app.pages.dev/**`
+  u `ADDITIONAL_REDIRECT_URLS` u `domovina-api` Coolify env
+  (`http://localhost:3000/**` već postoji, provjereno 2026-07-06).
 
 ## 14. Izvori (pristup 2026-07-06)
 
