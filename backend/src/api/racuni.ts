@@ -41,6 +41,7 @@ import {
   type SekvencaVrsta,
 } from '../db';
 import { verificirajGotrueToken } from '../auth/gotrue';
+import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracun/eracun';
 import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
@@ -173,12 +174,16 @@ const SEKVENCA_ZA_TIP: Record<string, SekvencaVrsta> = {
   PREDRACUN: 'ponuda', // ponude i predračuni dijele slijed (Fira: tab "Ponude/Predračuni")
   RACUN: 'racun',
   FISKALNI_B2C: 'fiskalni', // odvojeni slijed — brojčana oznaka ide u ZKI/CIS
+  ERACUN_B2B: 'racun', // eRačun je pravni račun — dijeli slijed računa
+  ERACUN_B2G: 'racun',
 };
-const TIP_U_DB: Record<string, 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c'> = {
+const TIP_U_DB: Record<string, 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c' | 'eracun_b2b' | 'eracun_b2g'> = {
   PONUDA: 'ponuda',
   PREDRACUN: 'predracun',
   RACUN: 'racun',
   FISKALNI_B2C: 'fiskalni_b2c',
+  ERACUN_B2B: 'eracun_b2b',
+  ERACUN_B2G: 'eracun_b2g',
 };
 
 // Razrješavanje stavki: proizvodId → podaci iz kataloga (polja u payloadu nadjačavaju).
@@ -362,10 +367,10 @@ apiV1.post('/racun', async (c) => {
   }
   const model = parsed.data;
 
-  // Fiskalni tipovi tek u fazama 2–3 — jasna poruka umjesto tihog spremanja.
+  // Nepoznat tip (izvan mapiranja) — jasna poruka umjesto tihog spremanja.
   if (!(model.tip in TIP_U_DB)) {
     return c.json(
-      { greska: `Tip '${model.tip}' još nije podržan — fiskalizacija B2C dolazi u fazi 2, eRačun u fazi 3. Podržani tipovi: PONUDA, PREDRACUN, RACUN.` },
+      { greska: `Tip '${model.tip}' nije podržan. Podržani tipovi: ${Object.keys(TIP_U_DB).join(', ')}.` },
       501,
     );
   }
@@ -496,6 +501,41 @@ apiV1.post('/racun/:id/posalji', async (c) => {
   }
   await zabiljeziSlanjeEmaila(c.env.DB, tenant.id, id, na);
   return c.json({ ok: true, poslanoNa: na, kanal });
+});
+
+// Slanje eRačuna (B2B/B2G) preko posrednika doku. Tenant mora imati doku token
+// (admin) i kupca s OIB-om. doku gradi/potpisuje/šalje UBL svojim certom.
+apiV1.post('/racun/:id/posalji-eracun', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+  const ishod = await posaljiEracun(c.env, c.get('tenant').id, id);
+  if (!ishod.ok) return c.json({ ok: false, greska: ishod.greska }, 502);
+  return c.json({
+    ok: true,
+    dokuId: ishod.dokuId,
+    eracunStatus: ishod.status,
+    deliveryBlock: ishod.deliveryBlock,
+    napomena: ishod.deliveryBlock === 'AMS' ? 'Primatelj nije registriran za eDelivery (AMS) — doku ga nije mogao dostaviti.' : undefined,
+  });
+});
+
+// Osvježi status razmjene/naplate iz doku-a (poll).
+apiV1.get('/racun/:id/eracun-status', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+  const ishod = await osvjeziEracunStatus(c.env, c.get('tenant').id, id);
+  if (!ishod.ok) return c.json({ ok: false, greska: ishod.greska }, 502);
+  return c.json({ ok: true, dokuId: ishod.dokuId, eracunStatus: ishod.status });
+});
+
+// Provjera je li primatelj registriran za eDelivery (AMS lookup preko doku-a).
+apiV1.post('/eracun/provjeri-primatelja', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const oib = String(body.oib ?? '').trim();
+  if (!validanOib(oib)) return c.json({ greska: 'Pošalji { "oib": "…" } s valjanim OIB-om (11 znamenki)' }, 400);
+  const r = await provjeriPrimatelja(c.env, c.get('tenant').id, oib);
+  if (!r.ok) return c.json({ ok: false, greska: r.greska }, 502);
+  return c.json({ ok: true, oib, registriran: r.registriran, mpsEndpoint: r.mpsEndpoint });
 });
 
 apiV1.get('/racun', async (c) => {
@@ -683,6 +723,18 @@ async function racunUOdgovor(db: D1Database, r: RacunRow) {
           fiskalPokusaja: r.fiskal_pokusaja,
           naknadnaDostava: !!r.fiskal_nak_dost,
           stornoZaId: r.storno_racun_id,
+        }
+      : {}),
+    // eRačun 2.0 (doku) — popunjeno samo za eracun_b2b/eracun_b2g.
+    ...(r.tip_dokumenta === 'eracun_b2b' || r.tip_dokumenta === 'eracun_b2g'
+      ? {
+          eracun: {
+            dokuId: r.doku_id,
+            status: r.eracun_status,
+            deliveryBlock: r.eracun_delivery_block,
+            zadnjaProvjera: r.eracun_zadnja_provjera,
+            greska: r.eracun_greska,
+          },
         }
       : {}),
   };

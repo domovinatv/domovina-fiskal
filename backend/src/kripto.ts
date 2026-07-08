@@ -64,6 +64,46 @@ function uBafer(b: ArrayBuffer | ArrayLike<number>): ArrayBuffer {
   return new Uint8Array(b).buffer;
 }
 
+// ── Generička tajna (npr. doku API-TOKEN) — isti envelope kao certifikat, ali
+//    ulaz/izlaz je string i sve se sprema kao hex (nema BLOB stupca). ──
+export interface EnkriptiranaTajna {
+  tokenEncrypted: string; // hex
+  encIv: string; // hex
+  dekWrapped: string; // hex
+  dekIv: string; // hex
+}
+
+export async function enkriptirajTajnu(masterHex: string, plaintext: string): Promise<EnkriptiranaTajna> {
+  const kek = await uvoziKek(masterHex);
+  const dek = (await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt'])) as CryptoKey;
+
+  const encIv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: encIv }, dek, new TextEncoder().encode(plaintext));
+
+  const dekRaw = (await crypto.subtle.exportKey('raw', dek)) as ArrayBuffer;
+  const dekIv = crypto.getRandomValues(new Uint8Array(12));
+  const dekWrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: dekIv }, kek, dekRaw);
+
+  return {
+    tokenEncrypted: hex(new Uint8Array(ct)),
+    encIv: hex(encIv),
+    dekWrapped: hex(new Uint8Array(dekWrapped)),
+    dekIv: hex(dekIv),
+  };
+}
+
+// Dekripcija tajne u trenutku poziva — plaintext živi samo u memoriji poziva.
+export async function dekriptirajTajnu(
+  masterHex: string,
+  e: { tokenEncrypted: string; encIv: string; dekWrapped: string; dekIv: string },
+): Promise<string> {
+  const kek = await uvoziKek(masterHex);
+  const dekRaw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: izHexa(e.dekIv) }, kek, izHexa(e.dekWrapped));
+  const dek = await crypto.subtle.importKey('raw', dekRaw, 'AES-GCM', false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: izHexa(e.encIv) }, dek, izHexa(e.tokenEncrypted));
+  return new TextDecoder().decode(pt);
+}
+
 // Dekripcija privatnog ključa (PKCS8 PEM) u trenutku potpisivanja — DEK i
 // plaintext žive isključivo u memoriji poziva, nikad se ne perzistiraju/logiraju.
 export async function dekriptirajKljucPem(

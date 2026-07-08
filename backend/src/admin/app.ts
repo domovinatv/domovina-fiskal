@@ -19,6 +19,7 @@ import {
   izdajSkicu,
   listApiKljucevi,
   listCertifikati,
+  listDokuKonfig,
   listKorisniciTenanta,
   listNaplatniUredjaji,
   listOperateri,
@@ -30,6 +31,7 @@ import {
   setApiKljucAktivan,
   setKorisnikTenantAktivan,
   setProstorCisStatus,
+  upsertDokuKonfig,
   zabiljeziSlanjeEmaila,
 } from '../db';
 import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
@@ -37,7 +39,7 @@ import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { ENC_KEY_ID, enkriptirajCertifikat } from '../kripto';
+import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
 import { formatirajGreske, racunModelShema } from '../validacija';
 import {
@@ -100,17 +102,18 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni, korisnici] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
     listApiKljucevi(c.env.DB, tenantId),
     listCertifikati(c.env.DB, tenantId),
+    listDokuKonfig(c.env.DB, tenantId),
     listProizvodi(c.env.DB, tenantId),
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
     listKorisniciTenanta(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, proizvodi, racuni, korisnici };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici };
 }
 
 admin.get('/tenant/:id', async (c) => {
@@ -290,6 +293,38 @@ admin.post('/tenant/:id/certifikati', async (c) => {
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
     return c.html(renderTenantDetaljPage({ ...d, greska: `Parsiranje/enkripcija certifikata nije uspjelo: ${(e as Error).message}` }), 400);
+  }
+});
+
+// doku API-TOKEN (eRačun 2.0 posrednik) — BYO-key po tenantu. Token se enkriptira
+// at-rest (envelope, isti KEK kao certifikati); plaintext nikad ne dolazi u bazu.
+admin.post('/tenant/:id/doku', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  if (!c.env.ENC_MASTER_KEY) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: 'ENC_MASTER_KEY secret nije postavljen — spremanje doku tokena nije moguće.' }), 503);
+  }
+  const form = await c.req.parseBody();
+  const token = String(form.token ?? '').trim();
+  const okolina = String(form.okolina ?? 'test') === 'prod' ? 'prod' : 'test';
+  if (!token) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: 'Unesi doku API-TOKEN (dobiva se od doku-a, hello@doku.hr).' }), 400);
+  }
+  try {
+    const enc = await enkriptirajTajnu(c.env.ENC_MASTER_KEY, token);
+    await upsertDokuKonfig(c.env.DB, tenantId, {
+      okolina,
+      tokenEncrypted: enc.tokenEncrypted,
+      encKeyId: ENC_KEY_ID,
+      encIv: enc.encIv,
+      dekWrapped: enc.dekWrapped,
+      dekIv: enc.dekIv,
+      tokenPrefiks: token.slice(0, 6),
+    });
+    return c.redirect(`/admin/tenant/${tenantId}`, 303);
+  } catch (e) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `Spremanje doku tokena nije uspjelo: ${(e as Error).message}` }), 400);
   }
 });
 

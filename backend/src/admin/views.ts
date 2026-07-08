@@ -9,6 +9,7 @@
 import type {
   ApiKljucRow,
   CertifikatRow,
+  DokuKonfigRow,
   KorisnikTenantRow,
   NaplatniUredajRow,
   OperaterRow,
@@ -168,6 +169,7 @@ export interface TenantDetaljData {
   operateri: OperaterRow[];
   kljucevi: ApiKljucRow[];
   certifikati: CertifikatRow[];
+  dokuKonfig: DokuKonfigRow[];
   proizvodi: ProizvodRow[];
   racuni: RacunRow[];
   korisnici: KorisnikTenantRow[];
@@ -222,6 +224,15 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
       (cert) => `<tr><td>${pillStatus(cert.okolina)}</td><td class="mono">${escapeHtml((cert.fingerprint_sha256 ?? '').slice(0, 16))}…</td>
 <td class="mono">${escapeHtml(cert.not_after ?? '—')}</td><td>${cert.aktivan ? pillStatus('aktivan') : pillStatus('zamijenjen')}</td>
 <td class="mono">${escapeHtml(cert.created_at)}</td></tr>`,
+    )
+    .join('');
+
+  const dokuRedovi = d.dokuKonfig
+    .map(
+      (dk) => `<tr><td>${pillStatus(dk.okolina)}</td><td class="mono">${escapeHtml(dk.token_prefiks ?? '—')}…</td>
+<td>${dk.ams_registriran ? '<span class="pill p-ok">za zaprimanje</span>' : '<span class="pill p-info">samo slanje</span>'}</td>
+<td>${dk.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td>
+<td class="mono">${escapeHtml(dk.updated_at)}</td></tr>`,
     )
     .join('');
 
@@ -325,6 +336,17 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
 <p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">P12 se parsira u memoriji (lozinka se NE sprema); privatni ključ ide AES-256-GCM enkriptiran (envelope: per-cert DEK + KEK iz Worker Secreta). ZKI i XML-DSIG potpis se rade ovim ključem.</p></div>
 <table><thead><tr><th>Okolina</th><th>Otisak (SHA-256)</th><th>Vrijedi do</th><th>Status</th><th>Učitan</th></tr></thead>
 <tbody>${certifikatiRedovi || '<tr><td colspan="5" class="prazno">Nema certifikata.</td></tr>'}</tbody></table>
+
+<h2>eRačun 2.0 — doku posrednik (BYO-key)</h2>
+<div class="box"><form method="post" action="${baza}/doku">
+  <div class="field"><label>doku API-TOKEN *</label><input name="token" required autocomplete="off" placeholder="token iz doku portala"></div>
+  <div class="field"><label>Okolina</label>
+    <select name="okolina"><option value="test">test</option><option value="prod">prod</option></select></div>
+  <button type="submit">Spremi token (enkriptira se at-rest)</button>
+</form>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Svaki tenant unosi <strong>svoj</strong> doku token (doku naplaćuje njemu direktno). Token se sprema AES-256-GCM enkriptiran (envelope, KEK iz Worker Secreta); doku svojim certom potpisuje i šalje UBL. Pristupne podatke tenant dobiva od doku-a (<span class="mono">hello@doku.hr</span>). Slanje: <span class="mono">POST /api/v1/racun/:id/posalji-eracun</span>.</p></div>
+<table><thead><tr><th>Okolina</th><th>Token</th><th>AMS</th><th>Status</th><th>Ažuriran</th></tr></thead>
+<tbody>${dokuRedovi || '<tr><td colspan="5" class="prazno">Nema doku tokena — tenant ne može slati eRačun dok se ne unese.</td></tr>'}</tbody></table>
 
 <h2>Proizvodi (katalog s KPD 2025)</h2>
 <div class="box"><form method="post" action="${baza}/proizvodi">

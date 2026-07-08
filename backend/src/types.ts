@@ -14,6 +14,10 @@ export interface Env {
   SUPABASE_URL?: string; // https://api.domovina.ai (var)
   SUPABASE_ANON_KEY?: string; // anon key je public-safe (var)
   DASHBOARD_ORIGIN?: string; // CSV origina za CORS (dashboard domena + localhost)
+  // eRačun 2.0 preko posrednika doku (docs/knowledge/13-*). GUID koji doku-u
+  // identificira NAŠU integraciju (isti za sve tenante); per-tenant API-TOKEN
+  // živi enkriptiran u doku_konfig (BYO-key). Wrangler secret.
+  DOKU_SOFTWARE_API_TOKEN?: string;
 }
 
 export interface TenantRow {
@@ -84,6 +88,18 @@ export interface CertifikatRow {
   created_at: string;
 }
 
+// doku konfiguracija tenanta (bez tajnih polja — za prikaz u adminu/listi).
+export interface DokuKonfigRow {
+  id: number;
+  tenant_id: number;
+  okolina: 'test' | 'prod';
+  token_prefiks: string | null;
+  ams_registriran: number;
+  aktivan: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RacunRow {
   id: number;
   tenant_id: number;
@@ -119,6 +135,12 @@ export interface RacunRow {
   zki: string | null;
   jir: string | null;
   qr_payload: string | null;
+  // eRačun 2.0 (doku) — vidi migraciju 0006
+  doku_id: number | null;
+  eracun_status: string | null; // IMPORTED | FISCALIZED | DELIVERED
+  eracun_delivery_block: string | null; // 'AMS' kad primatelj nije registriran
+  eracun_zadnja_provjera: string | null;
+  eracun_greska: string | null;
   fiskal_nak_dost: number;
   fiskal_pokusaja: number;
   fiskal_zadnji_pokusaj: string | null;

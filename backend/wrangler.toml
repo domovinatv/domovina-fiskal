@@ -63,3 +63,5 @@ DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.p
 #   ADMIN_PASS      # Basic Auth pass za /admin
 #   ENC_MASTER_KEY  # 64 hex znaka (32 bajta) — KEK za envelope enkripciju certifikata
 #   RESEND_API_KEY  # Resend fallback za slanje emailova (dok CF Email Sending nije aktiviran)
+#   DOKU_SOFTWARE_API_TOKEN  # GUID naše integracije za doku eRačun API (isti za sve tenante;
+#                            # per-tenant API-TOKEN se unosi u /admin i sprema enkriptiran)

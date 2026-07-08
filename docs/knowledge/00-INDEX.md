@@ -38,6 +38,13 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 - [`../reference/lokalni-artefakti.md`](../reference/lokalni-artefakti.md) — postojeći kod/repoi
 - [`../reference/akd-certilia-webshop-fiskalizacija.md`](../reference/akd-certilia-webshop-fiskalizacija.md) — AKD webshop fiskalizira B2B kartičnu prodaju kao 1.0 (čl. 39; dogfooding uzor)
 
+## Handoff / implementacija
+
+- [`../handoff/eracun-doku-integracija.md`](../handoff/eracun-doku-integracija.md) — **implementirano** slanje eRačuna 2.0 preko posrednika **doku** (BYO-key multitenant); mermaid tokovi, otvorena pitanja, doku onboarding blokada
+- [`../handoff/vlastita-pristupna-tocka-build.md`](../handoff/vlastita-pristupna-tocka-build.md) — izvedbeni nacrt vlastite PT (Faza 2): 6 komponenti, redoslijed, odluka multitenant→puni IP (mermaid)
+- [`../handoff/faza-3-eracun-2.0.md`](../handoff/faza-3-eracun-2.0.md) · [`faza-2-fiskalizacija-b2c.md`](../handoff/faza-2-fiskalizacija-b2c.md) · [`faza-1-dokumenti-pdf.md`](../handoff/faza-1-dokumenti-pdf.md) · [`faza-0-skela.md`](../handoff/faza-0-skela.md) — fazni prompti
+- [`../handoff/dashboard-sso.md`](../handoff/dashboard-sso.md) · [`licenca-onboarding.md`](../handoff/licenca-onboarding.md) — dashboard SSO i samoposlužna licenca
+
 ## Destilat — ključne činjenice i odluke (stanje 2026-07-04)
 
 ### Regulatorni okvir
