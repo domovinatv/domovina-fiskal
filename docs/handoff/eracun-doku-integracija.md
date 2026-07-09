@@ -173,3 +173,36 @@ flowchart TD
   entitet i izdaju pristupne podatke + `SOFTWARE-API-TOKEN` za integraciju.
 - Do razrješenja: koristiti doku **TEST** okolinu (`api-test.doku.hr`) čim se dobiju test-tokeni,
   potvrditi `taxCategory` (§6.1), pa tek onda prod.
+
+## 8. ePorezna: ovlaštenje za SLANJE vs adresa za ZAPRIMANJE — KLJUČNO za onboarding
+
+U FiskAplikaciji (Fiskalizacija 2.0 → Administracija) postoje **dvije neovisne** stvari:
+
+| Tab | Čemu služi | Koliko istovremeno |
+|---|---|---|
+| **Ovlaštenja za fiskalizaciju** | pristupna točka **šalje/fiskalizira** izlazne eRačune u ime obveznika (preko punomoći, svojim certom) | **VIŠE** — može ih biti više aktivnih |
+| **Adrese za zaprimanje eRačuna** | **pretinac** za ULAZNE eRačune | **SAMO JEDNA aktivna** po OIB-u |
+
+**Zašto samo jedan pretinac:** AMS discovery razrješava OIB primatelja na **točno jednu** pristupnu
+točku (jedan MPS endpoint) — vidi `docs/knowledge/12-*` §2.3 (`Create()` = registracija **ili
+migracija**, uz potvrdu obveznika u ePorezna). Potvrda ("Prihvati") nove adrese za zaprimanje →
+prethodna **automatski postaje neaktivna** (migracija). **Ne mogu dva pretinca.**
+
+Statusi adrese za zaprimanje: **Potvrđen** (aktivan inbox) · **Čeka potvrdu** (posrednik
+pre-registrirao, još NIJE aktivan — bezopasno dok se ne potvrdi) · **Neaktivan** (bivši/deaktiviran).
+
+**Posljedica za multitenant onboarding (VAŽNO):** tenant koji već **prima** preko drugog posrednika
+(npr. Pondi/ePoslovanje kroz fira.finance) može **slati preko nas (doku) BEZ diranja pretinca** —
+dovoljno je da u „Ovlaštenja za fiskalizaciju" doda **doku OIB `32234297847` (Monoform)**. **NE smije
+"Prihvatiti" doku adresu za zaprimanje** osim ako želi preseliti inbox s Pondija na doku (čime gubi
+Pondi pretinac). Slanje i zaprimanje su neovisni kanali.
+
+> Primjer ITalk (2026-07): Ovlaštenja = Monoform (09.07.2026) + Pondi (27.11.2025), oba OK. Adrese za
+> zaprimanje = **Pondi „Potvrđen"** (aktivan inbox preko fire), **Monoform „Čeka potvrdu"** (NE
+> potvrđivati — inače se gubi fira inbox), Moj-eRačun „Neaktivan". → ITalk je za **slanje preko doku-a
+> već spreman**; ne treba mijenjati pretinac.
+
+Izvori: [PU 8047](https://porezna-uprava.gov.hr/hr/izdavanje-i-primanje-eracuna-i-fiskalizacija-eracuna/8047),
+[ePoslovanje — odabir PT za zaprimanje](https://eposlovanje.hr/dokumenti/upute-odabir-pt-za-zaprimanje-eracuna.pdf),
+[Fina — potvrda posrednika u FiskAplikaciji](https://www.fina.hr/digitalizacija-poslovanja/e-racun/upute-za-potvrdu-informacijskog-posrednika-u-sustavu-eporezna-fiskaplikacija),
+[PU FiskAplikacija upute v4.0 (doc 185)](https://porezna.gov.hr/fiskalizacija/api/dokumenti/185). Pristup 2026-07-09.
