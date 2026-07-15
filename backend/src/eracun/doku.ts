@@ -39,7 +39,7 @@ export interface DokuStavka {
     quantity?: number;
     unitOfMeasure: string; // EN16931 unitCode (npr. 'H87')
     unitPrice?: number;
-    taxCategory: string; // ⚠️ vidi dokuTaxCategory() u mapiranje.ts — potvrditi konvenciju s doku-om
+    taxCategory: string; // "S-25"/"S-13"/"S-5" ili goli kôd (Z/E/AE/O) — potvrđeno na TEST-u 2026-07-15
     taxExemptionReason?: string | null;
   };
 }
@@ -134,11 +134,12 @@ export class DokuKlijent {
       }
     }
     if (!odgovor.ok) {
-      const poruka =
-        (json && typeof json === 'object' && 'message' in json && (json as { message?: string }).message) ||
-        tekst.slice(0, 300) ||
-        `HTTP ${odgovor.status}`;
-      return { ok: false, status: odgovor.status, greska: String(poruka) };
+      // doku validacijske greške nose detalje u `errors[]` (XSD/schematron poruke) —
+      // bez njih je "Schematron validacija neuspješna (N)" nedijagnosticirljivo.
+      const o = (json && typeof json === 'object' ? json : null) as { message?: string; Message?: string; errors?: { message?: string }[] } | null;
+      const detalji = (o?.errors ?? []).map((e) => e.message).filter(Boolean).join(' | ');
+      const poruka = [o?.message ?? o?.Message, detalji].filter(Boolean).join(': ') || tekst.slice(0, 300) || `HTTP ${odgovor.status}`;
+      return { ok: false, status: odgovor.status, greska: poruka };
     }
     return { ok: true, status: odgovor.status, data: (json as T) ?? undefined };
   }

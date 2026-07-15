@@ -15,16 +15,15 @@ const MEANS_CODE: Record<string, string> = {
   ostalo: '1', // instrument nije definiran
 };
 
-// ⚠️ KONVENCIJA KOJU TREBA POTVRDITI S DOKU-om (openapi ne dokumentira značenje
-// `taxCategory` stringa, a stavka NEMA zasebno polje za stopu). Do potvrde na
-// doku TEST okolini pretpostavljamo: kategorija + cijela stopa za oporezive
-// (S25/S13/S5), goli kôd kategorije za oslobođeno/prijenos (Z/E/AE/O).
-// Ovo je JEDINA točka koju treba uskladiti kad dobijemo doku pristupne podatke.
+// Konvencija POTVRĐENA probama na doku TEST okolini 2026-07-15: oporezive
+// kategorije idu kao "KATEGORIJA-STOPA" s crticom (S-25, S-13, S-5), a
+// oslobođeno/prijenos kao goli kôd (Z, E, AE, O). Svaki drugi format
+// (S25, S, Z-0…) doku builder ruši s api.error.500.
 export function dokuTaxCategory(kategorija: string, stopa: string): string {
   const k = (kategorija || 'S').toUpperCase();
   if (k === 'S' || k === 'AA') {
     const n = Math.round(Number(stopa) || 0);
-    return `${k}${n}`;
+    return `${k}-${n}`;
   }
   return k; // Z (nulta), E (izuzeto), AE (prijenos obveze), O (izvan PDV-a)
 }
@@ -53,6 +52,17 @@ export function mapirajZaDoku(k: RacunKontekst): { invoice: DokuInvoice } | { gr
   }
   if (!k.stavke.length) return { greska: 'Račun nema stavki' };
 
+  // HR CIUS obveze potvrđene schematron probama na doku TEST okolini (2026-07-15):
+  // HR-BR-37/HR-BR-9 (operater), HR-BR-25 (KPD po stavci), BR-61 (IBAN uz
+  // kreditni transfer). Guard ovdje daje razumljivu poruku umjesto doku greške.
+  if (!k.operaterIme || !k.operaterOib) {
+    return { greska: 'eRačun traži operatera (ime + OIB, HR-BR-37/HR-BR-9) — pošalji operaterOib pri izdavanju' };
+  }
+  const bezKpd = k.stavke.filter((s) => !s.kpd);
+  if (bezKpd.length) {
+    return { greska: `eRačun traži KPD klasifikaciju za svaku stavku (HR-BR-25) — nedostaje za: ${bezKpd.map((s) => s.naziv).join(', ')}` };
+  }
+
   const t = k.tenant;
   const supplier: DokuStranka = {
     endpointID: t.oib,
@@ -77,6 +87,9 @@ export function mapirajZaDoku(k: RacunKontekst): { invoice: DokuInvoice } | { gr
     name: k.kupac.naziv,
     registrationName: k.kupac.naziv,
     companyID: k.kupac.oib,
+    // HR-BR-S-1: uz standardnu/sniženu stopu račun mora nositi PDV ID kupca
+    // (BT-48); za HR kupce bez eksplicitnog VAT broja to je "HR" + OIB.
+    taxCompanyID: k.kupac.vat_number || ((k.kupac.adr_drzava || 'HR') === 'HR' ? `HR${k.kupac.oib}` : null),
     address: adresa({ ulica: k.kupac.adr_ulica, grad: k.kupac.adr_grad, posta: k.kupac.adr_postanski_broj, drzava: k.kupac.adr_drzava }),
     contact: k.kupac.email ? { email: k.kupac.email } : undefined,
   };
@@ -94,20 +107,29 @@ export function mapirajZaDoku(k: RacunKontekst): { invoice: DokuInvoice } | { gr
     },
   }));
 
+  const meansCode = MEANS_CODE[r.nacin_placanja ?? ''] ?? null;
+  if (meansCode === '30' && !t.iban) {
+    return { greska: 'eRačun s transakcijskim plaćanjem traži IBAN prodavatelja (BR-61) — postavi IBAN tenanta u adminu' };
+  }
+
+  const dueDate = r.datum_dospijeca ? r.datum_dospijeca.slice(0, 10) : undefined;
   const invoice: DokuInvoice = {
     id: r.broj_racuna_full,
+    profileID: 'P1', // oznaka procesa (BT-23, HR-BR-34): P1 = izdavanje računa za isporuke po ugovoru
     invoiceTypeCode: '380', // standardni račun (UNTDID 1001); storno/odobrenje ide zasebnim tokom
     issueDate: (r.datum_vrijeme || '').slice(0, 10) || undefined,
-    dueDate: r.datum_dospijeca ? r.datum_dospijeca.slice(0, 10) : undefined,
+    dueDate,
     documentCurrencyCode: r.valuta || 'EUR',
     note: r.napomena || null,
     supplier,
     buyer,
     payment: {
-      meansCode: MEANS_CODE[r.nacin_placanja ?? ''] ?? null,
+      meansCode,
       financialAccountID: t.iban || null,
       model: r.model_placanja || null,
       id: r.poziv_na_broj || null,
+      // BR-CO-25: uz pozitivan iznos mora postojati dueDate ILI uvjeti plaćanja.
+      terms: dueDate ? null : 'Plativo odmah po primitku računa.',
     },
     lines,
   };

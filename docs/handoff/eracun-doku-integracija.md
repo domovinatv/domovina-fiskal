@@ -151,13 +151,34 @@ flowchart TD
 
 ## 6. ⚠️ Otvoreno prije produkcije
 
-1. **`taxCategory` konvencija (BLOKER za točnost PDV-a).** doku openapi ne dokumentira značenje
-   `taxCategory` stringa na stavci, a stavka **nema** zasebno polje za PDV stopu. Pretpostavka u
-   `mapiranje.ts::dokuTaxCategory()`: `S25/S13/S5` (kategorija+stopa) za oporezive, goli kôd
-   (`Z/E/AE/O`) inače. **Potvrditi na doku TEST okolini** čim stignu kredencijali. Sve je izolirano
-   u jednoj funkciji — trivijalno za uskladiti.
-2. **Kredencijali.** Bez doku `API-TOKEN`-a (per-tenant) i `SOFTWARE-API-TOKEN`-a (naš) tok je
-   netestiran. Traži se mailom na `hello@doku.hr` (vidi §7).
+1. ✅ **`taxCategory` konvencija — POTVRĐENA probama na TEST-u (2026-07-15, izvor: api-test.doku.hr).**
+   Oporezivo: `KATEGORIJA-STOPA` s crticom (`S-25`, `S-13`, `S-5`); oslobođeno/prijenos: goli kôd
+   (`Z`, `E`, `AE`, `O`). Svaki drugi format (`S25`, `S`, `Z-0`, `25%`…) ruši doku builder s
+   `api.error.500 "Unexpected error occurred"` — 500 od doku-a na `/create` u pravilu znači
+   neparsabilan `taxCategory` ili nepostojeću KPD šifru (vidi dolje). Implementirano u
+   `mapiranje.ts::dokuTaxCategory()`.
+   Ostala pravila potvrđena istim probama (schematron poruke s TEST-a):
+   - `profileID` (BT-23) je obavezan — šaljemo `P1` (HR-BR-34).
+   - Operater (ime + OIB) obavezan na računu (HR-BR-37, HR-BR-9) → guard u mapiranju.
+   - Svaka stavka mora imati KPD (listID `CG`) — HR-BR-25; šifra mora biti **stvarna KPD 2025**
+     šifra (npr. `62.20.20`); nepostojeću šifru doku tiho ispusti iz UBL-a pa padne HR-BR-25.
+   - PDV ID kupca (BT-48, HR-BR-S-1) obavezan uz S/AA stavke → `HR` + OIB fallback u mapiranju.
+   - `meansCode 30` (kreditni transfer) traži IBAN (BR-61) → guard u mapiranju.
+   - `dueDate` ILI uvjeti plaćanja obavezni uz pozitivan iznos (BR-CO-25) → fallback `payment.terms`.
+2. ✅ **Kredencijali — dobiveni.** `SOFTWARE-API-TOKEN` (TEST) izdan 2026-07-15 (mail Matija@doku),
+   postavljen kao wrangler secret. **PROD software token doku šalje nakon uspješnog testiranja.**
+3. ✅ **E2E CIKLUS POTVRĐEN NA TEST-u (2026-07-15, 23:39):** račun `4/PP1/1` (doku id 1221,
+   ITalk → monoform) kroz naš API: kreiranje → `/posalji-eracun` → doku exchange
+   `IMPORTED → DELIVERED → FISCALIZED` (fiskaliziran na PU test) → poll `/eracun-status` →
+   interni status `fiskaliziran`. Naučeno pri tome:
+   - `cannot_fiscalize` na testu: doku test NE preslikava produkcijsku ePorezna ovlast (portal
+     „Ovlaštenja" prazan; banner „ovlaštenje opozvano"). Odblokirano uploadom VLASTITOG certifikata
+     u portal-test → doku prihvaća SAMO izdavatelje „Financijska agencija" ili „Certilia":
+     AKD **TESTCERTILIA** demo cert ODBIJEN, **FINA Demo CA 2020** (`demo.p12`, ITalk) PRIHVAĆEN.
+     Za produkcijski BYO-key model i dalje ciljamo ovlaštenje doku certifikata (bez dijeljenja ključa).
+   - doku brani `EndpointID prodavatelja i kupca je identičan` → za test slati DRUGOM OIB-u;
+     monoform 32234297847 JE na test AMS-u (`mpst.fina.hr`) i poslužio je kao primatelj.
+   - Na doku accountu treba ručno postaviti „U sustavu PDV-a: DA" (default je NE).
 3. **Webhook.** doku ima `document.status_change`, ali payload nije javno u specu — zasad pollamo
    statuse. Kad dobijemo doc → dodati webhook endpoint (Basic auth, retry×3, timeout 2 s).
 4. **Zaprimanje ulaznih eRačuna** (`/documents/invoices/incoming`) i **eIzvještavanje o naplati**
