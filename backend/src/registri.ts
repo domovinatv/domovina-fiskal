@@ -195,6 +195,20 @@ const CW_SHEMA = {
   },
 } as const;
 
+// OIB → URL profila preko companywall pretrage (?n=OIB). Deterministički:
+// firecrawl 'links' format (bez LLM-a) pa filter na /tvrtka/ ili /obrt/ linkove;
+// pretraga po OIB-u vraća najviše jedan subjekt.
+export async function nadjiCompanywallUrl(env: Env, oib: string): Promise<string | null> {
+  const r = await fetch('https://api.firecrawl.dev/v2/scrape', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.FIRECRAWL_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: `https://www.companywall.hr/pretraga?n=${oib}`, formats: ['links'] }),
+  });
+  const odgovor = (await r.json()) as { success?: boolean; error?: string; data?: { links?: string[] } };
+  if (!r.ok || !odgovor.success) throw new Error(odgovor.error ?? `firecrawl HTTP ${r.status}`);
+  return (odgovor.data?.links ?? []).find((l) => /https:\/\/www\.companywall\.hr\/(tvrtka|obrt)\//.test(l)) ?? null;
+}
+
 export async function dohvatiCompanywall(env: Env, url: string): Promise<CompanywallInfo> {
   const r = await fetch('https://api.firecrawl.dev/v2/scrape', {
     method: 'POST',

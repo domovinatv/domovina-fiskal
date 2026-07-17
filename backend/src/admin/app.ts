@@ -37,7 +37,7 @@ import {
 import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
-import { dohvatiCompanywall, dohvatiPoOibu } from '../registri';
+import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
@@ -402,11 +402,24 @@ admin.get('/api/companywall-info', async (c) => {
   if (!c.env.FIRECRAWL_API_KEY) {
     return c.json({ greska: 'FIRECRAWL_API_KEY secret nije postavljen — companywall dohvat nije moguć.' }, 503);
   }
+  // Bez URL-a radi i samo s OIB-om: pretraga ?n=OIB → URL profila.
+  let urlTekst = (c.req.query('url') ?? '').trim();
+  const oib = (c.req.query('oib') ?? '').trim();
+  if (!urlTekst && oib) {
+    if (!validanOib(oib)) return c.json({ greska: `OIB '${oib}' nije valjan (kontrolna znamenka).` }, 400);
+    try {
+      const nadjen = await nadjiCompanywallUrl(c.env, oib);
+      if (!nadjen) return c.json({ greska: `CompanyWall pretraga po OIB-u ${oib} nije našla profil.` }, 404);
+      urlTekst = nadjen;
+    } catch (e) {
+      return c.json({ greska: `CompanyWall pretraga nije uspjela: ${(e as Error).message}` }, 502);
+    }
+  }
   let u: URL;
   try {
-    u = new URL((c.req.query('url') ?? '').trim());
+    u = new URL(urlTekst);
   } catch {
-    return c.json({ greska: 'Neispravan URL.' }, 400);
+    return c.json({ greska: 'Neispravan URL (ili upiši OIB pa koristi pretragu).' }, 400);
   }
   if (u.protocol !== 'https:' || !/(^|\.)companywall\.hr$/.test(u.hostname)) {
     return c.json({ greska: `Očekivan https://www.companywall.hr/… URL (dobiveno: ${u.hostname}).` }, 400);

@@ -154,7 +154,7 @@ export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string
     <button type="submit">Dodaj tenanta</button>
   </form>
   <div style="display:flex;gap:.5rem;margin-top:.6rem;align-items:center">
-    <input id="cw-url" placeholder="ili zalijepi CompanyWall URL: https://www.companywall.hr/tvrtka/…" style="flex:1">
+    <input id="cw-url" placeholder="CompanyWall URL (opcionalno — prazno = pretraga po OIB-u gore)" style="flex:1">
     <button type="button" id="cw-dohvati" style="background:#5A6570">🕸️ Dohvati s CompanyWalla</button>
   </div>
   <div id="oib-panel" style="display:none;margin-top:.7rem;padding:.6rem .8rem;border:1px solid var(--muted);border-radius:6px;font-size:.85rem"></div>
@@ -216,10 +216,14 @@ document.getElementById('oib-dohvati').addEventListener('click', async () => {
 
 document.getElementById('cw-dohvati').addEventListener('click', async () => {
   const url = document.getElementById('cw-url').value.trim();
-  if (!url) { zapocni('Zalijepi CompanyWall URL u polje.'); return; }
-  zapocni('Dohvaćam s CompanyWalla (LLM ekstrakcija, do ~30 s)…');
+  const oib = document.getElementById('tenant-oib').value.trim();
+  if (!url && !oib) { zapocni('Upiši OIB ili zalijepi CompanyWall URL.'); return; }
+  zapocni(url
+    ? 'Dohvaćam s CompanyWalla (LLM ekstrakcija, do ~30 s)…'
+    : 'Tražim OIB ' + oib + ' na CompanyWallu pa dohvaćam (2 koraka, do ~60 s)…');
   try {
-    const r = await fetch('/admin/api/companywall-info?url=' + encodeURIComponent(url));
+    const upit = url ? 'url=' + encodeURIComponent(url) : 'oib=' + encodeURIComponent(oib);
+    const r = await fetch('/admin/api/companywall-info?' + upit);
     const d = await r.json();
     if (!r.ok) { oibPanel.textContent = d.greska || ('Greška (HTTP ' + r.status + ')'); return; }
     postavi('naziv', d.naziv);
@@ -231,6 +235,7 @@ document.getElementById('cw-dohvati').addEventListener('click', async () => {
     if (d.uSustavuPdv !== null) oibForma.elements['u_sustavu_pdv'].value = d.uSustavuPdv ? '1' : '0';
     oibPanel.textContent = '';
     redak('✓ CompanyWall: ' + (d.naziv || '—') + (d.status ? ' [' + d.status + ']' : '') + (d.mbs ? ' · MBS ' + d.mbs : ''), true);
+    if (!url && d.url) redak('Pronađen profil: ' + d.url);
     if (d.iban) redak('IBAN popunjen: ' + d.iban);
     if (d.email) redak('E-mail: ' + d.email + ' (iskoristi za SSO pristup na detalju tenanta)');
     redak('U sustavu PDV-a: ' + (d.uSustavuPdv === null ? 'NEPOZNATO — provjeri ručno (vidi dolje)' : d.uSustavuPdv ? 'da' : 'ne'));
