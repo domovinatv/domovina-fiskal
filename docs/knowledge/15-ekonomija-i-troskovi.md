@@ -179,3 +179,30 @@ jeftiniji nego da taj fiksni trošak nosiš sam."
 - ✅ **AKD / Certilia cijena kvalificiranog aplikacijskog (fiskalizacijskog) certifikata.** **20 € + PDV, jednokratno, trajanje 5 godina, format .p12** (certifikat + privatni ključ pod lozinkom, ostaje pod tvojom kontrolom); izdaje se online na temelju OIB-a bez fizičkog dolaska. → **Znatno jeftinije od FINA ~49,78 €/5 god** (FINA 39,82 € izdavanje + 10,62 € registracija). Certilia je usluga AKD-a; PU je potvrdila da Certilia izdaje fiskalizacijske certifikate. Izvori: [Certilia — poslovni korisnici (fiskalizacijski certifikat)](https://www.certilia.com/poslovni-korisnici), [PU — Certilia omogućila izdavanje fiskalizacijskih certifikata (8466)](https://porezna-uprava.gov.hr/hr/certilia-omogucila-izdavanje-fiskalizacijskih-certifikata/8466), [FiskAI — Certilia fiskalizacijski certifikat](https://www.fiskai.hr/certilia-fiskalizacijski-certifikat/).
 - ⚠️ **Konkretni iznosi NIS2 / kibernetičkog usklađenja za mali tim u HR — nema javne HR cifre.** Hrvatski konzultantski vodiči (Vision Compliance, Ctrl Alt Grow, Alfatec, PwC HR) opisuju obveze i kazne, ali **ne objavljuju cjenike** usklađivanja (dostupno tek na upit/ponudu). **Najbolja javna referenca su EU/DE brojke:** njemačka vlada u obrazloženju NIS2 zakona navodi **~70.000 € jednokratno + ~30.000 €/god** po obveznom subjektu; praktični raspon **15.000 – >250.000 €** ovisno o veličini i pristupu; ENISA: odstupanje stvarnog troška 40–100 % iznad prve ponude, godišnji „tick-over" +12–15 %. **Ključno za mali tim:** NIS2 (hrv. Zakon o kibernetičkoj sigurnosti, NN 14/24) veže **samo srednje+ subjekte** (≥50 zaposlenih ili ≥10 mln € prihoda za „važne", ≥250 / ≥50 mln € za „ključne") — **mali tim tipično NIJE obveznik po pragu veličine**, osim ako uđe **preko lanca opskrbe** (ugovorni zahtjev ključnog subjekta) neovisno o veličini. → Za solo/mali PT-za-sebe scenarij NIS2 realno **ne aktivira** te troškove; postaje relevantno tek za punog IP-a koji opslužuje regulirane subjekte. Izvori: [Ctrl Alt Grow — NIS2 vodič HR](https://ctrlaltgrow.hr/blog/nis2-vodic-hrvatska/), [Kiteworks — NIS2 compliance costs](https://www.kiteworks.com/regulatory-compliance/nis2-compliance-costs/), [Kopexa — NIS2 Kosten 2026](https://kopexa.com/en/catalog/nis-2/kosten), [Cybersecurity ASEE — NIS2 for SMEs](https://cybersecurity.asee.io/blog/nis2-for-smes/).
 - ✅ **Moj-eRačun (mer) paketi BASIC MICRO — detaljni iznosi iz javnog cjenika.** Svi iznosi bez PDV-a: **BASIC MICRO 10 = 8,00 €/mj (10 eR)**, **20 = 12,00 €/mj (20)**, **50 = 24,00 €/mj (50)**, **75 = 36,00 €/mj (75)**, **100 = 47,00 €/mj (100)**; **dodatni eRačun 0,25 €**; **jednokratna aktivacija 29,00 €** (za sve pakete). Postoje i viši paketi (BASIC MICRO 150 … BASIC 600); >600 rač/mj → prilagođeni paket. → Po eRačunu unutar paketa: MICRO 10 ~0,80 €/eR, MICRO 50 ~0,48 €/eR, MICRO 100 ~0,47 €/eR — **osjetno skuplje od ePoslovanje 0,08 € / doku 0,10 €** za usporedive male volumene. Izvor: [Moj-eRačun — Cjenik](https://portal.moj-eracun.hr/podrska/cjenik/).
+
+---
+
+## 8. Cloudflare Workers Paid plan — aktivan na accountu D.O.M. (od 2026-07-17)
+
+Nadogradnja s Free na **Workers Paid (5 USD/mj + usage)** napravljena 2026-07-17;
+okidač je bio **D1 limit od 10 baza** na Free planu (trebala nam je zasebna
+`fiskal_domovina_test` za odvojeno test okruženje). Trajno uključeno u planu
+(izvor: Cloudflare checkout, pristup 2026-07-17):
+
+| Proizvod | Uključeno mjesečno | Overage |
+|---|---|---|
+| Workers/Pages Functions zahtjevi | 10 mln | 0,30 USD/mln |
+| CPU vrijeme | 30 s/zahtjev, 30 mln ms/mj | 0,02 USD/mln CPU ms |
+| Workers Builds | 6 slotova, 6.000 min/mj | 0,005 USD/min |
+| Durable Objects | 1 mln zahtjeva, 400K GB-s, 1 GB | 0,15 USD/mln zahtjeva |
+| KV | 10 mln čitanja, 1 mln pisanja/brisanja | 0,50 USD/mln operacija |
+| **D1** | **25 mlrd čitanja redaka, 50 mln pisanja, 5 GB** (limit baza raste s 10 na tisuće) | 0,001 USD/mln redaka |
+| Queues | 1 mln operacija | 0,40 USD/mln |
+| Workers AI | 10K neurona/dan | po modelu |
+| Vectorize | 50 mln queried / 10 mln stored dimenzija | 0,01 USD/mln upita |
+| Workers Logs | 20 mln eventova, retencija 7 dana | 0,05 USD/mln |
+| Hyperdrive, Workers Assets, Images+Stream | uključeno | transformacije 0,50 USD/tis. |
+
+Posljedice za fiskal projekt: CPU limit po zahtjevu raste s 10 ms na 30 s
+(bitno za XML-DSIG/subtls prema CIS-u), 100→500 workera, 5→250 cron triggera,
+D1 bez straha od limita baza. Za projekcije troška po tenantu vidi §4.

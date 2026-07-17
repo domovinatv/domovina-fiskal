@@ -47,7 +47,8 @@ migrations_dir = "migrations"
 
 [vars]
 # Zadana okolina fiskalizacije za nove certifikate/poruke ('test' | 'prod').
-OKOLINA = "test"
+# Glavni worker = PRODUKCIJA od 2026-07-17; test živi na [env.test] (fiskal-test).
+OKOLINA = "prod"
 
 # Dashboard SSO — dijeljeni GoTrue (domovina-api). JWT-ovi se verificiraju
 # delegacijom na GET /auth/v1/user; anon key je PUBLIC-SAFE (isti je već u
@@ -65,3 +66,39 @@ DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.p
 #   RESEND_API_KEY  # Resend fallback za slanje emailova (dok CF Email Sending nije aktiviran)
 #   DOKU_SOFTWARE_API_TOKEN  # GUID naše integracije za doku eRačun API (isti za sve tenante;
 #                            # per-tenant API-TOKEN se unosi u /admin i sprema enkriptiran)
+#
+# NAPOMENA (okoline): glavni worker = PRODUKCIJA (OKOLINA=prod), [env.test] dolje
+# = TEST okruženje (fiskal-test.domovina.ai, zasebna D1, OKOLINA=test). Secrets za
+# test: `wrangler secret put <IME> --env test` (test DOKU_SOFTWARE_API_TOKEN!).
+
+# ═══════════════════ TEST OKRUŽENJE (fiskal-test.domovina.ai) ═══════════════════
+# Deploy: `npx wrangler deploy --env test`. Wrangler env NE nasljeđuje vars/route/
+# d1/triggere — sve je navedeno eksplicitno.
+
+[env.test]
+name = "fiskal-domovina-backend-test"
+
+[[env.test.routes]]
+pattern = "fiskal-test.domovina.ai"
+custom_domain = true
+
+[env.test.observability]
+enabled = true
+
+[env.test.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.test.send_email]]
+name = "EMAIL"
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "fiskal_domovina_test"
+database_id = "a5f88aa8-2725-49af-8e55-c97a7820f25a"
+migrations_dir = "migrations"
+
+[env.test.vars]
+OKOLINA = "test"
+SUPABASE_URL = "https://api.domovina.ai"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc3OTExMTcxMywiZXhwIjo0OTMyNzExNzEzLCJyb2xlIjoiYW5vbiJ9.Q4Ef7xMc2dmjMyfJebPDyqNirnARZzMxTWe7i0dASPI"
+DASHBOARD_ORIGIN = "https://fiskal-app-test.domovina.ai,https://domovina-fiskal-app-test.pages.dev,http://localhost:3000"
