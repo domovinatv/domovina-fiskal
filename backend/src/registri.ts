@@ -20,14 +20,19 @@ const VIES_API = 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-
 
 export interface OibInfo {
   oib: string;
-  izvor: 'sudreg' | 'vies' | null;
+  izvori: ('sudreg' | 'vies' | 'companywall')[]; // koji su izvori doprinijeli podacima
   naziv: string | null;
   ulica: string | null; // ulica + kućni broj
   mjesto: string | null;
   postanskiBroj: string | null;
+  iban: string | null; // samo companywall (registri ga nemaju)
   email: string | null; // službeni e-mail iz sudskog registra (koristan za SSO pristup)
   pravniOblik: string | null; // kratica, npr. 'd.o.o.' (samo sudreg)
+  mbs: string | null; // samo companywall
+  status: string | null; // samo companywall (aktivan / blokiran …)
+  uSustavuPdv: boolean | null; // samo ako izvor eksplicitno prikazuje (rijetko) — inače null
   viesValjan: boolean | null; // aktivan PDV ID; null = VIES nedostupan
+  companywallUrl: string | null; // pronađeni profil (za ručnu provjeru)
   upozorenja: string[];
 }
 
@@ -98,21 +103,27 @@ function parsirajViesAdresu(adresa: string): { ulica: string | null; mjesto: str
   };
 }
 
+// Jedinstveni dohvat po OIB-u: paralelno sudreg + VIES + companywall, pa spoji.
+// Registri (sudreg/VIES) su autoritativni za naziv/adresu; companywall dodaje
+// IBAN i MBS (i služi kao fallback kad registri ne vrate ništa). Svaki izvor
+// smije pasti neovisno — dohvat vraća što je uspjelo.
 export async function dohvatiPoOibu(env: Env, oib: string): Promise<OibInfo> {
   const info: OibInfo = {
-    oib, izvor: null, naziv: null, ulica: null, mjesto: null, postanskiBroj: null,
-    email: null, pravniOblik: null, viesValjan: null, upozorenja: [],
+    oib, izvori: [], naziv: null, ulica: null, mjesto: null, postanskiBroj: null,
+    iban: null, email: null, pravniOblik: null, mbs: null, status: null,
+    uSustavuPdv: null, viesValjan: null, companywallUrl: null, upozorenja: [],
   };
 
-  const imaSudregKredencijale = !!(env.SUDREG_CLIENT_ID && env.SUDREG_CLIENT_SECRET);
-  if (!imaSudregKredencijale) {
-    info.upozorenja.push('SUDREG_CLIENT_ID/SECRET secreti nisu postavljeni — dohvat samo iz VIES-a.');
-  }
+  const imaSudreg = !!(env.SUDREG_CLIENT_ID && env.SUDREG_CLIENT_SECRET);
+  const imaFirecrawl = !!env.FIRECRAWL_API_KEY;
+  if (!imaSudreg) info.upozorenja.push('SUDREG_CLIENT_ID/SECRET secreti nisu postavljeni — bez sudskog registra.');
 
-  // Paralelno: sudreg (ako ima kredencijala) + VIES.
-  const [sudregIshod, viesIshod] = await Promise.allSettled([
-    imaSudregKredencijale ? dohvatiSudreg(env, oib) : Promise.resolve(null),
+  // Sva tri izvora paralelno. Companywall = 2 firecrawl poziva (pretraga + profil),
+  // najsporiji je (~30–60 s); ostali ga ne čekaju ako padne.
+  const [sudregIshod, viesIshod, cwIshod] = await Promise.allSettled([
+    imaSudreg ? dohvatiSudreg(env, oib) : Promise.resolve(null),
     dohvatiVies(oib),
+    imaFirecrawl ? dohvatiCompanywallPoOibu(env, oib) : Promise.resolve(null),
   ]);
 
   const vies = viesIshod.status === 'fulfilled' ? viesIshod.value : null;
@@ -124,37 +135,70 @@ export async function dohvatiPoOibu(env: Env, oib: string): Promise<OibInfo> {
   }
   const sudreg = sudregIshod.status === 'fulfilled' ? sudregIshod.value : null;
 
-  const viesAdresa = vies?.valid && vies.address ? parsirajViesAdresu(vies.address) : null;
-
-  if (sudreg) {
-    info.izvor = 'sudreg';
-    info.naziv = sudreg.tvrtka?.ime ?? sudreg.skracena_tvrtka?.ime ?? null;
-    const s = sudreg.sjediste;
-    info.ulica = s?.ulica ? `${s.ulica} ${s.kucni_broj ?? ''}`.trim() : null;
-    info.mjesto = s?.naziv_naselja ?? null;
-    info.postanskiBroj = viesAdresa?.postanskiBroj ?? null; // sudreg nema PBR — dopuna iz VIES-a
-    info.email = sudreg.email_adrese?.[0]?.adresa ?? null;
-    info.pravniOblik = sudreg.pravni_oblik?.vrsta_pravnog_oblika?.kratica ?? null;
-  } else if (vies?.valid) {
-    info.izvor = 'vies';
-    info.naziv = vies.name ?? null;
-    if (viesAdresa) Object.assign(info, viesAdresa);
-    if (imaSudregKredencijale && sudregIshod.status === 'fulfilled') {
-      info.upozorenja.push(
-        'Subjekt nije u sudskom registru (vjerojatno obrt/OPG) — podaci iz VIES-a; za obrt je naziv često ime vlasnika, provjeri i dopuni naziv obrta ručno.',
-      );
-    }
-  } else if (vies && !vies.valid) {
-    info.upozorenja.push(
-      'OIB nije pronađen ni u sudskom registru ni u VIES-u (subjekt bez PDV ID-a) — unesi podatke ručno.',
-    );
+  const cw = cwIshod.status === 'fulfilled' ? cwIshod.value : null;
+  if (imaFirecrawl && cwIshod.status === 'rejected') {
+    info.upozorenja.push(`CompanyWall nedostupan (${cwIshod.reason}) — IBAN provjeri ručno.`);
   }
 
-  // Uvijek: što se NE može dohvatiti javno.
-  info.upozorenja.push(
-    'PDV status obavezno provjeri na PU aplikaciji (VIES "valjan" ≠ u sustavu PDV-a!): https://provjeri-rpo-pdv.porezna-uprava.hr/',
-    'IBAN nema javnog izvora — unesi ručno.',
-  );
+  const viesAdresa = vies?.valid && vies.address ? parsirajViesAdresu(vies.address) : null;
+
+  // Popuni polje samo ako je prazno (poziva se od najautoritativnijeg prema fallbacku).
+  const uzmi = (polje: 'naziv' | 'ulica' | 'mjesto' | 'postanskiBroj' | 'email', v: string | null | undefined) => {
+    if (!info[polje] && v) info[polje] = v;
+  };
+
+  // 1) Sudreg — najautoritativniji za trgovačka društva.
+  if (sudreg) {
+    info.izvori.push('sudreg');
+    uzmi('naziv', sudreg.tvrtka?.ime ?? sudreg.skracena_tvrtka?.ime);
+    const s = sudreg.sjediste;
+    uzmi('ulica', s?.ulica ? `${s.ulica} ${s.kucni_broj ?? ''}`.trim() : null);
+    uzmi('mjesto', s?.naziv_naselja);
+    uzmi('email', sudreg.email_adrese?.[0]?.adresa);
+    info.pravniOblik = sudreg.pravni_oblik?.vrsta_pravnog_oblika?.kratica ?? null;
+  }
+
+  // 2) VIES — naziv/adresa (uz obrte) i JEDINI izvor poštanskog broja.
+  if (vies?.valid) {
+    if (!info.izvori.includes('sudreg')) {
+      info.izvori.push('vies');
+      uzmi('naziv', vies.name);
+    }
+    if (viesAdresa) {
+      uzmi('ulica', viesAdresa.ulica);
+      uzmi('mjesto', viesAdresa.mjesto);
+      uzmi('postanskiBroj', viesAdresa.postanskiBroj);
+    }
+  }
+
+  // 3) CompanyWall — IBAN + MBS + status; popunjava i preostale rupe u nazivu/adresi.
+  if (cw) {
+    info.izvori.push('companywall');
+    info.companywallUrl = cw.url;
+    info.iban = cw.iban;
+    info.mbs = cw.mbs;
+    info.status = cw.status;
+    if (typeof cw.uSustavuPdv === 'boolean') info.uSustavuPdv = cw.uSustavuPdv;
+    uzmi('naziv', cw.naziv);
+    uzmi('ulica', cw.ulica);
+    uzmi('mjesto', cw.mjesto);
+    uzmi('postanskiBroj', cw.postanskiBroj);
+    uzmi('email', cw.email);
+    info.upozorenja.push(...cw.upozorenja);
+  }
+
+  // Kontekstualna upozorenja.
+  if (!sudreg && vies?.valid && imaSudreg && sudregIshod.status === 'fulfilled') {
+    info.upozorenja.push('Subjekt nije u sudskom registru (vjerojatno obrt/OPG) — za obrt je naziv često ime vlasnika, provjeri ga.');
+  }
+  if (info.izvori.length === 0) {
+    info.upozorenja.push('OIB nije pronađen ni u jednom izvoru — unesi podatke ručno.');
+  }
+  if (!info.iban) {
+    info.upozorenja.push('IBAN nije dohvaćen — unesi ručno.');
+  }
+  // PDV status: nijedan javni izvor ne daje pouzdano — uvijek uputi na PU.
+  info.upozorenja.push('PDV status obavezno provjeri na PU aplikaciji (VIES "valjan" ≠ u sustavu PDV-a!): https://provjeri-rpo-pdv.porezna-uprava.hr/');
   return info;
 }
 
@@ -207,6 +251,13 @@ export async function nadjiCompanywallUrl(env: Env, oib: string): Promise<string
   const odgovor = (await r.json()) as { success?: boolean; error?: string; data?: { links?: string[] } };
   if (!r.ok || !odgovor.success) throw new Error(odgovor.error ?? `firecrawl HTTP ${r.status}`);
   return (odgovor.data?.links ?? []).find((l) => /https:\/\/www\.companywall\.hr\/(tvrtka|obrt)\//.test(l)) ?? null;
+}
+
+// OIB → (pretraga → profil → ekstrakcija) u jednom pozivu; null ako profil ne postoji.
+export async function dohvatiCompanywallPoOibu(env: Env, oib: string): Promise<CompanywallInfo | null> {
+  const url = await nadjiCompanywallUrl(env, oib);
+  if (!url) return null;
+  return dohvatiCompanywall(env, url);
 }
 
 export async function dohvatiCompanywall(env: Env, url: string): Promise<CompanywallInfo> {
