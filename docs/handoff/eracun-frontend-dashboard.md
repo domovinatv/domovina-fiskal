@@ -105,9 +105,11 @@ Ciljno stanje (2 potpuno odvojena okruženja):
 | | TEST | PROD |
 |---|---|---|
 | Worker | `[env.test]` u wrangler.toml: `fiskal-domovina-backend-test`, domena `fiskal-test.domovina.ai`, **zasebna D1** (`fiskal_domovina_test`), `OKOLINA="test"`, secrets `--env test` (TEST doku software token) | postojeći worker, `OKOLINA="prod"`, PROD doku software token (čeka se od doku-a) |
-| Frontend | drugi Pages projekt (`domovina-fiskal-app-test`) s `NEXT_PUBLIC_FISKAL_API_URL=https://fiskal-test.domovina.ai/api/v1` | postojeći, API URL `https://fiskal.domovina.ai/api/v1` |
+| Frontend | `domovina-fiskal-app-test` → **fiskal-app-test.domovina.ai** (`npm run deploy:test`) | postojeći (`fiskal-app.domovina.ai`), API URL `https://fiskal.domovina.ai/api/v1` |
 
 Redoslijed: (1) izgraditi `[env.test]` + test Pages odmah (današnje test stanje
 se preseli tamo), (2) glavni worker prebaciti na `OKOLINA="prod"` TEK kad stigne
 produkcijski SOFTWARE-API-TOKEN. Frontend kod je env-agnostičan — okruženje
 bira isključivo build env var, nema koda ovisnog o okolini.
+
+> AŽURIRANO 2026-07-17: oba okruženja su DEPLOYANA (worker fiskal-test.domovina.ai + Pages fiskal-app-test.domovina.ai; glavni worker je OKOLINA=prod). E2E kroz cloud test potvrđen (doku id 1223, FISCALIZED). Preostalo ručno: test origin u GoTrue ADDITIONAL_REDIRECT_URLS; prod doku software token kad stigne.
