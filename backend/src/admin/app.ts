@@ -37,6 +37,7 @@ import {
 import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
+import { dohvatiPoOibu } from '../registri';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
@@ -383,6 +384,16 @@ admin.post('/tenant/:id/proizvodi', async (c) => {
     const poruka = String(e).includes('UNIQUE') ? `Proizvod sa šifrom već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
+});
+
+// Dohvat javnih podataka subjekta po OIB-u (sudreg + VIES) za predpopunjavanje
+// forme tenanta (JSON; Basic Auth naslijeđen). PDV status i IBAN ostaju ručni.
+admin.get('/api/oib-info', async (c) => {
+  const oib = (c.req.query('oib') ?? '').trim();
+  if (!validanOib(oib)) {
+    return c.json({ greska: `OIB '${oib}' nije valjan (kontrolna znamenka).` }, 400);
+  }
+  return c.json(await dohvatiPoOibu(c.env, oib));
 });
 
 // KPD pretraga za picker (JSON; Basic Auth naslijeđen).

@@ -140,8 +140,9 @@ export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string
 <h1>Tenanti</h1>
 <div class="box">
   <form method="post" action="/admin/tenanti">
+    <div class="field"><label>OIB *</label><input name="oib" id="tenant-oib" required pattern="\\d{11}" placeholder="12345678903"></div>
+    <div class="field"><label>&nbsp;</label><button type="button" id="oib-dohvati" style="background:#5A6570">🔎 Dohvati po OIB-u</button></div>
     <div class="field"><label>Naziv *</label><input name="naziv" required placeholder="Firma d.o.o."></div>
-    <div class="field"><label>OIB *</label><input name="oib" required pattern="\\d{11}" placeholder="12345678903"></div>
     <div class="field"><label>Ulica i kbr</label><input name="ulica" placeholder="Ilica 1"></div>
     <div class="field"><label>Mjesto</label><input name="mjesto" placeholder="Zagreb"></div>
     <div class="field"><label>Pošt. broj</label><input name="postanski_broj" placeholder="10000"></div>
@@ -152,7 +153,57 @@ export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string
       <select name="oznaka_slijednosti"><option value="P">P — poslovni prostor</option><option value="N">N — naplatni uređaj</option></select></div>
     <button type="submit">Dodaj tenanta</button>
   </form>
+  <div id="oib-panel" style="display:none;margin-top:.7rem;padding:.6rem .8rem;border:1px solid var(--muted);border-radius:6px;font-size:.85rem"></div>
 </div>
+<script>
+// "Dohvati po OIB-u" — sudreg (d.o.o. i sl.) + VIES (obrti) predpopune formu.
+// PDV status i IBAN se NE mogu dohvatiti javno — panel prikazuje upozorenja.
+const oibForma = document.querySelector('form[action="/admin/tenanti"]');
+const oibPanel = document.getElementById('oib-panel');
+document.getElementById('oib-dohvati').addEventListener('click', async () => {
+  const oib = document.getElementById('tenant-oib').value.trim();
+  oibPanel.style.display = 'block';
+  oibPanel.textContent = 'Dohvaćam podatke za OIB ' + oib + '…';
+  try {
+    const r = await fetch('/admin/api/oib-info?oib=' + encodeURIComponent(oib));
+    const d = await r.json();
+    if (!r.ok) { oibPanel.textContent = d.greska || ('Greška (HTTP ' + r.status + ')'); return; }
+    const postavi = (ime, v) => { if (v) oibForma.elements[ime].value = v; };
+    postavi('naziv', d.naziv);
+    postavi('ulica', d.ulica);
+    postavi('mjesto', d.mjesto);
+    postavi('postanski_broj', d.postanskiBroj);
+    // Panel gradimo DOM-om (podaci dolaze iz vanjskih registara — bez innerHTML-a).
+    oibPanel.textContent = '';
+    const redak = (tekst, bold) => {
+      const p = document.createElement('div');
+      if (bold) p.style.fontWeight = '600';
+      p.textContent = tekst;
+      oibPanel.appendChild(p);
+      return p;
+    };
+    if (d.izvor === 'sudreg') redak('✓ Sudski registar: ' + (d.naziv || '—') + (d.pravniOblik ? ' (' + d.pravniOblik + ')' : ''), true);
+    else if (d.izvor === 'vies') redak('✓ VIES: ' + (d.naziv || '—'), true);
+    else redak('Ništa nije pronađeno — unesi podatke ručno.', true);
+    if (d.email) redak('E-mail iz registra: ' + d.email + ' (iskoristi za SSO pristup na detalju tenanta)');
+    if (d.viesValjan !== null) redak('PDV ID (VIES): ' + (d.viesValjan ? 'valjan' : 'nema') + ' — to NIJE isto što i "u sustavu PDV-a"!');
+    for (const u of d.upozorenja || []) {
+      const p = redak('⚠️ ' + u);
+      p.style.color = 'var(--muted)';
+      // URL u upozorenju pretvori u link (statični PU link iz našeg backenda).
+      const m = u.match(/https:\\/\\/\\S+/);
+      if (m) {
+        p.textContent = '⚠️ ' + u.replace(m[0], '') ;
+        const a = document.createElement('a');
+        a.href = m[0]; a.target = '_blank'; a.textContent = m[0];
+        p.appendChild(a);
+      }
+    }
+  } catch (e) {
+    oibPanel.textContent = 'Greška pri dohvatu: ' + e;
+  }
+});
+</script>
 <table>
   <thead><tr><th>Naziv</th><th>OIB</th><th>PDV</th><th>Slijednost</th><th>Status</th><th>Kreiran</th></tr></thead>
   <tbody>${redovi || '<tr><td colspan="6" class="prazno">Nema tenanata — dodaj prvog gore.</td></tr>'}</tbody>

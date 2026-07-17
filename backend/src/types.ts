@@ -18,6 +18,12 @@ export interface Env {
   // identificira NAŠU integraciju (isti za sve tenante); per-tenant API-TOKEN
   // živi enkriptiran u doku_konfig (BYO-key). Wrangler secret.
   DOKU_SOFTWARE_API_TOKEN?: string;
+  // Sudski registar open-data API (dohvat podataka tenanta po OIB-u u adminu).
+  // Registracija na sudreg-data.gov.hr; wrangler secreti.
+  SUDREG_CLIENT_ID?: string;
+  SUDREG_CLIENT_SECRET?: string;
+  // Firecrawl (iteracija 2: parsiranje companywall URL-a) — wrangler secret.
+  FIRECRAWL_API_KEY?: string;
 }
 
 export interface TenantRow {
