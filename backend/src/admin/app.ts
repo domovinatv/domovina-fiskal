@@ -37,7 +37,7 @@ import {
 import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
-import { dohvatiPoOibu } from '../registri';
+import { dohvatiCompanywall, dohvatiPoOibu } from '../registri';
 import { kreirajDokument } from '../api/racuni';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
@@ -394,6 +394,28 @@ admin.get('/api/oib-info', async (c) => {
     return c.json({ greska: `OIB '${oib}' nije valjan (kontrolna znamenka).` }, 400);
   }
   return c.json(await dohvatiPoOibu(c.env, oib));
+});
+
+// CompanyWall URL → firecrawl LLM ekstrakcija (JSON; Basic Auth naslijeđen).
+// Jedini javni izvor IBAN-a; PDV status ni ovdje nije dostupan (vidi registri.ts).
+admin.get('/api/companywall-info', async (c) => {
+  if (!c.env.FIRECRAWL_API_KEY) {
+    return c.json({ greska: 'FIRECRAWL_API_KEY secret nije postavljen — companywall dohvat nije moguć.' }, 503);
+  }
+  let u: URL;
+  try {
+    u = new URL((c.req.query('url') ?? '').trim());
+  } catch {
+    return c.json({ greska: 'Neispravan URL.' }, 400);
+  }
+  if (u.protocol !== 'https:' || !/(^|\.)companywall\.hr$/.test(u.hostname)) {
+    return c.json({ greska: `Očekivan https://www.companywall.hr/… URL (dobiveno: ${u.hostname}).` }, 400);
+  }
+  try {
+    return c.json(await dohvatiCompanywall(c.env, u.toString()));
+  } catch (e) {
+    return c.json({ greska: `Firecrawl dohvat nije uspio: ${(e as Error).message}` }, 502);
+  }
 });
 
 // KPD pretraga za picker (JSON; Basic Auth naslijeđen).

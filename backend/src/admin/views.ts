@@ -153,52 +153,88 @@ export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string
       <select name="oznaka_slijednosti"><option value="P">P — poslovni prostor</option><option value="N">N — naplatni uređaj</option></select></div>
     <button type="submit">Dodaj tenanta</button>
   </form>
+  <div style="display:flex;gap:.5rem;margin-top:.6rem;align-items:center">
+    <input id="cw-url" placeholder="ili zalijepi CompanyWall URL: https://www.companywall.hr/tvrtka/…" style="flex:1">
+    <button type="button" id="cw-dohvati" style="background:#5A6570">🕸️ Dohvati s CompanyWalla</button>
+  </div>
   <div id="oib-panel" style="display:none;margin-top:.7rem;padding:.6rem .8rem;border:1px solid var(--muted);border-radius:6px;font-size:.85rem"></div>
 </div>
 <script>
-// "Dohvati po OIB-u" — sudreg (d.o.o. i sl.) + VIES (obrti) predpopune formu.
-// PDV status i IBAN se NE mogu dohvatiti javno — panel prikazuje upozorenja.
+// Predpopunjavanje forme tenanta iz dva smjera:
+//  1. "Dohvati po OIB-u" — sudreg (d.o.o.) + VIES (obrti); bez IBAN-a.
+//  2. "Dohvati s CompanyWalla" — firecrawl LLM ekstrakcija; jedini izvor IBAN-a.
+// PDV status ne daje nijedan javni izvor — panel uvijek upozorava (PU aplikacija).
 const oibForma = document.querySelector('form[action="/admin/tenanti"]');
 const oibPanel = document.getElementById('oib-panel');
+const postavi = (ime, v) => { if (v !== null && v !== undefined && v !== '') oibForma.elements[ime].value = v; };
+// Panel gradimo DOM-om (podaci dolaze iz vanjskih izvora — bez innerHTML-a).
+const redak = (tekst, bold) => {
+  const p = document.createElement('div');
+  if (bold) p.style.fontWeight = '600';
+  p.textContent = tekst;
+  oibPanel.appendChild(p);
+  return p;
+};
+const prikaziUpozorenja = (d) => {
+  for (const u of d.upozorenja || []) {
+    const p = redak('⚠️ ' + u);
+    p.style.color = 'var(--muted)';
+    // URL u upozorenju pretvori u link (statični PU link iz našeg backenda).
+    const m = u.match(/https:\\/\\/\\S+/);
+    if (m) {
+      p.textContent = '⚠️ ' + u.replace(m[0], '');
+      const a = document.createElement('a');
+      a.href = m[0]; a.target = '_blank'; a.textContent = m[0];
+      p.appendChild(a);
+    }
+  }
+};
+const zapocni = (poruka) => { oibPanel.style.display = 'block'; oibPanel.textContent = poruka; };
+
 document.getElementById('oib-dohvati').addEventListener('click', async () => {
   const oib = document.getElementById('tenant-oib').value.trim();
-  oibPanel.style.display = 'block';
-  oibPanel.textContent = 'Dohvaćam podatke za OIB ' + oib + '…';
+  zapocni('Dohvaćam podatke za OIB ' + oib + '…');
   try {
     const r = await fetch('/admin/api/oib-info?oib=' + encodeURIComponent(oib));
     const d = await r.json();
     if (!r.ok) { oibPanel.textContent = d.greska || ('Greška (HTTP ' + r.status + ')'); return; }
-    const postavi = (ime, v) => { if (v) oibForma.elements[ime].value = v; };
     postavi('naziv', d.naziv);
     postavi('ulica', d.ulica);
     postavi('mjesto', d.mjesto);
     postavi('postanski_broj', d.postanskiBroj);
-    // Panel gradimo DOM-om (podaci dolaze iz vanjskih registara — bez innerHTML-a).
     oibPanel.textContent = '';
-    const redak = (tekst, bold) => {
-      const p = document.createElement('div');
-      if (bold) p.style.fontWeight = '600';
-      p.textContent = tekst;
-      oibPanel.appendChild(p);
-      return p;
-    };
     if (d.izvor === 'sudreg') redak('✓ Sudski registar: ' + (d.naziv || '—') + (d.pravniOblik ? ' (' + d.pravniOblik + ')' : ''), true);
     else if (d.izvor === 'vies') redak('✓ VIES: ' + (d.naziv || '—'), true);
-    else redak('Ništa nije pronađeno — unesi podatke ručno.', true);
+    else redak('Ništa nije pronađeno — unesi podatke ručno ili probaj CompanyWall URL.', true);
     if (d.email) redak('E-mail iz registra: ' + d.email + ' (iskoristi za SSO pristup na detalju tenanta)');
     if (d.viesValjan !== null) redak('PDV ID (VIES): ' + (d.viesValjan ? 'valjan' : 'nema') + ' — to NIJE isto što i "u sustavu PDV-a"!');
-    for (const u of d.upozorenja || []) {
-      const p = redak('⚠️ ' + u);
-      p.style.color = 'var(--muted)';
-      // URL u upozorenju pretvori u link (statični PU link iz našeg backenda).
-      const m = u.match(/https:\\/\\/\\S+/);
-      if (m) {
-        p.textContent = '⚠️ ' + u.replace(m[0], '') ;
-        const a = document.createElement('a');
-        a.href = m[0]; a.target = '_blank'; a.textContent = m[0];
-        p.appendChild(a);
-      }
-    }
+    prikaziUpozorenja(d);
+  } catch (e) {
+    oibPanel.textContent = 'Greška pri dohvatu: ' + e;
+  }
+});
+
+document.getElementById('cw-dohvati').addEventListener('click', async () => {
+  const url = document.getElementById('cw-url').value.trim();
+  if (!url) { zapocni('Zalijepi CompanyWall URL u polje.'); return; }
+  zapocni('Dohvaćam s CompanyWalla (LLM ekstrakcija, do ~30 s)…');
+  try {
+    const r = await fetch('/admin/api/companywall-info?url=' + encodeURIComponent(url));
+    const d = await r.json();
+    if (!r.ok) { oibPanel.textContent = d.greska || ('Greška (HTTP ' + r.status + ')'); return; }
+    postavi('naziv', d.naziv);
+    postavi('oib', d.oib);
+    postavi('ulica', d.ulica);
+    postavi('mjesto', d.mjesto);
+    postavi('postanski_broj', d.postanskiBroj);
+    postavi('iban', d.iban);
+    if (d.uSustavuPdv !== null) oibForma.elements['u_sustavu_pdv'].value = d.uSustavuPdv ? '1' : '0';
+    oibPanel.textContent = '';
+    redak('✓ CompanyWall: ' + (d.naziv || '—') + (d.status ? ' [' + d.status + ']' : '') + (d.mbs ? ' · MBS ' + d.mbs : ''), true);
+    if (d.iban) redak('IBAN popunjen: ' + d.iban);
+    if (d.email) redak('E-mail: ' + d.email + ' (iskoristi za SSO pristup na detalju tenanta)');
+    redak('U sustavu PDV-a: ' + (d.uSustavuPdv === null ? 'NEPOZNATO — provjeri ručno (vidi dolje)' : d.uSustavuPdv ? 'da' : 'ne'));
+    prikaziUpozorenja(d);
   } catch (e) {
     oibPanel.textContent = 'Greška pri dohvatu: ' + e;
   }

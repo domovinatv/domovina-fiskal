@@ -13,6 +13,7 @@
 // IBAN nema javnog strojnog izvora (FINA registar računa nije otvoren).
 
 import type { Env } from './types';
+import { validanOib } from './util';
 
 const SUDREG_API = 'https://sudreg-data.gov.hr/api';
 const VIES_API = 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number';
@@ -154,5 +155,95 @@ export async function dohvatiPoOibu(env: Env, oib: string): Promise<OibInfo> {
     'PDV status obavezno provjeri na PU aplikaciji (VIES "valjan" ≠ u sustavu PDV-a!): https://provjeri-rpo-pdv.porezna-uprava.hr/',
     'IBAN nema javnog izvora — unesi ručno.',
   );
+  return info;
+}
+
+// ──────────── CompanyWall preko firecrawla (LLM ekstrakcija) — iteracija 2 ────────────
+// CompanyWall agregira i podatke kojih u javnim registrima nema (IBAN!), ali nema
+// javni API — firecrawl v2 /scrape s JSON shemom radi ekstrakciju na svojoj strani.
+// ⚠️ PDV status ni companywall javno ne prikazuje — i dalje isključivo PU aplikacija.
+
+export interface CompanywallInfo {
+  url: string;
+  naziv: string | null;
+  oib: string | null;
+  ulica: string | null;
+  mjesto: string | null;
+  postanskiBroj: string | null;
+  iban: string | null;
+  uSustavuPdv: boolean | null;
+  mbs: string | null;
+  email: string | null;
+  status: string | null; // aktivan / blokiran / u stečaju …
+  upozorenja: string[];
+}
+
+// JSON shema za firecrawl ekstrakciju — polja koja admin forma tenanta treba.
+const CW_SHEMA = {
+  type: 'object',
+  properties: {
+    naziv: { type: ['string', 'null'], description: 'puni naziv subjekta (tvrtke ili obrta)' },
+    oib: { type: ['string', 'null'], description: 'OIB, 11 znamenki' },
+    ulica: { type: ['string', 'null'], description: 'ulica i kućni broj sjedišta' },
+    mjesto: { type: ['string', 'null'] },
+    postanskiBroj: { type: ['string', 'null'] },
+    iban: { type: ['string', 'null'], description: 'IBAN glavnog aktivnog računa, HR format' },
+    uSustavuPdv: { type: ['boolean', 'null'], description: 'je li subjekt u sustavu PDV-a — SAMO ako je eksplicitno navedeno na stranici' },
+    mbs: { type: ['string', 'null'] },
+    email: { type: ['string', 'null'] },
+    status: { type: ['string', 'null'], description: 'status subjekta: aktivan / blokiran / u stečaju / brisan' },
+  },
+} as const;
+
+export async function dohvatiCompanywall(env: Env, url: string): Promise<CompanywallInfo> {
+  const r = await fetch('https://api.firecrawl.dev/v2/scrape', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.FIRECRAWL_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url,
+      onlyMainContent: true,
+      formats: [{
+        type: 'json',
+        prompt: 'Izvuci podatke o tvrtki/obrtu s ove companywall stranice. Ako podatak nije naveden, vrati null — ništa ne izmišljaj.',
+        schema: CW_SHEMA,
+      }],
+    }),
+  });
+  const odgovor = (await r.json()) as { success?: boolean; error?: string; data?: { json?: Record<string, unknown> } };
+  if (!r.ok || !odgovor.success) throw new Error(odgovor.error ?? `firecrawl HTTP ${r.status}`);
+  const j = odgovor.data?.json ?? {};
+  const s = (k: string): string | null => (typeof j[k] === 'string' && (j[k] as string).trim() ? (j[k] as string).trim() : null);
+
+  const info: CompanywallInfo = {
+    url,
+    naziv: s('naziv'),
+    oib: s('oib'),
+    ulica: s('ulica'),
+    mjesto: s('mjesto'),
+    postanskiBroj: s('postanskiBroj'),
+    iban: s('iban')?.replace(/\s+/g, '') ?? null,
+    uSustavuPdv: typeof j.uSustavuPdv === 'boolean' ? j.uSustavuPdv : null,
+    mbs: s('mbs'),
+    email: s('email'),
+    status: s('status'),
+    upozorenja: [],
+  };
+
+  // LLM ekstrakcija = provjeri što se provjeriti da (OIB mod-11, IBAN oblik).
+  if (info.oib && !validanOib(info.oib)) {
+    info.upozorenja.push(`Izvučeni OIB '${info.oib}' ne prolazi mod-11 provjeru — NE koristi ga bez provjere na izvoru.`);
+    info.oib = null;
+  }
+  if (info.iban && !/^HR\d{19}$/.test(info.iban)) {
+    info.upozorenja.push(`Izvučeni IBAN '${info.iban}' nije valjan HR IBAN oblik — provjeri na izvoru.`);
+    info.iban = null;
+  }
+  if (info.status && !/aktivan/i.test(info.status)) {
+    info.upozorenja.push(`Status subjekta: '${info.status}' — provjeri prije onboardinga!`);
+  }
+  if (info.uSustavuPdv === null) {
+    info.upozorenja.push('CompanyWall ne prikazuje PDV status — obavezno provjeri na PU: https://provjeri-rpo-pdv.porezna-uprava.hr/');
+  }
+  info.upozorenja.push('Podaci su LLM ekstrakcija s agregatora (mogu biti zastarjeli) — pregledaj prije spremanja.');
   return info;
 }
