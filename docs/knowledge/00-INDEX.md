@@ -29,6 +29,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 15 | [`15-ekonomija-i-troskovi.md`](./15-ekonomija-i-troskovi.md) | Troškovi: je li dostava eRačuna besplatna, break-even posrednik vs vlastita PT |
 | 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
 | 17 | [`17-licenca-onboarding.md`](./17-licenca-onboarding.md) | Samoposlužna kupnja godišnje licence → auto-kreiranje tenanta; dogfood račun kroz platformin (ITalk) tenant. Prompt: `../handoff/licenca-onboarding.md` |
+| 18 | [`18-onboarding-dohvat-po-oibu.md`](./18-onboarding-dohvat-po-oibu.md) | Predpopunjavanje tenanta po OIB-u u adminu: sudreg + VIES + CompanyWall (firecrawl); koji izvor daje što, zašto PDV status i IBAN ostaju posebni |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
