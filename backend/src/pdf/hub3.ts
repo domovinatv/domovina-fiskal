@@ -61,6 +61,46 @@ export function hub3Payload(p: Hub3Podaci): string {
   return polja.join('\n') + '\n';
 }
 
+// EPC QR (EPC069-12, "SEPA Credit Transfer QR" / GiroCode). Isti podaci kao
+// HUB3, ali europski standard — čitaju ga Keks Pay, Revolut, Wise i sve više
+// m-banking aplikacija, dok domaće banke (PBZ, Zaba) čitaju PDF417. Zato oba
+// barkoda idu jedan pored drugog: koji god skener kupac ima, radi.
+//
+// Polja (LF-odvojena, redoslijed je fiksan, prazna repna polja se izostavljaju):
+//   BCD / 002 / 1 (UTF-8) / SCT / BIC / naziv primatelja / IBAN /
+//   EUR<iznos> / šifra namjene / strukturirani poziv / nestrukturirani opis /
+//   info primatelju
+export function epcQrPayload(p: Hub3Podaci): string {
+  if (p.iznosCenti < 1) throw new Error('EPC QR: iznos mora biti barem 1 cent');
+  if (p.iznosCenti > 99_999_999_999) throw new Error('EPC QR: iznos prelazi dopuštenih 999.999.999,99 EUR');
+
+  // Verzija 002 dopušta prazan BIC (domaća SEPA plaćanja).
+  // Model+poziv na broj (HR00 12-2026) NIJE ISO 11649 RF referenca, pa ne ide
+  // u strukturirano polje (10) nego u nestrukturirani opis (11) — banke ga tamo
+  // očekuju za domaće pozive na broj.
+  const opis = ascii(`${p.model} ${p.pozivNaBroj} ${p.opisPlacanja}`.replace(/\s+/g, ' ').trim(), 140);
+  const polja = [
+    'BCD',
+    '002',
+    '1',
+    'SCT',
+    '', // BIC — prazan
+    ascii(p.primateljNaziv, 70),
+    p.iban.replace(/\s/g, ''),
+    `EUR${(p.iznosCenti / 100).toFixed(2)}`,
+    '', // šifra namjene (AT-44) — namjerno prazna, nije obvezna
+    '', // strukturirani poziv (ISO 11649) — vidi gore
+    opis,
+  ];
+  const payload = polja.join('\n');
+
+  // Spec tvrdi limit od 331 bajta; preko toga dio čitača odbija kod.
+  if (new TextEncoder().encode(payload).length > 331) {
+    throw new Error('EPC QR: payload prelazi 331 bajt');
+  }
+  return payload;
+}
+
 export interface Hub3Barkod {
   putanja: string; // SVG path d-atribut
   sirina: number;  // viewBox širina
@@ -72,6 +112,12 @@ export interface Hub3Barkod {
 export function hub3Barkod(p: Hub3Podaci): Hub3Barkod {
   // eclevel/columns su BWIPP opcije za pdf417 koje tipovi ne izlažu (prosljeđuju se BWIPP-u).
   return izSvg({ bcid: 'pdf417', text: hub3Payload(p), eclevel: 4, columns: 9 }, 'HUB3');
+}
+
+// EPC QR: spec preporučuje razinu korekcije M (kod je gušći od fiskalnog QR-a,
+// a mora ostati čitljiv s ekrana i s papira).
+export function epcQrBarkod(p: Hub3Podaci): Hub3Barkod {
+  return izSvg({ bcid: 'qrcode', text: epcQrPayload(p), eclevel: 'M' }, 'EPC QR');
 }
 
 // Fiskalni QR (02-* §10): model 2, korekcija L (minimalna dopuštena), bez loga.

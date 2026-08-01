@@ -7,7 +7,7 @@ import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { RacunKontekst } from '../db';
 import { izCenti, uCente } from '../util';
-import { fiskalniQrBarkod, hub3Barkod } from './hub3';
+import { epcQrBarkod, fiskalniQrBarkod, hub3Barkod } from './hub3';
 import fontRegularData from './fontovi/DejaVuSans.subset.ttf';
 import fontBoldData from './fontovi/DejaVuSans-Bold.subset.ttf';
 
@@ -310,9 +310,26 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
     c.y = Math.min(c.y, vrhBloka + 10 - QR_STRANICA) - 16;
   }
 
-  // ── Podaci za plaćanje + HUB3 barkod (samo izdani dokumenti s IBAN-om) ──
-  if (t.iban && !jeSkica && (uCente(r.dospijeva_za_placanje ?? '0', 'ukupno') > 0)) {
-    if (c.y < 150) c.novaStranica();
+  // ── Podaci za plaćanje + barkodovi (samo izdani dokumenti s IBAN-om) ──
+  // Dva barkoda s istim podacima jer ih čitaju različite aplikacije: PDF417
+  // (HUB3) čitaju domaće banke, EPC QR čitaju Keks Pay, Revolut, Wise i sve
+  // više m-bankinga. Kupac skenira onaj koji njegova aplikacija podržava.
+  //
+  // Fiskalni B2C je izuzet: taj se račun izdaje U TRENUTKU naplate, pa nalog za
+  // plaćanje na njemu samo zbunjuje kupca koji je već platio. Zahtjev za uplatu
+  // nosi ponuda/predračun.
+  if (
+    t.iban &&
+    !jeSkica &&
+    r.tip_dokumenta !== 'fiskalni_b2c' &&
+    uCente(r.dospijeva_za_placanje ?? '0', 'ukupno') > 0
+  ) {
+    const PDF417_SIRINA = 168;
+    const EPC_STRANICA = 62; // ~2,2 cm — dovoljno za pouzdano skeniranje s ekrana
+    const RAZMAK = 14;
+    if (c.y < 170) c.novaStranica();
+
+    const vrhPlacanja = c.y;
     tekst(c, 'Podaci za plaćanje', MARGINA, 9, { bold: true, boja: NAVY });
     c.y -= 13;
     tekst(c, `IBAN: ${t.iban}`, MARGINA, 9);
@@ -321,33 +338,60 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
     c.y -= 12;
     tekst(c, `Opis plaćanja: ${naslov} ${r.broj_racuna_full}`, MARGINA, 9);
 
+    const podaci = {
+      iznosCenti: uCente(r.dospijeva_za_placanje ?? '0', 'ukupno'),
+      primateljNaziv: t.naziv,
+      primateljAdresa: adresaIzdavatelja,
+      primateljMjesto: [t.adr_postanski_broj, t.adr_mjesto].filter(Boolean).join(' '),
+      iban: t.iban,
+      model: r.model_placanja ?? 'HR00',
+      pozivNaBroj: r.poziv_na_broj ?? '',
+      opisPlacanja: `${naslov} ${r.broj_racuna_full}`,
+      platiteljIme: k.kupac?.naziv,
+    };
+
+    // drawSvgPath sidri sliku po GORNJEM rubu (SVG y raste prema dolje).
+    const vrhBarkoda = vrhPlacanja + 4;
+    const epcX = MARGINA + SIRINA - EPC_STRANICA;
+    const pdf417X = epcX - RAZMAK - PDF417_SIRINA;
+    let dnoBarkoda = vrhPlacanja;
+
     try {
-      const barkod = hub3Barkod({
-        iznosCenti: uCente(r.dospijeva_za_placanje ?? '0', 'ukupno'),
-        primateljNaziv: t.naziv,
-        primateljAdresa: adresaIzdavatelja,
-        primateljMjesto: [t.adr_postanski_broj, t.adr_mjesto].filter(Boolean).join(' '),
-        iban: t.iban,
-        model: r.model_placanja ?? 'HR00',
-        pozivNaBroj: r.poziv_na_broj ?? '',
-        opisPlacanja: `${naslov} ${r.broj_racuna_full}`,
-        platiteljIme: k.kupac?.naziv,
-      });
-      // ~62×17 mm na desnoj strani bloka plaćanja
-      const ciljnaSirina = 176;
-      const mjerilo = ciljnaSirina / barkod.sirina;
+      const barkod = hub3Barkod(podaci);
+      const visina = PDF417_SIRINA * (barkod.visina / barkod.sirina);
       c.page.drawSvgPath(barkod.putanja, {
-        x: MARGINA + SIRINA - ciljnaSirina,
-        y: c.y + 34,
-        scale: mjerilo,
+        x: pdf417X,
+        y: vrhBarkoda,
+        scale: PDF417_SIRINA / barkod.sirina,
         color: CRNA,
         borderWidth: 0,
       });
-      tekst(c, 'HUB3 2D barkod — skeniraj u mobilnom bankarstvu', 0, 6.5, { boja: MUTED, desno: MARGINA + SIRINA });
+      c.page.drawText('HUB3 (PDF417) — banke', {
+        x: pdf417X, y: vrhBarkoda - visina - 8, size: 6.5, font, color: MUTED,
+      });
+      dnoBarkoda = Math.min(dnoBarkoda, vrhBarkoda - visina - 8);
     } catch {
       // Barkod je "nice to have" — dokument ostaje valjan i bez njega.
     }
-    c.y -= 20;
+
+    try {
+      const qr = epcQrBarkod(podaci);
+      c.page.drawSvgPath(qr.putanja, {
+        x: epcX,
+        y: vrhBarkoda,
+        scale: EPC_STRANICA / qr.sirina,
+        color: CRNA,
+        borderWidth: 0,
+      });
+      c.page.drawText('EPC QR', {
+        x: epcX, y: vrhBarkoda - EPC_STRANICA - 8, size: 6.5, font, color: MUTED,
+      });
+      dnoBarkoda = Math.min(dnoBarkoda, vrhBarkoda - EPC_STRANICA - 8);
+    } catch {
+      // isto — nedostatak QR-a ne obezvrjeđuje dokument.
+    }
+
+    c.y = Math.min(c.y, dnoBarkoda) - 20;
   }
 
   // ── Uvjeti + footer ──
