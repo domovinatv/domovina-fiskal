@@ -30,6 +30,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
 | 17 | [`17-licenca-onboarding.md`](./17-licenca-onboarding.md) | Samoposlužna kupnja godišnje licence → auto-kreiranje tenanta; dogfood račun kroz platformin (ITalk) tenant. Prompt: `../handoff/licenca-onboarding.md` |
 | 18 | [`18-onboarding-dohvat-po-oibu.md`](./18-onboarding-dohvat-po-oibu.md) | Predpopunjavanje tenanta po OIB-u u adminu: sudreg + VIES + CompanyWall (firecrawl); koji izvor daje što, zašto PDV status i IBAN ostaju posebni |
+| 19 | [`19-proizvodjac-i-odrzavatelj-softvera.md`](./19-proizvodjac-i-odrzavatelj-softvera.md) | **ITalk kao proizvođač/održavatelj softvera (F1.0)**: nema registracije ni licenciranja — samo OIB uz poslovni prostor; suodgovornost čl. 14 i kazna do 66.360 € (čl. 71); prelazak Fira/Solo → ITalk |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
