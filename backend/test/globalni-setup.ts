@@ -8,12 +8,14 @@ import forge from 'node-forge';
 import type { TestProject } from 'vitest/node';
 
 export const TEST_OIB = '12345678903';
+export const P12_LOZINKA = 'testna-lozinka';
 
 export interface TestniCertifikat {
   kljucPem: string;
   certPem: string;
   issuerDn: string;
   serialDec: string;
+  p12B64: string; // P12 (3DES, kao FINA) s ključem i certifikatom, lozinka P12_LOZINKA
   zkiVektor: { ulaz: { oib: string; datVrijIso: string; brOznRac: string; oznPosPr: string; oznNapUr: string; iznosUkupno: string }; medjurezultat: string; zki: string };
 }
 
@@ -47,8 +49,12 @@ export function generirajTestniCertifikat(): TestniCertifikat {
   const potpis = createSign('RSA-SHA1').update(medjurezultat, 'utf8').sign(kljucPem);
   const zki = createHash('md5').update(potpis).digest('hex');
 
+  const p12Asn1 = forge.pkcs12.toPkcs12Asn1(forge.pki.privateKeyFromPem(kljucPem), [cert], P12_LOZINKA, { algorithm: '3des' });
+  const p12B64 = forge.util.encode64(forge.asn1.toDer(p12Asn1).getBytes());
+
   return {
     kljucPem,
+    p12B64,
     certPem: forge.pki.certificateToPem(cert),
     issuerDn: `CN=FISKAL TEST 1,O=TESTNI OBVEZNIK D.O.O. HR${TEST_OIB},C=HR`,
     serialDec: BigInt('0x0a1b2c3d4e5f').toString(10),

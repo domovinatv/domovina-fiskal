@@ -64,8 +64,13 @@ export function parsirajP12(p12Buf: ArrayBuffer, lozinka: string): ParsiraniCert
         continue; // npr. EC intermediate — nije leaf s našim RSA ključem
       }
     }
-    if (!cert || !bag.asn1) continue;
-    certifikati.push({ cert, derB64: forge.util.encode64(forge.asn1.toDer(bag.asn1).getBytes()) });
+    if (!cert) continue;
+    // forge postavi bag.asn1 samo kad sam NIJE uspio parsirati cert (AKD put);
+    // kad je bag.cert popunjen (FINA, RSA potpis) asn1 je prazan → DER iz certa.
+    // (Do 01.10.2026. ovdje je stajao `!bag.asn1 → continue`, što je tiho
+    // odbacivalo SVE FINA certifikate: „P12 ne sadrži čitljiv certifikat".)
+    const der = bag.asn1 ? forge.asn1.toDer(bag.asn1) : forge.asn1.toDer(forge.pki.certificateToAsn1(cert));
+    certifikati.push({ cert, derB64: forge.util.encode64(der.getBytes()) });
   }
   if (!certifikati.length) throw new Error('P12 ne sadrži čitljiv certifikat');
 
