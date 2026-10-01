@@ -11,7 +11,7 @@
 #   --email  (opcionalno) doda SSO korisnika (uloga vlasnik) za customer
 #            dashboard (fiskal-app-test.domovina.ai)
 #
-# Kredencijali: ADMIN_USER/ADMIN_PASS iz backend/.dev.vars (isti su na test workeru).
+# Kredencijali: secrets/fiskal-test-admin.env (TEST lozinka rotirana 2026-10-01), inače backend/.dev.vars.
 # Sirovi API ključ (dfk_…) se sprema u secrets/lion-base-test-api-kljuc.txt (gitignored).
 set -euo pipefail
 
@@ -63,6 +63,10 @@ DEV_VARS="$BACKEND_DIR/.dev.vars"
 SECRETS_DIR="$REPO_DIR/secrets"
 KLJUC_DATOTEKA="$SECRETS_DIR/lion-base-test-api-kljuc.txt"
 
+# TEST admin lozinka je rotirana 2026-10-01 (Faza 4.5) → secrets/fiskal-test-admin.env;
+# .dev.vars ostaje rezerva za stariji raspored.
+TEST_ADMIN="$REPO_DIR/secrets/fiskal-test-admin.env"
+[[ -f "$TEST_ADMIN" ]] && DEV_VARS="$TEST_ADMIN"
 [[ -f "$DEV_VARS" ]] || { echo "GREŠKA: nema $DEV_VARS (ADMIN_USER/ADMIN_PASS)." >&2; exit 1; }
 ADMIN_USER="$(grep '^ADMIN_USER=' "$DEV_VARS" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
 ADMIN_PASS="$(grep '^ADMIN_PASS=' "$DEV_VARS" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
