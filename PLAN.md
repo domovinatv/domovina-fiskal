@@ -50,6 +50,7 @@ hosting sidecara (Mac Mini vs VPS) · izbor CA (FINA/AKD) · D1 vs Postgres.
   ne-PDV obveznici; reverse charge; strana valuta; prijelaz godine/kontinuitet numeriranja.
 
 ## Faza 4 — Produkcija B2C
+> **Razrađeno 01.10.2026.:** [`docs/handoff/faza-4-produkcija-b2c-webshop.md`](./docs/handoff/faza-4-produkcija-b2c-webshop.md) — idempotencija, robusni sweep, alarmi, storno, sigurnost, testovi, prvi PROD CIS poziv.
 - FINA **produkcijski** aplikacijski cert; prod endpoint; monitoring/alerting; audit (`poruka_log`).
 
 ## Faza 5 — eRačun 2.0 (preko posrednika)
