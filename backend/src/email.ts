@@ -7,7 +7,7 @@
 // Bez ijednog kanala endpoint vraća 503 s jasnom porukom (safe default).
 
 import type { RacunKontekst } from './db';
-import { iznosHr, stornoOpis } from './pdf/racun-pdf';
+import { iznosHr, stornoOpis, trebaNalogZaPlacanje } from './pdf/racun-pdf';
 import { escapeHtml } from './util';
 
 // Privitci ≤ 4 MB: Cloudflare Email Sending limitira CIJELU poruku na 5 MB za
@@ -21,6 +21,9 @@ const NASLOVI: Record<string, string> = {
   ponuda: 'Ponuda',
   predracun: 'Predračun',
   racun: 'Račun',
+  fiskalni_b2c: 'Račun',
+  eracun_b2b: 'Račun',
+  eracun_b2g: 'Račun',
 };
 
 export interface SendEmailBinding {
@@ -58,13 +61,16 @@ export async function posaljiRacunEmailom(
   const broj = k.racun.broj_racuna_full ?? '(skica)';
   const iznos = `${iznosHr(k.racun.dospijeva_za_placanje)} ${k.racun.valuta}`;
   const subject = `${naslov} ${broj} — ${k.tenant.naziv}`;
+  const nalog = trebaNalogZaPlacanje(k); // isto pravilo kao barkodovi na PDF-u
+  // Odgovor kupca ide tenantu (izdavatelju), ne na racuni@domovina.ai.
+  replyTo = replyTo ?? k.tenant.email ?? null;
 
   const text = [
     `Poštovani,`,
     ``,
     `u privitku se nalazi ${naslov.toLowerCase()} ${broj} na iznos ${iznos}.`,
     ...(k.stornoOriginal ? [``, `${stornoOpis(k.stornoOriginal)}`] : []),
-    ...(k.tenant.iban ? [``, `Podaci za plaćanje: IBAN ${k.tenant.iban}, model i poziv na broj ${k.racun.model_placanja ?? 'HR00'} ${k.racun.poziv_na_broj ?? ''}.`] : []),
+    ...(nalog ? [``, `Podaci za plaćanje: IBAN ${k.tenant.iban}, model i poziv na broj ${k.racun.model_placanja ?? 'HR00'} ${k.racun.poziv_na_broj ?? ''}.`] : []),
     ``,
     `S poštovanjem,`,
     `${k.tenant.naziv}`,
@@ -74,7 +80,7 @@ export async function posaljiRacunEmailom(
   const html = `<p>Poštovani,</p>
 <p>u privitku se nalazi <strong>${escapeHtml(naslov.toLowerCase())} ${escapeHtml(broj)}</strong> na iznos <strong>${escapeHtml(iznos)}</strong>.</p>
 ${k.stornoOriginal ? `<p><strong>${escapeHtml(stornoOpis(k.stornoOriginal))}</strong></p>` : ''}
-${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code>, model i poziv na broj <code>${escapeHtml(k.racun.model_placanja ?? 'HR00')} ${escapeHtml(k.racun.poziv_na_broj ?? '')}</code>.</p>` : ''}
+${nalog ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code>, model i poziv na broj <code>${escapeHtml(k.racun.model_placanja ?? 'HR00')} ${escapeHtml(k.racun.poziv_na_broj ?? '')}</code>.</p>` : ''}
 <p>S poštovanjem,<br>${escapeHtml(k.tenant.naziv)}<br>OIB: ${escapeHtml(k.tenant.oib)}</p>`;
 
   const imeDatoteke = `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;

@@ -755,6 +755,22 @@ apiV1.post('/eracun/provjeri-primatelja', async (c) => {
   return c.json({ ok: true, oib, registriran: r.registriran, mpsEndpoint: r.mpsEndpoint });
 });
 
+// Paginacija: neispravan limit/offset je 400 (prije: NaN → 500).
+const cijeliBroj = (naziv: string, min: number, max: number, zadano: number) =>
+  z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined || v.trim() === '') return zadano;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < min || n > max) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${naziv} mora biti cijeli broj u rasponu [${min}, ${max}]` });
+        return z.NEVER;
+      }
+      return n;
+    });
+const popisUpitShema = z.object({ limit: cijeliBroj('limit', 1, 200, 50), offset: cijeliBroj('offset', 0, 1_000_000, 0) });
+
 apiV1.get('/racun', async (c) => {
   // Klijent nakon timeouta provjerava je li račun nastao: točno jedan ili 404.
   const referenca = c.req.query('vanjskaReferenca');
@@ -763,8 +779,9 @@ apiV1.get('/racun', async (c) => {
     if (!racun) return c.json({ greska: `Dokument s vanjskom referencom '${referenca}' ne postoji` }, 404);
     return c.json(await racunUOdgovor(c.env.DB, racun));
   }
-  const limit = Number(c.req.query('limit') ?? 50);
-  const offset = Number(c.req.query('offset') ?? 0);
+  const q = popisUpitShema.safeParse({ limit: c.req.query('limit'), offset: c.req.query('offset') });
+  if (!q.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(q.error) }, 400);
+  const { limit, offset } = q.data;
   const racuni = await listRacuni(c.env.DB, {
     tenantId: c.get('tenant').id,
     limit,
@@ -775,12 +792,17 @@ apiV1.get('/racun', async (c) => {
   return c.json({
     racuni: racuni.map((r) => ({
       id: r.id,
+      vanjskaReferenca: r.vanjska_referenca,
       brojRacuna: r.broj_racuna_full,
       tip: r.tip_dokumenta,
       status: r.status,
       datumVrijeme: r.datum_vrijeme,
       valuta: r.valuta,
       iznosSPdv: r.iznos_s_pdv,
+      zki: r.zki,
+      jir: r.jir,
+      ...(r.tip_dokumenta === 'fiskalni_b2c' ? { fiskalizacija: { status: fiskalizacijaIzRetka(r).status } } : {}),
+      stornoZaId: r.storno_racun_id,
     })),
     limit,
     offset,
@@ -803,7 +825,9 @@ apiV1.get('/proizvod', async (c) => {
 apiV1.get('/kpd', async (c) => {
   const q = c.req.query('q') ?? '';
   if (q.trim().length < 2) return c.json({ greska: "Parametar 'q' mora imati barem 2 znaka" }, 400);
-  return c.json({ rezultati: await searchKpd(c.env.DB, q, Number(c.req.query('limit') ?? 20)) });
+  const l = cijeliBroj('limit', 1, 100, 20).safeParse(c.req.query('limit'));
+  if (!l.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(l.error).map((g) => ({ ...g, polje: 'limit' })) }, 400);
+  return c.json({ rezultati: await searchKpd(c.env.DB, q, l.data) });
 });
 
 // ── Postavke (prostori / uređaji / operateri) — self-service za dashboard ──

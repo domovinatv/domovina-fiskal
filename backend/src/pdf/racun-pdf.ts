@@ -41,6 +41,18 @@ function datumHr(iso: string | null): string {
   return m ? `${m[3]}.${m[2]}.${m[1]}.` : iso;
 }
 
+// Nalog za plaćanje (barkodovi u PDF-u, IBAN u e-mailu) samo za izdane
+// dokumente s IBAN-om i pozitivnim iznosom — i NIKAD za fiskalni B2C, koji se
+// izdaje u trenutku naplate (kupac je već platio; nalog bi ga samo zbunio).
+export function trebaNalogZaPlacanje(k: Pick<RacunKontekst, 'racun' | 'tenant'>): boolean {
+  return (
+    !!k.tenant.iban &&
+    k.racun.status !== 'nacrt' &&
+    k.racun.tip_dokumenta !== 'fiskalni_b2c' &&
+    uCente(k.racun.dospijeva_za_placanje ?? '0', 'ukupno') > 0
+  );
+}
+
 // „Storno računa br. 12/WEB/1 od 15.07.2026." — PDF i e-mail storna (Faza 4.3).
 export function stornoOpis(o: { broj: string | null; datumVrijeme: string }): string {
   const datum = new Intl.DateTimeFormat('hr-HR', { timeZone: 'Europe/Zagreb', day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -331,12 +343,7 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
   // Fiskalni B2C je izuzet: taj se račun izdaje U TRENUTKU naplate, pa nalog za
   // plaćanje na njemu samo zbunjuje kupca koji je već platio. Zahtjev za uplatu
   // nosi ponuda/predračun.
-  if (
-    t.iban &&
-    !jeSkica &&
-    r.tip_dokumenta !== 'fiskalni_b2c' &&
-    uCente(r.dospijeva_za_placanje ?? '0', 'ukupno') > 0
-  ) {
+  if (t.iban && trebaNalogZaPlacanje(k)) {
     const PDF417_SIRINA = 168;
     const EPC_STRANICA = 62; // ~2,2 cm — dovoljno za pouzdano skeniranje s ekrana
     const RAZMAK = 14;
