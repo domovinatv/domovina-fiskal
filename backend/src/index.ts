@@ -13,13 +13,17 @@ app.get('/', async (c) => {
   const counts = await brojaci(c.env.DB).catch(() => ({ tenanti: -1, racuni: -1 }));
   return c.json({
     servis: 'fiskal.domovina.ai',
-    svrha: 'open-source SaaS za izdavanje HR fiskaliziranih računa — faza 2: B2C fiskalizacija (ZKI/JIR, CIS)',
+    svrha: 'open-source SaaS za izdavanje HR fiskaliziranih računa — B2C fiskalizacija (ZKI/JIR, CIS), eRačun 2.0 preko posrednika',
     okolinaFiskalizacije: c.env.OKOLINA,
     admin: '/admin',
     api: {
       izdaj: 'POST /api/v1/racun (PONUDA | PREDRACUN | RACUN | FISKALNI_B2C; status nacrt = skica)',
       izdajSkicu: 'POST /api/v1/racun/:id/izdaj',
       fiskaliziraj: 'POST /api/v1/racun/:id/fiskaliziraj (naknadna dostava / retry)',
+      storno: 'POST /api/v1/racun/:id/storno { vanjskaReferenca?, stavke?: [{ redak, kolicina? }], napomena? }',
+      idempotencija: "polje vanjskaReferenca ili zaglavlje 'Idempotency-Key' → 201 novi / 200 + Idempotent-Replay / 409",
+      poReferenci: 'GET /api/v1/racun?vanjskaReferenca=…',
+      zdravlje: 'GET /api/v1/zdravlje (bez autentikacije)',
       dohvat: 'GET /api/v1/racun/:id',
       pdf: 'GET /api/v1/racun/:id/pdf',
       posalji: 'POST /api/v1/racun/:id/posalji',

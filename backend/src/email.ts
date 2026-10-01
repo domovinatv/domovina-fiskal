@@ -7,7 +7,7 @@
 // Bez ijednog kanala endpoint vraća 503 s jasnom porukom (safe default).
 
 import type { RacunKontekst } from './db';
-import { iznosHr } from './pdf/racun-pdf';
+import { iznosHr, stornoOpis } from './pdf/racun-pdf';
 import { escapeHtml } from './util';
 
 // Privitci ≤ 4 MB: Cloudflare Email Sending limitira CIJELU poruku na 5 MB za
@@ -63,6 +63,7 @@ export async function posaljiRacunEmailom(
     `Poštovani,`,
     ``,
     `u privitku se nalazi ${naslov.toLowerCase()} ${broj} na iznos ${iznos}.`,
+    ...(k.stornoOriginal ? [``, `${stornoOpis(k.stornoOriginal)}`] : []),
     ...(k.tenant.iban ? [``, `Podaci za plaćanje: IBAN ${k.tenant.iban}, model i poziv na broj ${k.racun.model_placanja ?? 'HR00'} ${k.racun.poziv_na_broj ?? ''}.`] : []),
     ``,
     `S poštovanjem,`,
@@ -72,6 +73,7 @@ export async function posaljiRacunEmailom(
 
   const html = `<p>Poštovani,</p>
 <p>u privitku se nalazi <strong>${escapeHtml(naslov.toLowerCase())} ${escapeHtml(broj)}</strong> na iznos <strong>${escapeHtml(iznos)}</strong>.</p>
+${k.stornoOriginal ? `<p><strong>${escapeHtml(stornoOpis(k.stornoOriginal))}</strong></p>` : ''}
 ${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code>, model i poziv na broj <code>${escapeHtml(k.racun.model_placanja ?? 'HR00')} ${escapeHtml(k.racun.poziv_na_broj ?? '')}</code>.</p>` : ''}
 <p>S poštovanjem,<br>${escapeHtml(k.tenant.naziv)}<br>OIB: ${escapeHtml(k.tenant.oib)}</p>`;
 

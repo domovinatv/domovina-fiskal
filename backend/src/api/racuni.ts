@@ -5,8 +5,9 @@
 // Sve o izdavatelju (OIB, prostor, uređaji, slijednost) je server-side;
 // payload je kupac + stavke + tip. Vidi docs/knowledge/16-dashboard-sso.md.
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
+import { z } from 'zod';
 import type { ApiVarijable, Env, RacunRow, TenantRow } from '../types';
 import {
   bindKorisnikTenant,
@@ -29,6 +30,8 @@ import {
   getTenant,
   izdajSkicu,
   jeSukobReference,
+  stornoGreskaTriggera,
+  zbrojStornaCenti,
   listMojiTenanti,
   listNaplatniUredjaji,
   listOperateri,
@@ -47,7 +50,7 @@ import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracu
 import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { godinaZagreb, kanonskiJson, normalizirajTekst, sha256Hex, validanOib } from '../util';
+import { godinaZagreb, izCenti, kanonskiJson, normalizirajTekst, sha256Hex, uCente, uTisucinke, validanOib } from '../util';
 import {
   formatirajGreske,
   izracunajIznose,
@@ -298,10 +301,26 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
         detalji: [{ polje: `stavke.${sAe}.pdvKategorija`, poruka: "prijenos porezne obveze ('AE') je B2B mehanizam — ne može na B2C fiskalni račun" }],
       };
     }
-    if (model.stornoZaId) {
-      const original = await getRacun(db, tenant.id, model.stornoZaId);
-      if (!original) return { status: 404, greska: `Original za storno (id ${model.stornoZaId}) ne postoji` };
+  }
+
+  // Storno (Faza 4.3, N6): original istog tenanta, fiskalni, sa ZKI-jem, ne
+  // storniran; iznos se provjerava niže (nakon izračuna). Trigger 0009 čuva
+  // istu granicu i kod utrke dva storna.
+  let original: RacunRow | null = null;
+  if (model.stornoZaId) {
+    if (model.tip !== 'FISKALNI_B2C') {
+      return { status: 400, greska: "stornoZaId je podržan samo za tip 'FISKALNI_B2C'" };
     }
+    original = await getRacun(db, tenant.id, model.stornoZaId);
+    if (!original) return { status: 404, greska: `Original za storno (id ${model.stornoZaId}) ne postoji` };
+    if (original.tip_dokumenta !== 'fiskalni_b2c') {
+      return { status: 400, greska: `Dokument ${original.broj_racuna_full ?? original.id} nije fiskalni B2C račun — storno je moguć samo za fiskalni račun` };
+    }
+    if (original.storno_racun_id) return { status: 400, greska: 'Original je i sam storno — storno storna nije dopušten' };
+    if (!original.zki) {
+      return { status: 409, greska: `Račun ${original.broj_racuna_full} nema ZKI (fiskalizacija nije ni započela) — prvo ga fiskaliziraj` };
+    }
+    if (original.status === 'storniran') return { status: 409, greska: `Račun ${original.broj_racuna_full} je već u cijelosti storniran` };
   }
 
   const nu = await getNaplatniUredajByOznaka(db, pp.id, model.naplatniUredaj);
@@ -340,6 +359,21 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
 
   const sada = new Date();
   const iznosi = izracunajIznose(razrijeseno.stavke);
+
+  if (original) {
+    const stornoCenti = uCente(iznosi.iznosSPdv, 'iznosSPdv');
+    if (stornoCenti >= 0) {
+      return { status: 400, greska: 'Storno mora imati negativan ukupni iznos (negativne cijene stavki, pozitivne količine)' };
+    }
+    const vecStornirano = await zbrojStornaCenti(db, original.id);
+    const originalCenti = uCente(original.iznos_s_pdv ?? '0', 'iznosOriginala');
+    if (-(vecStornirano + stornoCenti) > originalCenti) {
+      return {
+        status: 409,
+        greska: `Storno ${izCenti(-stornoCenti)} premašuje preostali iznos računa ${original.broj_racuna_full} (${izCenti(originalCenti + vecStornirano)} od ${izCenti(originalCenti)})`,
+      };
+    }
+  }
   const stavkeZaUpis: NoviRacunStavka[] = razrijeseno.stavke.map((s) => ({
     naziv: s.naziv,
     opis: s.opis,
@@ -392,6 +426,8 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
   } catch (e) {
     // Utrka: istodobni zahtjev s istom referencom upisao je prvi. Batch je
     // vraćen unatrag u cijelosti (i sekvenca+1) — broj NIJE potrošen.
+    const stornoGreska = stornoGreskaTriggera(e);
+    if (stornoGreska) return { status: 409, greska: `Storno odbijen: ${stornoGreska}` };
     if (!referenca || !jeSukobReference(e)) throw e;
     const postojeci = await getRacunPoReferenci(db, tenant.id, referenca);
     if (!postojeci) throw e;
@@ -414,19 +450,8 @@ apiV1.post('/racun', async (c) => {
     return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(parsed.error) }, 400);
   }
   const model = parsed.data;
-
-  // Idempotency-Key zaglavlje = isto što i polje vanjskaReferenca.
-  const kljucZaglavlje = c.req.header('Idempotency-Key');
-  if (kljucZaglavlje !== undefined) {
-    const k = vanjskaReferencaShema.safeParse(kljucZaglavlje);
-    if (!k.success) {
-      return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(k.error).map((g) => ({ ...g, polje: 'Idempotency-Key' })) }, 400);
-    }
-    if (model.vanjskaReferenca && model.vanjskaReferenca !== k.data) {
-      return c.json({ greska: "Zaglavlje 'Idempotency-Key' i polje 'vanjskaReferenca' se razlikuju — pošalji jedno ili oba ista" }, 400);
-    }
-    model.vanjskaReferenca = k.data;
-  }
+  const greskaKljuca = spojiIdempotencijskiKljuc(c, model);
+  if (greskaKljuca) return greskaKljuca;
 
   // Nepoznat tip (izvan mapiranja) — jasna poruka umjesto tihog spremanja.
   if (!(model.tip in TIP_U_DB)) {
@@ -435,7 +460,30 @@ apiV1.post('/racun', async (c) => {
       501,
     );
   }
+  return izdajIOdgovori(c, model);
+});
 
+type ApiKontekst = Context<{ Bindings: Env; Variables: ApiVarijable }>;
+
+// Idempotency-Key zaglavlje = isto što i polje vanjskaReferenca (Faza 4.1).
+// Vraća grešku (400) ili null; spaja ključ u model.
+function spojiIdempotencijskiKljuc(c: ApiKontekst, model: RacunModel): Response | null {
+  const kljucZaglavlje = c.req.header('Idempotency-Key');
+  if (kljucZaglavlje === undefined) return null;
+  const k = vanjskaReferencaShema.safeParse(kljucZaglavlje);
+  if (!k.success) {
+    return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(k.error).map((g) => ({ ...g, polje: 'Idempotency-Key' })) }, 400);
+  }
+  if (model.vanjskaReferenca && model.vanjskaReferenca !== k.data) {
+    return c.json({ greska: "Zaglavlje 'Idempotency-Key' i polje 'vanjskaReferenca' se razlikuju — pošalji jedno ili oba ista" }, 400);
+  }
+  model.vanjskaReferenca = k.data;
+  return null;
+}
+
+// Izdavanje + (za FISKALNI_B2C) sinkroni pokušaj fiskalizacije + JSON odgovor.
+// Zajedničko za POST /racun i POST /racun/:id/storno.
+async function izdajIOdgovori(c: ApiKontekst, model: RacunModel): Promise<Response> {
   const tenant = c.get('tenant');
   const rezultat = await kreirajDokument(c.env, tenant, model);
   if ('greska' in rezultat) {
@@ -474,6 +522,101 @@ apiV1.post('/racun', async (c) => {
     );
   }
   return c.json(await racunUOdgovor(c.env.DB, rezultat.racun), 201);
+}
+
+// Storno fiskalnog računa (Faza 4.3) — webshop ga zove na Stripe charge.refunded.
+// Bez `stavke` stornira se cijeli račun; sa `stavke` [{redak, kolicina}]
+// djelomično. Stavke se kopiraju s NEGATIVNOM cijenom (količina mora biti
+// pozitivna — util.uTisucinke), isti prostor/uređaj/način plaćanja; operater
+// originala ako nije poslan. Idempotentno preko vanjskaReferenca/Idempotency-Key.
+const stornoTijeloShema = z.object({
+  vanjskaReferenca: vanjskaReferencaShema.optional(),
+  operaterOib: z.string().trim().optional(),
+  napomena: z.string().max(2000, 'napomena smije imati najviše 2000 znakova').optional(),
+  stavke: z
+    .array(
+      z.object({
+        redak: z.number({ invalid_type_error: 'stavke[].redak mora biti broj' }).int().positive(),
+        kolicina: z.union([z.string(), z.number()]).optional(),
+      }),
+    )
+    .min(1, 'stavke ne smije biti prazan niz — izostavi ga za storno cijelog računa')
+    .optional(),
+});
+
+apiV1.post('/racun/:id/storno', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+  const tijelo = await c.req.json().catch(() => ({}));
+  const p = stornoTijeloShema.safeParse(tijelo);
+  if (!p.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(p.error) }, 400);
+
+  const tenant = c.get('tenant');
+  const k = await getRacunKontekst(c.env.DB, tenant.id, id);
+  if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
+  if (k.racun.tip_dokumenta !== 'fiskalni_b2c') {
+    return c.json({ greska: `Dokument ${k.racun.broj_racuna_full ?? id} nije fiskalni B2C račun — storno je moguć samo za fiskalni račun` }, 400);
+  }
+
+  const izvorne = new Map(k.stavke.map((s) => [s.redni_broj, s]));
+  const odabrane: { stavka: (typeof k.stavke)[number]; kolicina: string }[] = [];
+  if (p.data.stavke) {
+    const vidjeni = new Set<number>();
+    for (const [i, s] of p.data.stavke.entries()) {
+      const izvorna = izvorne.get(s.redak);
+      if (!izvorna) return c.json({ greska: 'Validacija nije prošla', detalji: [{ polje: `stavke.${i}.redak`, poruka: `račun nema stavku u retku ${s.redak}` }] }, 400);
+      if (vidjeni.has(s.redak)) return c.json({ greska: 'Validacija nije prošla', detalji: [{ polje: `stavke.${i}.redak`, poruka: `redak ${s.redak} je naveden dvaput` }] }, 400);
+      vidjeni.add(s.redak);
+      const kolicina = s.kolicina === undefined ? izvorna.kolicina : String(s.kolicina).trim();
+      try {
+        if (uTisucinke(kolicina, `stavke.${i}.kolicina`) > uTisucinke(izvorna.kolicina, 'kolicina')) {
+          return c.json({ greska: 'Validacija nije prošla', detalji: [{ polje: `stavke.${i}.kolicina`, poruka: `količina ${kolicina} veća je od količine na računu (${izvorna.kolicina})` }] }, 400);
+        }
+      } catch (e) {
+        return c.json({ greska: 'Validacija nije prošla', detalji: [{ polje: `stavke.${i}.kolicina`, poruka: (e as Error).message }] }, 400);
+      }
+      odabrane.push({ stavka: izvorna, kolicina });
+    }
+  } else {
+    for (const s of k.stavke) odabrane.push({ stavka: s, kolicina: s.kolicina });
+  }
+
+  const kandidat = {
+    tip: 'FISKALNI_B2C',
+    poslovniProstor: k.ppOznaka,
+    naplatniUredaj: k.nuOznaka,
+    operaterOib: p.data.operaterOib || k.operaterOib || undefined,
+    nacinPlacanja: (k.racun.nacin_placanja ?? 'kartica').toUpperCase(),
+    valuta: k.racun.valuta,
+    ...(p.data.napomena ? { napomena: p.data.napomena } : {}),
+    ...(k.kupac
+      ? {
+          kupac: {
+            naziv: k.kupac.naziv,
+            ...(k.kupac.oib ? { oib: k.kupac.oib } : {}),
+            ...(k.kupac.email ? { email: k.kupac.email } : {}),
+          },
+        }
+      : {}),
+    stavke: odabrane.map(({ stavka, kolicina }) => ({
+      naziv: stavka.naziv,
+      ...(stavka.opis ? { opis: stavka.opis } : {}),
+      kolicina,
+      jedinicaMjere: stavka.jedinica_mjere,
+      netoCijena: izCenti(-uCente(stavka.neto_cijena, 'netoCijena')),
+      popustPosto: stavka.popust_posto,
+      pdvStopa: stavka.pdv_stopa,
+      pdvKategorija: stavka.pdv_kategorija,
+      ...(stavka.kpd ? { kpd: stavka.kpd } : {}),
+    })),
+    stornoZaId: k.racun.id,
+    ...(p.data.vanjskaReferenca ? { vanjskaReferenca: p.data.vanjskaReferenca } : {}),
+  };
+  const parsed = racunModelShema.safeParse(kandidat);
+  if (!parsed.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(parsed.error) }, 400);
+  const greskaKljuca = spojiIdempotencijskiKljuc(c, parsed.data);
+  if (greskaKljuca) return greskaKljuca;
+  return izdajIOdgovori(c, parsed.data);
 });
 
 // Ručno okidanje (naknadne) fiskalizacije — npr. nakon ispravka certifikata.

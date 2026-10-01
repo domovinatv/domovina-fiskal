@@ -41,6 +41,14 @@ function datumHr(iso: string | null): string {
   return m ? `${m[3]}.${m[2]}.${m[1]}.` : iso;
 }
 
+// „Storno računa br. 12/WEB/1 od 15.07.2026." — PDF i e-mail storna (Faza 4.3).
+export function stornoOpis(o: { broj: string | null; datumVrijeme: string }): string {
+  const datum = new Intl.DateTimeFormat('hr-HR', { timeZone: 'Europe/Zagreb', day: '2-digit', month: '2-digit', year: 'numeric' })
+    .format(new Date(o.datumVrijeme))
+    .replace(/\s/g, '');
+  return `Storno računa br. ${o.broj ?? '—'} od ${datum.endsWith('.') ? datum : `${datum}.`}`;
+}
+
 function datumVrijemeHr(iso: string): string {
   const d = new Date(iso);
   const f = new Intl.DateTimeFormat('hr-HR', {
@@ -263,6 +271,11 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
   tekst(c, 'ZA PLATITI:', recapX, 12, { bold: true, boja: NAVY });
   tekst(c, `${iznosHr(r.dospijeva_za_placanje)} ${r.valuta}`, 0, 12, { bold: true, boja: NAVY, desno: MARGINA + SIRINA });
   c.y -= 22;
+
+  if (k.stornoOriginal) {
+    tekst(c, stornoOpis(k.stornoOriginal), MARGINA, 10, { bold: true, boja: NAVY });
+    c.y -= 15;
+  }
 
   // ── Klauzule (čl. 79 st. 1. t. 11–15: oslobođenje / prijenos obveze) ──
   if (r.klauzula_pdv) {

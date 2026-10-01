@@ -728,6 +728,24 @@ export async function getRacun(db: D1Database, tenantId: number, id: number): Pr
   return db.prepare(`SELECT * FROM racun WHERE id = ? AND tenant_id = ?`).bind(id, tenantId).first<RacunRow>();
 }
 
+// Storno (0009): zbroj iznosa svih izdanih storna originala, u centima (≤ 0).
+export async function zbrojStornaCenti(db: D1Database, originalId: number): Promise<number> {
+  const red = await db
+    .prepare(
+      `SELECT COALESCE(SUM(CAST(ROUND(CAST(iznos_s_pdv AS REAL) * 100) AS INTEGER)), 0) AS centi
+       FROM racun WHERE storno_racun_id = ? AND status <> 'nacrt'`,
+    )
+    .bind(originalId)
+    .first<{ centi: number }>();
+  return red?.centi ?? 0;
+}
+
+// Je li upis odbio trigger storna (utrka dva storna istog originala)?
+export function stornoGreskaTriggera(e: unknown): string | null {
+  const m = String((e as Error)?.message ?? e).match(/STORNO: ([^:]+?)(?::|$)/);
+  return m ? m[1].trim() : null;
+}
+
 // Idempotencija: dokument tenanta po klijentovoj referenci (0007).
 export async function getRacunPoReferenci(db: D1Database, tenantId: number, referenca: string): Promise<RacunRow | null> {
   return db
@@ -788,11 +806,12 @@ export async function zapisiZki(db: D1Database, tenantId: number, racunId: numbe
     .run();
 }
 
-// JIR zaprimljen → status 'fiskaliziran', QR prelazi na jir varijantu.
+// JIR zaprimljen → status 'fiskaliziran' (storniran ostaje storniran), QR prelazi na jir varijantu.
 export async function zapisiJir(db: D1Database, tenantId: number, racunId: number, jir: string, qrPayload: string): Promise<void> {
   await db
     .prepare(
-      `UPDATE racun SET jir = ?, qr_payload = ?, status = 'fiskaliziran', fiskal_greska = NULL,
+      `UPDATE racun SET jir = ?, qr_payload = ?, fiskal_greska = NULL,
+              status = CASE WHEN status = 'storniran' THEN status ELSE 'fiskaliziran' END,
               fiskal_pokusaja = fiskal_pokusaja + 1, fiskal_zadnji_pokusaj = datetime('now'),
               updated_at = datetime('now')
        WHERE id = ? AND tenant_id = ?`,
@@ -848,7 +867,8 @@ export async function otkljucajFiskalizaciju(db: D1Database, racunId: number): P
 export const SWEEP_MAX_DANA = 7;
 
 // Uvjet „izdani fiskalni B2C bez JIR-a" — zajednički sweepu, alarmima i zdravlju.
-const BEZ_JIRA = `tip_dokumenta = 'fiskalni_b2c' AND status = 'izdano' AND jir IS NULL`;
+// 'storniran' (0009): puni storno ne oslobađa original od fiskalizacije.
+const BEZ_JIRA = `tip_dokumenta = 'fiskalni_b2c' AND status IN ('izdano', 'storniran') AND jir IS NULL`;
 
 // Kandidati za naknadnu dostavu (cron sweep):
 //   * izdani fiskalni bez JIR-a, nezaključani, mlađi od SWEEP_MAX_DANA;
@@ -1167,13 +1187,15 @@ export interface RacunKontekst {
   nuOznaka: string;
   operaterIme: string | null;
   operaterOib: string | null;
+  // Storno: original na koji se odnosi (PDF/email: „Storno računa br. X od …").
+  stornoOriginal: { broj: string | null; datumVrijeme: string } | null;
   kupac: { naziv: string; oib: string | null; vat_number: string | null; adr_ulica: string | null; adr_grad: string | null; adr_postanski_broj: string | null; adr_drzava: string | null; email: string | null } | null;
 }
 
 export async function getRacunKontekst(db: D1Database, tenantId: number, racunId: number): Promise<RacunKontekst | null> {
   const racun = await getRacun(db, tenantId, racunId);
   if (!racun) return null;
-  const [stavke, raspodjela, tenant, pp, nu, operater, kupac] = await Promise.all([
+  const [stavke, raspodjela, tenant, pp, nu, operater, kupac, original] = await Promise.all([
     getStavke(db, racun.id),
     getPdvRaspodjela(db, racun.id),
     getTenant(db, tenantId),
@@ -1184,6 +1206,9 @@ export async function getRacunKontekst(db: D1Database, tenantId: number, racunId
       : Promise.resolve(null),
     racun.kupac_id
       ? db.prepare(`SELECT naziv, oib, vat_number, adr_ulica, adr_grad, adr_postanski_broj, adr_drzava, email FROM kupac WHERE id = ?`).bind(racun.kupac_id).first<RacunKontekst['kupac']>()
+      : Promise.resolve(null),
+    racun.storno_racun_id
+      ? db.prepare(`SELECT broj_racuna_full, datum_vrijeme FROM racun WHERE id = ? AND tenant_id = ?`).bind(racun.storno_racun_id, tenantId).first<{ broj_racuna_full: string | null; datum_vrijeme: string }>()
       : Promise.resolve(null),
   ]);
   if (!tenant || !pp || !nu) return null;
@@ -1197,6 +1222,7 @@ export async function getRacunKontekst(db: D1Database, tenantId: number, racunId
     operaterIme: operater?.ime ?? null,
     operaterOib: operater?.oib_operatera ?? null,
     kupac: kupac ?? null,
+    stornoOriginal: original ? { broj: original.broj_racuna_full, datumVrijeme: original.datum_vrijeme } : null,
   };
 }
 
