@@ -172,6 +172,8 @@ describe('Alarmi', () => {
     expect(await obradiAlarme(env)).toContain(`bez-jira-24h:${t.tenant.id}`);
     const primatelji = send.mock.calls.filter(([p]) => p.subject.includes('bez JIR-a')).map(([p]) => p.to);
     expect(primatelji).toEqual(expect.arrayContaining(['alarmi@primjer.hr', 'vlasnik@primjer.hr']));
+    const { racunaMnozina } = await import('../src/alarmi');
+    expect([1, 2, 5, 11, 12, 21, 22, 25].map((n) => `${n} ${racunaMnozina(n)}`)).toEqual(['1 fiskalni račun', '2 fiskalna računa', '5 fiskalnih računa', '11 fiskalnih računa', '12 fiskalnih računa', '21 fiskalni račun', '22 fiskalna računa', '25 fiskalnih računa']);
     // Drugi prolaz odmah nakon prvog ne šalje isti alarm ponovno.
     expect(await obradiAlarme(env)).not.toContain(`bez-jira-24h:${t.tenant.id}`);
   });

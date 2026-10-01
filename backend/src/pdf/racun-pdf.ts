@@ -280,7 +280,8 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
   tekst(c, 'PDV ukupno:', recapX, 10, { boja: MUTED });
   tekst(c, `${iznosHr(r.pdv)} ${r.valuta}`, 0, 10, { desno: MARGINA + SIRINA });
   c.y -= 17;
-  tekst(c, 'ZA PLATITI:', recapX, 12, { bold: true, boja: NAVY });
+  // Storno (negativan iznos) se kupcu vraća, ne plaća.
+  tekst(c, uCente(r.dospijeva_za_placanje ?? '0', 'ukupno') < 0 ? 'ZA POVRAT:' : 'ZA PLATITI:', recapX, 12, { bold: true, boja: NAVY });
   tekst(c, `${iznosHr(r.dospijeva_za_placanje)} ${r.valuta}`, 0, 12, { bold: true, boja: NAVY, desno: MARGINA + SIRINA });
   c.y -= 22;
 

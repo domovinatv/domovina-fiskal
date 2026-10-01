@@ -19,6 +19,15 @@ import { cisEcho, okolinaIzEnv } from './fiskal/fiskalizacija';
 import { cisPosluziteljCertIstice } from './fiskal/cis';
 
 const SAT = 3600;
+
+// 1 fiskalni račun · 2–4 fiskalna računa · 5+ (i 11–14) fiskalnih računa
+export function racunaMnozina(n: number): string {
+  const d = n % 10;
+  const s = n % 100;
+  if (d === 1 && s !== 11) return 'fiskalni račun';
+  if (d >= 2 && d <= 4 && (s < 12 || s > 14)) return 'fiskalna računa';
+  return 'fiskalnih računa';
+}
 const DAN = 24 * SAT;
 
 export interface Alarm {
@@ -99,9 +108,9 @@ export async function izracunajAlarme(env: Env, opcije: { dnevno?: boolean } = {
     alarmi.push({
       kljuc: `bez-jira-24h:${g.tenant_id}`,
       tenantId: g.tenant_id,
-      naslov: `${g.broj} fiskalnih računa bez JIR-a dulje od 24 h`,
+      naslov: `${g.broj} ${racunaMnozina(g.broj)} bez JIR-a dulje od 24 h`,
       tekst:
-        `Tenant ${g.tenant_id}: ${g.broj} izdanih fiskalnih računa još nema JIR (najstariji ${g.najstariji}).\n` +
+        `Tenant ${g.tenant_id}: izdanih fiskalnih računa bez JIR-a: ${g.broj} (najstariji ${g.najstariji}).\n` +
         `Računi: ${g.primjeri.slice(0, 1000)}\n\n` +
         `Rok za naknadnu dostavu je 2 radna dana (čl. 21. st. 2.). Provjeri fiskal_greska na računima u adminu.`,
       intervalSekundi: 6 * SAT,
