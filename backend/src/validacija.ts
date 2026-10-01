@@ -82,6 +82,13 @@ const popustShema = z
     return String(Math.round(n * 100) / 100);
   });
 
+export const vanjskaReferencaShema = z
+  .string({ invalid_type_error: 'vanjskaReferenca mora biti string' })
+  .trim()
+  .min(1, 'vanjskaReferenca ne smije biti prazna')
+  .max(100, 'vanjskaReferenca smije imati najviše 100 znakova')
+  .regex(/^[\w./:-]+$/, "vanjskaReferenca smije sadržavati samo slova, znamenke i znakove _ . / : -");
+
 export const PDV_KATEGORIJE = ['S', 'AA', 'Z', 'E', 'AE', 'O'] as const;
 
 const stavkaShema = z
@@ -195,6 +202,8 @@ export const racunModelShema = z
     stavke: z.array(stavkaShema).min(1, 'racun mora imati barem jednu stavku').max(500, 'najviše 500 stavki'),
     status: z.enum(['nacrt', 'izdano']).default('izdano'), // 'nacrt' = skica bez broja
     stornoZaId: z.number().int().positive().optional(), // interna veza storna na original (10-* §2.3)
+    // Idempotencijski ključ klijenta (npr. broj narudžbe) — isto i kroz zaglavlje Idempotency-Key.
+    vanjskaReferenca: vanjskaReferencaShema.optional(),
   })
   .superRefine((r, ctx) => {
     if ((r.tip === 'ERACUN_B2B' || r.tip === 'ERACUN_B2G') && !r.kupac?.oib) {

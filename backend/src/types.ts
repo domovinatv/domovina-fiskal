@@ -152,6 +152,8 @@ export interface RacunRow {
   fiskal_zadnji_pokusaj: string | null;
   fiskal_greska: string | null;
   storno_racun_id: number | null;
+  vanjska_referenca: string | null; // idempotencijski ključ klijenta (0007)
+  zahtjev_hash: string | null;
   status: string;
   created_at: string;
 }

@@ -24,9 +24,11 @@ import {
   getProizvod,
   getRacun,
   getRacunKontekst,
+  getRacunPoReferenci,
   getStavke,
   getTenant,
   izdajSkicu,
+  jeSukobReference,
   listMojiTenanti,
   listNaplatniUredjaji,
   listOperateri,
@@ -45,12 +47,13 @@ import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracu
 import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { godinaZagreb, normalizirajTekst, sha256Hex, validanOib } from '../util';
+import { godinaZagreb, kanonskiJson, normalizirajTekst, sha256Hex, validanOib } from '../util';
 import {
   formatirajGreske,
   izracunajIznose,
   provjeriPdvPravila,
   racunModelShema,
+  vanjskaReferencaShema,
   type RacunModel,
   type RazrijesenaStavka,
 } from '../validacija';
@@ -66,7 +69,8 @@ apiV1.use('*', async (c, next) => {
     .filter(Boolean);
   const mw = cors({
     origin: (origin) => (dozvoljeni.includes(origin) ? origin : null),
-    allowHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Id'],
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Id', 'Idempotency-Key'],
+    exposeHeaders: ['Idempotent-Replay'],
     allowMethods: ['GET', 'POST', 'OPTIONS'],
     maxAge: 86400,
   });
@@ -228,13 +232,38 @@ async function razrijesiStavke(
   return { stavke: rezultat };
 }
 
+export type KreiranjeIshod =
+  | { racun: RacunRow; ponovljen: boolean }
+  | { status: 400 | 404 | 409; greska: string; detalji?: { polje: string; poruka: string }[]; racunId?: number };
+
+// SHA-256 kanoničkog JSON-a modela BEZ reference: isti sadržaj (neovisno o
+// redoslijedu polja i obliku brojeva — zod ih normalizira) = isti hash.
+export async function hashZahtjeva(model: RacunModel): Promise<string> {
+  const { vanjskaReferenca: _ref, ...sadrzaj } = model;
+  return sha256Hex(kanonskiJson(sadrzaj));
+}
+
+// Referenca već postoji: isti sadržaj → ponovljeni zahtjev (vrati postojeći,
+// NE izdaji ni ne fiskaliziraj ponovno); drugi sadržaj → sukob 409.
+function ishodPostojeceg(postojeci: RacunRow, zahtjevHash: string | null): KreiranjeIshod {
+  if (postojeci.zahtjev_hash && postojeci.zahtjev_hash === zahtjevHash) return { racun: postojeci, ponovljen: true };
+  return { status: 409, greska: 'vanjskaReferenca je već iskorištena za drukčiji račun', racunId: postojeci.id };
+}
+
 // Zajednička logika kreiranja dokumenta — koristi je API (JSON) i admin (forma).
-export async function kreirajDokument(
-  env: Env,
-  tenant: TenantRow,
-  model: RacunModel,
-): Promise<{ racun: RacunRow } | { status: 400 | 404 | 409; greska: string; detalji?: { polje: string; poruka: string }[] }> {
+// S vanjskaReferenca je idempotentna (Faza 4.1): ponovljeni zahtjev vraća
+// postojeći dokument (ponovljen: true) i ne troši broj iz slijeda.
+export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunModel): Promise<KreiranjeIshod> {
   const db = env.DB;
+  const referenca = model.vanjskaReferenca ?? null;
+  const zahtjevHash = referenca ? await hashZahtjeva(model) : null;
+  // Provjera reference PRIJE preduvjeta: ponovljeni zahtjev dobiva postojeći
+  // račun i kad se preduvjeti u međuvremenu promijene (npr. istekne certifikat).
+  if (referenca) {
+    const postojeci = await getRacunPoReferenci(db, tenant.id, referenca);
+    if (postojeci) return ishodPostojeceg(postojeci, zahtjevHash);
+  }
+
   const pp = await getPoslovniProstorByOznaka(db, tenant.id, model.poslovniProstor);
   if (!pp) return { status: 404, greska: `Poslovni prostor s oznakom '${model.poslovniProstor}' ne postoji` };
   if (pp.datum_zatvaranja) return { status: 409, greska: `Poslovni prostor '${pp.oznaka}' je zatvoren (${pp.datum_zatvaranja})` };
@@ -317,39 +346,51 @@ export async function kreirajDokument(
     proizvodId: s.proizvodId,
   }));
 
-  const racun = await upisiRacun(db, {
-    tenantId: tenant.id,
-    poslovniProstorId: pp.id,
-    naplatniUredajId: nu.id,
-    operaterId,
-    kupacId,
-    oznakaSlijednosti: tenant.oznaka_slijednosti_def,
-    oznPP: pp.oznaka,
-    oznNU: nu.oznaka,
-    godina: godinaZagreb(sada),
-    datumVrijeme: sada.toISOString(),
-    tipDokumenta: TIP_U_DB[model.tip],
-    sekvencaVrsta: SEKVENCA_ZA_TIP[model.tip],
-    valuta: model.valuta,
-    nacinPlacanja: model.nacinPlacanja.toLowerCase(),
-    datumDospijeca: model.datumDospijeca ?? null,
-    vrijediDo: model.vrijediDo ?? null,
-    datumIsporuke: model.datumIsporuke ?? null,
-    napomena: model.napomena || null,
-    internaBiljeska: model.internaBiljeska || null,
-    uvjeti: model.uvjeti || null,
-    klauzulaPdv: pravila.klauzula,
-    neto: iznosi.neto,
-    iznosBezPdv: iznosi.iznosBezPdv,
-    pdv: iznosi.pdv,
-    iznosSPdv: iznosi.iznosSPdv,
-    dospijevaZaPlacanje: iznosi.dospijevaZaPlacanje,
-    status: model.status,
-    stavke: stavkeZaUpis,
-    pdvRaspodjela: iznosi.raspodjela,
-    stornoRacunId: model.stornoZaId ?? null,
-  });
-  return { racun };
+  let racun: RacunRow;
+  try {
+    racun = await upisiRacun(db, {
+      tenantId: tenant.id,
+      poslovniProstorId: pp.id,
+      naplatniUredajId: nu.id,
+      operaterId,
+      kupacId,
+      oznakaSlijednosti: tenant.oznaka_slijednosti_def,
+      oznPP: pp.oznaka,
+      oznNU: nu.oznaka,
+      godina: godinaZagreb(sada),
+      datumVrijeme: sada.toISOString(),
+      tipDokumenta: TIP_U_DB[model.tip],
+      sekvencaVrsta: SEKVENCA_ZA_TIP[model.tip],
+      valuta: model.valuta,
+      nacinPlacanja: model.nacinPlacanja.toLowerCase(),
+      datumDospijeca: model.datumDospijeca ?? null,
+      vrijediDo: model.vrijediDo ?? null,
+      datumIsporuke: model.datumIsporuke ?? null,
+      napomena: model.napomena || null,
+      internaBiljeska: model.internaBiljeska || null,
+      uvjeti: model.uvjeti || null,
+      klauzulaPdv: pravila.klauzula,
+      neto: iznosi.neto,
+      iznosBezPdv: iznosi.iznosBezPdv,
+      pdv: iznosi.pdv,
+      iznosSPdv: iznosi.iznosSPdv,
+      dospijevaZaPlacanje: iznosi.dospijevaZaPlacanje,
+      status: model.status,
+      stavke: stavkeZaUpis,
+      pdvRaspodjela: iznosi.raspodjela,
+      stornoRacunId: model.stornoZaId ?? null,
+      vanjskaReferenca: referenca,
+      zahtjevHash,
+    });
+  } catch (e) {
+    // Utrka: istodobni zahtjev s istom referencom upisao je prvi. Batch je
+    // vraćen unatrag u cijelosti (i sekvenca+1) — broj NIJE potrošen.
+    if (!referenca || !jeSukobReference(e)) throw e;
+    const postojeci = await getRacunPoReferenci(db, tenant.id, referenca);
+    if (!postojeci) throw e;
+    return ishodPostojeceg(postojeci, zahtjevHash);
+  }
+  return { racun, ponovljen: false };
 }
 
 // Izdavanje dokumenta (faza 1: nefiskalni — PONUDA, PREDRACUN, RACUN).
@@ -367,6 +408,19 @@ apiV1.post('/racun', async (c) => {
   }
   const model = parsed.data;
 
+  // Idempotency-Key zaglavlje = isto što i polje vanjskaReferenca.
+  const kljucZaglavlje = c.req.header('Idempotency-Key');
+  if (kljucZaglavlje !== undefined) {
+    const k = vanjskaReferencaShema.safeParse(kljucZaglavlje);
+    if (!k.success) {
+      return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(k.error).map((g) => ({ ...g, polje: 'Idempotency-Key' })) }, 400);
+    }
+    if (model.vanjskaReferenca && model.vanjskaReferenca !== k.data) {
+      return c.json({ greska: "Zaglavlje 'Idempotency-Key' i polje 'vanjskaReferenca' se razlikuju — pošalji jedno ili oba ista" }, 400);
+    }
+    model.vanjskaReferenca = k.data;
+  }
+
   // Nepoznat tip (izvan mapiranja) — jasna poruka umjesto tihog spremanja.
   if (!(model.tip in TIP_U_DB)) {
     return c.json(
@@ -378,7 +432,20 @@ apiV1.post('/racun', async (c) => {
   const tenant = c.get('tenant');
   const rezultat = await kreirajDokument(c.env, tenant, model);
   if ('greska' in rezultat) {
-    return c.json({ greska: rezultat.greska, ...(rezultat.detalji ? { detalji: rezultat.detalji } : {}) }, rezultat.status);
+    return c.json(
+      {
+        greska: rezultat.greska,
+        ...(rezultat.detalji ? { detalji: rezultat.detalji } : {}),
+        ...(rezultat.racunId ? { racunId: rezultat.racunId } : {}),
+      },
+      rezultat.status,
+    );
+  }
+  // Ponovljeni zahtjev: postojeći dokument, bez ponovne fiskalizacije (JIR
+  // dovršava sweep naknadne dostave).
+  if (rezultat.ponovljen) {
+    c.header('Idempotent-Replay', 'true');
+    return c.json(await racunUOdgovor(c.env.DB, rezultat.racun), 200);
   }
 
   // Fiskalni B2C: ZKI + pokušaj JIR-a odmah (CIS cilja < 2 s). Ako CIS ne
@@ -539,6 +606,13 @@ apiV1.post('/eracun/provjeri-primatelja', async (c) => {
 });
 
 apiV1.get('/racun', async (c) => {
+  // Klijent nakon timeouta provjerava je li račun nastao: točno jedan ili 404.
+  const referenca = c.req.query('vanjskaReferenca');
+  if (referenca !== undefined) {
+    const racun = await getRacunPoReferenci(c.env.DB, c.get('tenant').id, referenca.trim());
+    if (!racun) return c.json({ greska: `Dokument s vanjskom referencom '${referenca}' ne postoji` }, 404);
+    return c.json(await racunUOdgovor(c.env.DB, racun));
+  }
   const limit = Number(c.req.query('limit') ?? 50);
   const offset = Number(c.req.query('offset') ?? 0);
   const racuni = await listRacuni(c.env.DB, {
@@ -667,11 +741,18 @@ apiV1.post('/postavke/operater', async (c) => {
   }
 });
 
+// Status fiskalizacije iz retka — za GET (poll JIR-a), popis i ponovljeni zahtjev.
+export function fiskalizacijaIzRetka(r: RacunRow): { status: 'fiskaliziran' | 'ceka_jir'; greska?: string | null; automatskiRetry?: boolean } {
+  if (r.jir) return { status: 'fiskaliziran' };
+  return { status: 'ceka_jir', greska: r.fiskal_greska, automatskiRetry: r.fiskal_pokusaja === 0 || r.fiskal_nak_dost === 1 };
+}
+
 // Puni JSON prikaz dokumenta (za 201 i GET po id-u).
 async function racunUOdgovor(db: D1Database, r: RacunRow) {
   const [stavke, raspodjela] = await Promise.all([getStavke(db, r.id), getPdvRaspodjela(db, r.id)]);
   return {
     id: r.id,
+    vanjskaReferenca: r.vanjska_referenca,
     brojRacuna: r.broj_racuna_full, // null za skicu
     redniBroj: r.redni_broj,
     godina: r.godina,
@@ -719,6 +800,7 @@ async function racunUOdgovor(db: D1Database, r: RacunRow) {
     fiskalniQr: r.qr_payload,
     ...(r.tip_dokumenta === 'fiskalni_b2c'
       ? {
+          fiskalizacija: fiskalizacijaIzRetka(r),
           fiskalGreska: r.fiskal_greska,
           fiskalPokusaja: r.fiskal_pokusaja,
           naknadnaDostava: !!r.fiskal_nak_dost,

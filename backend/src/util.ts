@@ -79,6 +79,20 @@ export function izHexa(s: string): Uint8Array {
   return new Uint8Array(m.map((h) => parseInt(h, 16)));
 }
 
+// Kanonski JSON: ključevi objekata sortirani rekurzivno, bez razmaka — isti
+// sadržaj daje iste bajtove neovisno o redoslijedu polja (hash za idempotenciju).
+export function kanonskiJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(kanonskiJson).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as Record<string, unknown>)
+      .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${kanonskiJson((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
 // ── Tekst ──
 // Pun Unicode je podržan (SQLite je UTF-8 nativno; lekcija iz FIRA emoji buga je
 // da ulaz NE smije rušiti backend) — samo normaliziramo i mičemo kontrolne znakove.

@@ -467,6 +467,8 @@ export interface NoviRacun {
   tipDokumenta: 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c' | 'eracun_b2b' | 'eracun_b2g';
   sekvencaVrsta: SekvencaVrsta;
   stornoRacunId?: number | null;
+  vanjskaReferenca?: string | null; // idempotencijski ključ (0007)
+  zahtjevHash?: string | null;
   valuta: string;
   nacinPlacanja: string | null;
   datumDospijeca: string | null;
@@ -521,14 +523,16 @@ export async function upisiRacun(db: D1Database, r: NoviRacun): Promise<RacunRow
            datum_vrijeme, tip_dokumenta, valuta, nacin_placanja,
            datum_dospijeca, vrijedi_do, datum_isporuke, model_placanja, poziv_na_broj,
            napomena, interna_biljeska, uvjeti, klauzula_pdv,
-           neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id, status
+           neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id,
+           vanjska_referenca, zahtjev_hash, status
          )
          SELECT ?1, ?6, ?7, ?8, ?9,
                 ?2, s.zadnji_broj, ?5, s.zadnji_broj || '/' || ?10 || '/' || ?11, ?12,
                 ?13, ?14, ?15, ?16,
                 ?17, ?18, ?19, 'HR00', s.zadnji_broj || '-' || CAST(?5 AS INTEGER),
                 ?20, ?21, ?22, ?23,
-                ?24, ?25, ?26, ?27, ?28, ?29, 'izdano'
+                ?24, ?25, ?26, ?27, ?28, ?29,
+                ?30, ?31, 'izdano'
          FROM sekvenca s WHERE ${sekvencaUvjet}
          RETURNING id`,
       )
@@ -556,6 +560,8 @@ export async function upisiRacun(db: D1Database, r: NoviRacun): Promise<RacunRow
         r.iznosSPdv,           // ?27
         r.dospijevaZaPlacanje, // ?28
         r.stornoRacunId ?? null, // ?29
+        r.vanjskaReferenca ?? null, // ?30
+        r.zahtjevHash ?? null, // ?31
       ),
     ...stavkeIPdvStmts(db, r, `FROM racun r JOIN sekvenca s ON ${sekvencaUvjet} WHERE ${racunUvjet}`, [...kontekst]),
   ];
@@ -630,8 +636,9 @@ async function upisiSkicu(db: D1Database, r: NoviRacun): Promise<RacunRow> {
          sekvenca_vrsta, oznaka_slijednosti, datum_vrijeme, tip_dokumenta, valuta,
          nacin_placanja, datum_dospijeca, vrijedi_do, datum_isporuke,
          napomena, interna_biljeska, uvjeti, klauzula_pdv,
-         neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nacrt')
+         neto, iznos_bez_pdv, pdv, iznos_s_pdv, dospijeva_za_placanje, storno_racun_id,
+         vanjska_referenca, zahtjev_hash, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nacrt')
        RETURNING id`,
     )
     .bind(
@@ -640,6 +647,7 @@ async function upisiSkicu(db: D1Database, r: NoviRacun): Promise<RacunRow> {
       r.nacinPlacanja, r.datumDospijeca, r.vrijediDo, r.datumIsporuke,
       r.napomena, r.internaBiljeska, r.uvjeti, r.klauzulaPdv,
       r.neto, r.iznosBezPdv, r.pdv, r.iznosSPdv, r.dospijevaZaPlacanje, r.stornoRacunId ?? null,
+      r.vanjskaReferenca ?? null, r.zahtjevHash ?? null,
     )
     .first<{ id: number }>();
   if (!red) throw new Error('INSERT skice nije vratio id');
@@ -718,6 +726,20 @@ export async function izdajSkicu(
 
 export async function getRacun(db: D1Database, tenantId: number, id: number): Promise<RacunRow | null> {
   return db.prepare(`SELECT * FROM racun WHERE id = ? AND tenant_id = ?`).bind(id, tenantId).first<RacunRow>();
+}
+
+// Idempotencija: dokument tenanta po klijentovoj referenci (0007).
+export async function getRacunPoReferenci(db: D1Database, tenantId: number, referenca: string): Promise<RacunRow | null> {
+  return db
+    .prepare(`SELECT * FROM racun WHERE tenant_id = ? AND vanjska_referenca = ?`)
+    .bind(tenantId, referenca)
+    .first<RacunRow>();
+}
+
+// Je li greška D1 upisa povreda jedinstvenosti vanjske reference (utrka)?
+export function jeSukobReference(e: unknown): boolean {
+  const poruka = String((e as Error)?.message ?? e);
+  return poruka.includes('UNIQUE') && poruka.includes('vanjska_referenca');
 }
 
 export async function getStavke(db: D1Database, racunId: number): Promise<StavkaRow[]> {
