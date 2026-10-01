@@ -42,8 +42,23 @@ export interface CisHttpOdgovor {
   tijelo: string;
 }
 
+export type CisTransport = (okolina: Okolina, operacija: CisOperacija, envelopa: string) => Promise<CisHttpOdgovor>;
+
+// Zamjenjivi transport: testovi (test/pomocno/cis-mock.ts) podmeću mock jer
+// vi.mock u workers poolu ne djeluje na module koje uvozi kod pod testom.
+// U produkciji se nikad ne postavlja — uvijek ide pravi TLS poziv.
+let transport: CisTransport = soapPozivTls;
+
+export function postaviCisTransport(t: CisTransport | null): void {
+  transport = t ?? soapPozivTls;
+}
+
+export function soapPoziv(okolina: Okolina, operacija: CisOperacija, envelopa: string): Promise<CisHttpOdgovor> {
+  return transport(okolina, operacija, envelopa);
+}
+
 // Ručni HTTPS POST: TCP socket + subtls (TLS 1.3, Fina CA anchor) + HTTP/1.1.
-export async function soapPoziv(okolina: Okolina, operacija: CisOperacija, envelopa: string): Promise<CisHttpOdgovor> {
+async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa: string): Promise<CisHttpOdgovor> {
   const e = ENDPOINTI[okolina];
   const tijelo = new TextEncoder().encode(envelopa);
   const zahtjev =

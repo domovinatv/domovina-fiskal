@@ -8,7 +8,10 @@
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply fiskal_domovina --local",
     "db:migrate:prod": "wrangler d1 migrations apply fiskal_domovina --remote",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "test": "vitest run",
+    "predeploy": "npm run typecheck && npm test",
+    "deploy:test": "npm run typecheck && npm test && wrangler deploy --env test"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -20,9 +23,11 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^4.20250101.0",
     "@types/node-forge": "^1.3.14",
     "typescript": "^5.7.2",
+    "vitest": "^4.1.11",
     "wrangler": "^4.0.0"
   }
 }
