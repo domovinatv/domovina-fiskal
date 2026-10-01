@@ -16,7 +16,7 @@ stanje po koracima u tablici niže; kronologija i nalazi u
 | 4.8.1 Push | ✅ | — |
 | 4.8.2 TEST migracije + deploy | ✅ 0007–0009, verzija `a75738d8` (crons `*/15` + `0 6`) | — |
 | 4.8.3 E2E na CIS TEST-u | ✅ na ITalku (tenant 1) — MARCIDEA nema demo cert (v. dnevnik §6); `ALARM_EMAIL` i `RESEND_API_KEY` na testu nisu postavljeni | — |
-| 4.8.4 PROD | ⏳ čeka izričito odobrenje | — |
+| 4.8.4 PROD | ✅ 1–4 (odobreno 01.10.2026.): backup → `secrets/prod-backup-2026-10-01-prije-0007.sql`, migracije 0007–0009, deploy `6fd7122a`, echo na PROD CIS ✅ (cert do 18.12.2026.). ⏳ 5: prvi pravi PROD račun — NAKON čišćenja (4.8.5) | — |
 | 4.8.5 Čišćenje prod baze | ⏳ čeka odobrenje | — |
 | 4.9 Onboarding MARCIDEA na PROD | 🟡 pripremljen `backend/scripts/dodaj-tenant.sh` (nije izvršen) | `fa2cf06` |
 | Usput: bug FINA P12 upload | ✅ od `9bbb563` se FINA P12 nije mogao uploadati | `90bfda1` |

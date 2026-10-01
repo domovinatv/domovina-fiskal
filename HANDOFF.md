@@ -45,8 +45,9 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
   deployan (migracije 0007–0009, crons `*/15` + `0 6`) i E2E prošao na CIS TEST-u.
-  **PROD nije diran** — svaki PROD korak (backup, migracije, deploy, prvi račun,
-  čišćenje, rotacija `ENC_MASTER_KEY`/doku tokena) traži izričito odobrenje.
+  **PROD deployan 01.10.2026.** (migracije 0007–0009, verzija `6fd7122a`, echo na
+  PROD CIS radi). Preostali PROD koraci (čišćenje 2 probna računa → prvi pravi
+  račun, rotacija `ENC_MASTER_KEY`, doku token, `ALARM_EMAIL`) traže izričito odobrenje.
   Stanje po koracima: tablica na vrhu plana; nalazi u
   `docs/research/faza-4-dnevnik-implementacije.md`.
 - **Testovi:** `cd backend && npm test` (vitest u workerd-u, lokalni D1, CIS je
