@@ -63,6 +63,53 @@ export async function getTenant(db: D1Database, id: number): Promise<TenantRow |
   return db.prepare(`SELECT * FROM tenant WHERE id = ?`).bind(id).first<TenantRow>();
 }
 
+// Izmjena tenanta (Faza 4.5). Naziv, adresa, IBAN i e-mail su slobodni;
+// u_sustavu_pdv i oznaka_slijednosti_def određuju PDV obračun i numeriranje
+// već izdanih dokumenata, pa se mijenjaju SAMO dok tenant nema nijedan izdan
+// dokument — uvjet je u samom UPDATE-u (bez utrke s istodobnim izdavanjem).
+export interface IzmjenaTenanta {
+  naziv: string;
+  adrUlica: string | null;
+  adrMjesto: string | null;
+  adrPostanskiBroj: string | null;
+  iban: string | null;
+  email: string | null;
+  uSustavuPdv: boolean;
+  oznakaSlijednosti: 'P' | 'N';
+}
+
+export async function tenantImaIzdanihDokumenata(db: D1Database, tenantId: number): Promise<boolean> {
+  const red = await db
+    .prepare(`SELECT 1 AS da FROM racun WHERE tenant_id = ? AND redni_broj IS NOT NULL LIMIT 1`)
+    .bind(tenantId)
+    .first<{ da: number }>();
+  return !!red;
+}
+
+export async function updateTenant(
+  db: D1Database,
+  tenantId: number,
+  t: IzmjenaTenanta,
+): Promise<'ok' | 'zakljucano' | 'ne_postoji'> {
+  const trenutni = await getTenant(db, tenantId);
+  if (!trenutni) return 'ne_postoji';
+  const mijenjaZakljucano = !!trenutni.u_sustavu_pdv !== t.uSustavuPdv || trenutni.oznaka_slijednosti_def !== t.oznakaSlijednosti;
+  const r = await db
+    .prepare(
+      `UPDATE tenant SET naziv = ?, adr_ulica = ?, adr_mjesto = ?, adr_postanski_broj = ?, iban = ?, email = ?,
+              u_sustavu_pdv = ?, oznaka_slijednosti_def = ?, updated_at = datetime('now')
+       WHERE id = ?
+         AND (? = 0 OR NOT EXISTS (SELECT 1 FROM racun WHERE tenant_id = ? AND redni_broj IS NOT NULL))`,
+    )
+    .bind(
+      t.naziv, t.adrUlica, t.adrMjesto, t.adrPostanskiBroj, t.iban, t.email,
+      t.uSustavuPdv ? 1 : 0, t.oznakaSlijednosti, tenantId,
+      mijenjaZakljucano ? 1 : 0, tenantId,
+    )
+    .run();
+  return r.meta.changes ? 'ok' : 'zakljucano';
+}
+
 // ───────────────────────── API ključevi ─────────────────────────
 
 // Kreira ključ i vraća SIROVI ključ — jedini trenutak u kojem postoji izvan hasha.
@@ -103,8 +150,10 @@ export async function setApiKljucAktivan(db: D1Database, tenantId: number, id: n
     .run();
 }
 
-export async function deleteApiKljuc(db: D1Database, tenantId: number, id: number): Promise<void> {
-  await db.prepare(`DELETE FROM api_kljuc WHERE id = ? AND tenant_id = ?`).bind(id, tenantId).run();
+// Briše se samo DEAKTIVIRAN ključ (dvostupanjsko: prvo deaktiviraj, pa obriši).
+export async function deleteApiKljuc(db: D1Database, tenantId: number, id: number): Promise<boolean> {
+  const r = await db.prepare(`DELETE FROM api_kljuc WHERE id = ? AND tenant_id = ? AND aktivan = 0`).bind(id, tenantId).run();
+  return r.meta.changes > 0;
 }
 
 // Bearer auth: hash sirovog ključa → aktivan ključ + aktivan tenant.
@@ -228,6 +277,29 @@ export async function getOperaterByOib(db: D1Database, tenantId: number, oib: st
     .prepare(`SELECT * FROM operater WHERE tenant_id = ? AND oib_operatera = ?`)
     .bind(tenantId, oib)
     .first<OperaterRow>();
+}
+
+// Deaktivacije (Faza 4.5). Prostor nema `aktivan` — zatvara se datumom
+// zatvaranja (kreirajDokument ga odbija); uređaj i operater imaju `aktivan`.
+export async function setProstorZatvoren(db: D1Database, tenantId: number, prostorId: number, zatvoren: boolean): Promise<void> {
+  await db
+    .prepare(`UPDATE poslovni_prostor SET datum_zatvaranja = CASE WHEN ? THEN date('now') ELSE NULL END WHERE id = ? AND tenant_id = ?`)
+    .bind(zatvoren ? 1 : 0, prostorId, tenantId)
+    .run();
+}
+
+export async function setUredajAktivan(db: D1Database, tenantId: number, uredajId: number, aktivan: boolean): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE naplatni_uredaj SET aktivan = ?
+       WHERE id = ? AND poslovni_prostor_id IN (SELECT id FROM poslovni_prostor WHERE tenant_id = ?)`,
+    )
+    .bind(aktivan ? 1 : 0, uredajId, tenantId)
+    .run();
+}
+
+export async function setOperaterAktivan(db: D1Database, tenantId: number, operaterId: number, aktivan: boolean): Promise<void> {
+  await db.prepare(`UPDATE operater SET aktivan = ? WHERE id = ? AND tenant_id = ?`).bind(aktivan ? 1 : 0, operaterId, tenantId).run();
 }
 
 // ───────────────────────── Certifikat ─────────────────────────

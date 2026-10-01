@@ -13,6 +13,7 @@ import {
   createPoslovniProstor,
   createProizvod,
   createTenant,
+  deleteApiKljuc,
   getKpd,
   getRacunKontekst,
   getTenant,
@@ -31,6 +32,11 @@ import {
   searchKpd,
   setApiKljucAktivan,
   setKorisnikTenantAktivan,
+  setOperaterAktivan,
+  setProstorZatvoren,
+  setUredajAktivan,
+  tenantImaIzdanihDokumenata,
+  updateTenant,
   setProstorCisStatus,
   upsertDokuKonfig,
   zabiljeziSlanjeEmaila,
@@ -65,6 +71,26 @@ admin.use('*', async (c, next) => {
     realm: 'DOMOVINA Fiskal admin',
   });
   return mw(c, next);
+});
+
+// CSRF (Faza 4.5, N7): Basic Auth preglednik šalje sam, pa bi tuđa stranica
+// mogla poslati formu na /admin. Za POST provjeravamo da zahtjev dolazi s
+// našeg origina: Origin (svi moderni preglednici ga šalju za POST), inače
+// Sec-Fetch-Site. Klijenti bez ijednog (curl, skripte) nisu preglednik i ne
+// nose tuđe kolačiće/autorizaciju — njih propuštamo.
+admin.use('*', async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD') return next();
+  const nas = new URL(c.req.url).origin;
+  const origin = c.req.header('Origin');
+  if (origin !== undefined) {
+    if (origin !== nas) return c.text(`Odbijeno (CSRF): zahtjev s origina '${origin}' nije dopušten.`, 403);
+    return next();
+  }
+  const site = c.req.header('Sec-Fetch-Site');
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') {
+    return c.text(`Odbijeno (CSRF): Sec-Fetch-Site '${site}'.`, 403);
+  }
+  return next();
 });
 
 admin.get('/', async (c) => {
@@ -107,7 +133,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -117,14 +143,71 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     listProizvodi(c.env.DB, tenantId),
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
     listKorisniciTenanta(c.env.DB, tenantId),
+    tenantImaIzdanihDokumenata(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih };
 }
 
 admin.get('/tenant/:id', async (c) => {
   const d = await detaljData(c, Number(c.req.param('id')));
   if (!d) return c.text('Tenant ne postoji', 404);
   return c.html(renderTenantDetaljPage(d));
+});
+
+// Izmjena tenanta (Faza 4.5): PDV status i slijednost samo bez izdanih dokumenata.
+admin.post('/tenant/:id/uredi', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const form = await c.req.parseBody();
+  const s = (k: string) => String(form[k] ?? '').trim();
+  const naziv = normalizirajTekst(s('naziv'));
+  const email = s('email').toLowerCase();
+  if (!naziv) return c.html(renderTenantDetaljPage({ ...d, greska: 'Naziv je obavezan.' }), 400);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `E-mail '${email}' nije valjan.` }), 400);
+  }
+  const ishod = await updateTenant(c.env.DB, tenantId, {
+    naziv,
+    adrUlica: s('ulica') || null,
+    adrMjesto: s('mjesto') || null,
+    adrPostanskiBroj: s('postanski_broj') || null,
+    iban: s('iban').replace(/\s+/g, '').toUpperCase() || null,
+    email: email || null,
+    uSustavuPdv: s('u_sustavu_pdv') === '1',
+    oznakaSlijednosti: s('oznaka_slijednosti') === 'N' ? 'N' : 'P',
+  });
+  if (ishod === 'zakljucano') {
+    return c.html(
+      renderTenantDetaljPage({
+        ...d,
+        greska:
+          'PDV status i oznaka slijednosti ne mogu se mijenjati jer tenant već ima izdane dokumente — o njima ovise PDV obračun i ' +
+          'numeriranje izdanih računa. Ostala polja nisu spremljena; pošalji ih ponovno bez tih izmjena.',
+      }),
+      409,
+    );
+  }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+// Zatvaranje/otvaranje prostora, (de)aktivacija uređaja i operatera (Faza 4.5).
+admin.post('/tenant/:id/:vrsta{prostori|uredjaji|operateri}/:xid{[0-9]+}/:akcija{zatvori|otvori|aktiviraj|deaktiviraj}', async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const xid = Number(c.req.param('xid'));
+  const vrsta = c.req.param('vrsta');
+  const akcija = c.req.param('akcija');
+  const ukljuci = akcija === 'aktiviraj' || akcija === 'otvori';
+  if (vrsta === 'prostori' && (akcija === 'zatvori' || akcija === 'otvori')) {
+    await setProstorZatvoren(c.env.DB, tenantId, xid, !ukljuci);
+  } else if (vrsta === 'uredjaji' && (akcija === 'aktiviraj' || akcija === 'deaktiviraj')) {
+    await setUredajAktivan(c.env.DB, tenantId, xid, ukljuci);
+  } else if (vrsta === 'operateri' && (akcija === 'aktiviraj' || akcija === 'deaktiviraj')) {
+    await setOperaterAktivan(c.env.DB, tenantId, xid, ukljuci);
+  } else {
+    return c.text(`Nepoznata akcija: ${vrsta}/${akcija}`, 400);
+  }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
 admin.post('/tenant/:id/prostori', async (c) => {
@@ -237,6 +320,14 @@ admin.post('/tenant/:id/kljucevi/:kid/:akcija', async (c) => {
   const tenantId = Number(c.req.param('id'));
   const kid = Number(c.req.param('kid'));
   const akcija = c.req.param('akcija');
+  if (akcija === 'obrisi') {
+    if (!(await deleteApiKljuc(c.env.DB, tenantId, kid))) {
+      const d = await detaljData(c, tenantId);
+      if (!d) return c.text('Tenant ne postoji', 404);
+      return c.html(renderTenantDetaljPage({ ...d, greska: 'Briše se samo deaktiviran API ključ — prvo ga deaktiviraj.' }), 409);
+    }
+    return c.redirect(`/admin/tenant/${tenantId}`, 303);
+  }
   if (akcija !== 'aktiviraj' && akcija !== 'deaktiviraj') return c.text(`Nepoznata akcija: ${akcija}`, 400);
   await setApiKljucAktivan(c.env.DB, tenantId, kid, akcija === 'aktiviraj');
   return c.redirect(`/admin/tenant/${tenantId}`, 303);

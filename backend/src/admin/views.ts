@@ -244,6 +244,7 @@ export interface TenantDetaljData {
   proizvodi: ProizvodRow[];
   racuni: RacunRow[];
   korisnici: KorisnikTenantRow[];
+  imaIzdanih: boolean; // PDV status i slijednost zaključani nakon prvog izdanog dokumenta
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
 }
@@ -255,10 +256,13 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   const prostoriRedovi = d.prostori
     .map(
       (p) => `<tr><td class="mono">${escapeHtml(p.oznaka)}</td><td>${escapeHtml(p.adr_ulica ?? '')} ${escapeHtml(p.adr_naselje ?? '')}</td>
-<td class="mono">${escapeHtml(p.datum_pocetka_primjene)}</td><td>${pillStatus(p.cis_status)}</td>
+<td class="mono">${escapeHtml(p.datum_pocetka_primjene)}</td><td>${pillStatus(p.cis_status)}${p.datum_zatvaranja ? ` ${pillStatus('zatvoren')} <span class="mono">${escapeHtml(p.datum_zatvaranja)}</span>` : ''}</td>
 <td><form method="post" action="${baza}/prostori/${p.id}/cis-status" style="display:inline">
   <input type="hidden" name="status" value="${p.cis_status === 'prijavljen' ? 'neposlano' : 'prijavljen'}">
   <button type="submit" style="background:#5A6570">${p.cis_status === 'prijavljen' ? 'Poništi prijavu' : 'Označi prijavljen (ePorezna)'}</button>
+</form>
+<form method="post" action="${baza}/prostori/${p.id}/${p.datum_zatvaranja ? 'otvori' : 'zatvori'}" style="display:inline">
+  <button type="submit">${p.datum_zatvaranja ? 'Ponovno otvori' : 'Zatvori prostor'}</button>
 </form></td></tr>`,
     )
     .join('');
@@ -266,14 +270,20 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   const uredjajiRedovi = d.uredjaji
     .map(
       (u) => `<tr><td class="mono">${escapeHtml(u.pp_oznaka)}</td><td class="mono">${escapeHtml(u.oznaka)}</td>
-<td>${escapeHtml(u.opis ?? '')}</td><td>${u.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td></tr>`,
+<td>${escapeHtml(u.opis ?? '')}</td><td>${u.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td>
+<td><form method="post" action="${baza}/uredjaji/${u.id}/${u.aktivan ? 'deaktiviraj' : 'aktiviraj'}" style="display:inline">
+  <button type="submit">${u.aktivan ? 'Deaktiviraj' : 'Aktiviraj'}</button>
+</form></td></tr>`,
     )
     .join('');
 
   const operateriRedovi = d.operateri
     .map(
       (o) => `<tr><td class="mono">${escapeHtml(o.oib_operatera)}</td><td>${escapeHtml(o.ime ?? '')}</td>
-<td>${o.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td></tr>`,
+<td>${o.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td>
+<td><form method="post" action="${baza}/operateri/${o.id}/${o.aktivan ? 'deaktiviraj' : 'aktiviraj'}" style="display:inline">
+  <button type="submit">${o.aktivan ? 'Deaktiviraj' : 'Aktiviraj'}</button>
+</form></td></tr>`,
     )
     .join('');
 
@@ -286,6 +296,7 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   <form method="post" action="${baza}/kljucevi/${k.id}/${k.aktivan ? 'deaktiviraj' : 'aktiviraj'}" style="display:inline">
     <button type="submit">${k.aktivan ? 'Deaktiviraj' : 'Aktiviraj'}</button>
   </form>
+  ${k.aktivan ? '' : `<form method="post" action="${baza}/kljucevi/${k.id}/obrisi" style="display:inline"><button type="submit" style="background:#9B2C2C">Obriši</button></form>`}
 </td></tr>`,
     )
     .join('');
@@ -343,7 +354,26 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
 ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKljuc.opis ?? '')}" — <strong>zapiši ga odmah, prikazuje se samo jednom:</strong><br><span class="kljuc">${escapeHtml(d.noviKljuc.rawKey)}</span></div>` : ''}
 <h1>${escapeHtml(t.naziv)} <span class="pill p-info mono">OIB ${escapeHtml(t.oib)}</span> ${pillStatus(t.status)}</h1>
 <p>${t.u_sustavu_pdv ? 'U sustavu PDV-a (R1)' : 'Nije u sustavu PDV-a (R2)'} · slijednost <strong>${escapeHtml(t.oznaka_slijednosti_def)}</strong>
- · IBAN <span class="mono">${escapeHtml(t.iban ?? '—')}</span> · <a href="/admin">← svi tenanti</a></p>
+ · IBAN <span class="mono">${escapeHtml(t.iban ?? '—')}</span> · e-mail ${escapeHtml(t.email ?? '—')} · <a href="/admin">← svi tenanti</a></p>
+
+<details class="box"><summary>Uredi podatke tenanta</summary>
+<form method="post" action="${baza}/uredi">
+  <div class="field"><label>Naziv *</label><input name="naziv" required value="${escapeHtml(t.naziv)}"></div>
+  <div class="field"><label>Ulica i kbr</label><input name="ulica" value="${escapeHtml(t.adr_ulica ?? '')}"></div>
+  <div class="field"><label>Mjesto</label><input name="mjesto" value="${escapeHtml(t.adr_mjesto ?? '')}"></div>
+  <div class="field"><label>Pošt. broj</label><input name="postanski_broj" value="${escapeHtml(t.adr_postanski_broj ?? '')}"></div>
+  <div class="field"><label>IBAN</label><input name="iban" value="${escapeHtml(t.iban ?? '')}"></div>
+  <div class="field"><label>E-mail (alarmi, reply-to)</label><input name="email" type="email" value="${escapeHtml(t.email ?? '')}"></div>
+  <div class="field"><label>U sustavu PDV-a${d.imaIzdanih ? ' 🔒' : ''}</label>
+    <select name="u_sustavu_pdv"${d.imaIzdanih ? ' disabled' : ''}><option value="1"${t.u_sustavu_pdv ? ' selected' : ''}>da (R1)</option><option value="0"${t.u_sustavu_pdv ? '' : ' selected'}>ne (R2)</option></select>
+    ${d.imaIzdanih ? `<input type="hidden" name="u_sustavu_pdv" value="${t.u_sustavu_pdv ? '1' : '0'}">` : ''}</div>
+  <div class="field"><label>Slijednost${d.imaIzdanih ? ' 🔒' : ''}</label>
+    <select name="oznaka_slijednosti"${d.imaIzdanih ? ' disabled' : ''}><option value="P"${t.oznaka_slijednosti_def === 'P' ? ' selected' : ''}>P — poslovni prostor</option><option value="N"${t.oznaka_slijednosti_def === 'N' ? ' selected' : ''}>N — naplatni uređaj</option></select>
+    ${d.imaIzdanih ? `<input type="hidden" name="oznaka_slijednosti" value="${escapeHtml(t.oznaka_slijednosti_def)}">` : ''}</div>
+  <button type="submit">Spremi</button>
+</form>
+${d.imaIzdanih ? '<p style="font-size:.8rem;color:var(--muted)">🔒 PDV status i slijednost su zaključani: tenant ima izdane dokumente, a o tim poljima ovise PDV obračun i numeriranje.</p>' : ''}
+</details>
 
 <h2>Poslovni prostori</h2>
 <div class="box"><form method="post" action="${baza}/prostori">
@@ -365,8 +395,8 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
   <div class="field"><label>Opis</label><input name="opis" placeholder="Webshop"></div>
   <button type="submit">Dodaj uređaj</button>
 </form></div>
-<table><thead><tr><th>Prostor</th><th>Oznaka</th><th>Opis</th><th>Status</th></tr></thead>
-<tbody>${uredjajiRedovi || '<tr><td colspan="4" class="prazno">Nema uređaja.</td></tr>'}</tbody></table>
+<table><thead><tr><th>Prostor</th><th>Oznaka</th><th>Opis</th><th>Status</th><th></th></tr></thead>
+<tbody>${uredjajiRedovi || '<tr><td colspan="5" class="prazno">Nema uređaja.</td></tr>'}</tbody></table>
 
 <h2>Operateri</h2>
 <div class="box"><form method="post" action="${baza}/operateri">
@@ -374,8 +404,8 @@ ${d.noviKljuc ? `<div class="flash">Novi API ključ za „${escapeHtml(d.noviKlj
   <div class="field"><label>Ime</label><input name="ime"></div>
   <button type="submit">Dodaj operatera</button>
 </form></div>
-<table><thead><tr><th>OIB</th><th>Ime</th><th>Status</th></tr></thead>
-<tbody>${operateriRedovi || '<tr><td colspan="3" class="prazno">Nema operatera.</td></tr>'}</tbody></table>
+<table><thead><tr><th>OIB</th><th>Ime</th><th>Status</th><th></th></tr></thead>
+<tbody>${operateriRedovi || '<tr><td colspan="4" class="prazno">Nema operatera.</td></tr>'}</tbody></table>
 
 <h2>API ključevi</h2>
 <div class="box"><form method="post" action="${baza}/kljucevi">
