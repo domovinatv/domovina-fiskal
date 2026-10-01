@@ -24,6 +24,8 @@ export interface Env {
   SUDREG_CLIENT_SECRET?: string;
   // Firecrawl (iteracija 2: parsiranje companywall URL-a) — wrangler secret.
   FIRECRAWL_API_KEY?: string;
+  // Primatelj alarmnih mailova platforme (Faza 4.2) — wrangler secret, nije u repou.
+  ALARM_EMAIL?: string;
 }
 
 export interface TenantRow {
@@ -39,6 +41,7 @@ export interface TenantRow {
   iban: string | null;
   oznaka_slijednosti_def: 'P' | 'N';
   status: 'active' | 'suspended';
+  email: string | null; // kontakt za alarme i reply-to (0008)
   created_at: string;
 }
 
@@ -152,6 +155,7 @@ export interface RacunRow {
   fiskal_zadnji_pokusaj: string | null;
   fiskal_greska: string | null;
   storno_racun_id: number | null;
+  fiskal_zakljucano_do: string | null; // lease fiskalizacije (0008)
   vanjska_referenca: string | null; // idempotencijski ključ klijenta (0007)
   zahtjev_hash: string | null;
   status: string;

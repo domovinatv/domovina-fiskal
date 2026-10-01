@@ -17,6 +17,7 @@ import {
   getRacunKontekst,
   getTenant,
   izdajSkicu,
+  listAlarmi,
   listApiKljucevi,
   listCertifikati,
   listDokuKonfig,
@@ -66,7 +67,10 @@ admin.use('*', async (c, next) => {
   return mw(c, next);
 });
 
-admin.get('/', async (c) => c.html(renderTenantiPage(await listTenants(c.env.DB))));
+admin.get('/', async (c) => {
+  const [tenanti, alarmi] = await Promise.all([listTenants(c.env.DB), listAlarmi(c.env.DB)]);
+  return c.html(renderTenantiPage(tenanti, undefined, alarmi));
+});
 
 admin.post('/tenanti', async (c) => {
   const form = await c.req.parseBody();

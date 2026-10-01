@@ -802,7 +802,9 @@ export async function zapisiJir(db: D1Database, tenantId: number, racunId: numbe
 }
 
 // Neuspjeh: nakDost=1 → automatski retry (sweep) s NakDost=true i NOVIM IdPoruke;
-// nakDost=0 → greška u poruci/certifikatu, čeka ručnu intervenciju.
+// nakDost=0 → greška u poruci, čeka ručnu intervenciju (i diže alarm).
+// Poziva se za SVAKI neuspjeli pokušaj — i rani izlaz prije slanja (cert,
+// mapiranje) — da fiskal_pokusaja/zadnji_pokusaj vode backoff sweepa.
 export async function zapisiFiskalGresku(
   db: D1Database,
   tenantId: number,
@@ -821,18 +823,143 @@ export async function zapisiFiskalGresku(
     .run();
 }
 
-// Kandidati za naknadnu dostavu (cron sweep): izdani fiskalni bez JIR-a koji su
-// ili označeni za naknadnu dostavu (transport pao) ili nikad nisu ni pokušani.
-export async function racuniZaNaknadnuDostavu(db: D1Database, limit = 20): Promise<{ id: number; tenant_id: number }[]> {
+// Lease (claim) prije slanja CIS-u: samo jedan pozivatelj u isto vrijeme
+// (sinkroni POST, ručni retry, admin, cron). Lease istječe sam nakon 60 s
+// (CIS timeout je 15 s), pa pad Workera ne zaključava račun trajno.
+export async function zakljucajZaFiskalizaciju(db: D1Database, tenantId: number, racunId: number): Promise<boolean> {
+  const red = await db
+    .prepare(
+      `UPDATE racun SET fiskal_zakljucano_do = datetime('now', '+60 seconds')
+       WHERE id = ? AND tenant_id = ? AND jir IS NULL
+         AND (fiskal_zakljucano_do IS NULL OR fiskal_zakljucano_do < datetime('now'))
+       RETURNING id`,
+    )
+    .bind(racunId, tenantId)
+    .first<{ id: number }>();
+  return !!red;
+}
+
+export async function otkljucajFiskalizaciju(db: D1Database, racunId: number): Promise<void> {
+  await db.prepare(`UPDATE racun SET fiskal_zakljucano_do = NULL WHERE id = ?`).bind(racunId).run();
+}
+
+// Automatika naknadne dostave radi 7 dana od izdavanja; poslije toga račun
+// traži ljudsku intervenciju (rok je 2 radna dana — alarm ide već nakon 24 h).
+export const SWEEP_MAX_DANA = 7;
+
+// Uvjet „izdani fiskalni B2C bez JIR-a" — zajednički sweepu, alarmima i zdravlju.
+const BEZ_JIRA = `tip_dokumenta = 'fiskalni_b2c' AND status = 'izdano' AND jir IS NULL`;
+
+// Kandidati za naknadnu dostavu (cron sweep):
+//   * izdani fiskalni bez JIR-a, nezaključani, mlađi od SWEEP_MAX_DANA;
+//   * označeni za naknadnu dostavu ILI nikad pokušani;
+//   * eksponencijalni backoff: ne prije min(2^pokušaja, 60) min od zadnjeg;
+//   * najstariji pokušaj prvi (NULL = nikad), najviše `poTenantu` po tenantu
+//     (jedan tenant s pokvarenim certom ne smije zagušiti ostale).
+export async function racuniZaNaknadnuDostavu(
+  db: D1Database,
+  opcije: { limit?: number; poTenantu?: number } = {},
+): Promise<{ id: number; tenant_id: number }[]> {
   const r = await db
     .prepare(
-      `SELECT id, tenant_id FROM racun
-       WHERE tip_dokumenta = 'fiskalni_b2c' AND status = 'izdano' AND jir IS NULL
-         AND (fiskal_nak_dost = 1 OR fiskal_pokusaja = 0)
-       ORDER BY id LIMIT ?`,
+      `SELECT id, tenant_id FROM (
+         SELECT id, tenant_id, fiskal_zadnji_pokusaj,
+                ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY fiskal_zadnji_pokusaj, id) AS rb
+         FROM racun
+         WHERE ${BEZ_JIRA}
+           AND (fiskal_nak_dost = 1 OR fiskal_pokusaja = 0)
+           AND (fiskal_zakljucano_do IS NULL OR fiskal_zakljucano_do < datetime('now'))
+           AND julianday(datum_vrijeme) > julianday('now', '-${SWEEP_MAX_DANA} days')
+           AND (fiskal_zadnji_pokusaj IS NULL OR fiskal_zadnji_pokusaj <= datetime('now',
+                 '-' || (CASE WHEN fiskal_pokusaja >= 6 THEN 60 ELSE (1 << fiskal_pokusaja) END) || ' minutes'))
+       )
+       WHERE rb <= ?
+       ORDER BY fiskal_zadnji_pokusaj, id
+       LIMIT ?`,
     )
-    .bind(limit)
+    .bind(opcije.poTenantu ?? 10, opcije.limit ?? 50)
     .all<{ id: number; tenant_id: number }>();
+  return r.results;
+}
+
+// Računi stariji od SWEEP_MAX_DANA bez JIR-a izlaze iz automatike (nak_dost=0)
+// uz jasnu poruku; vraća ih da ih alarmi prijave.
+export async function zaustaviStareBezJira(db: D1Database): Promise<{ id: number; tenant_id: number; broj_racuna_full: string }[]> {
+  const r = await db
+    .prepare(
+      `UPDATE racun SET fiskal_nak_dost = 0,
+              fiskal_greska = 'Automatska naknadna dostava zaustavljena nakon ${SWEEP_MAX_DANA} dana — potrebna ručna intervencija. Zadnja greška: ' || COALESCE(fiskal_greska, '—'),
+              updated_at = datetime('now')
+       WHERE ${BEZ_JIRA}
+         AND (fiskal_nak_dost = 1 OR fiskal_pokusaja = 0)
+         AND julianday(datum_vrijeme) <= julianday('now', '-${SWEEP_MAX_DANA} days')
+       RETURNING id, tenant_id, broj_racuna_full`,
+    )
+    .all<{ id: number; tenant_id: number; broj_racuna_full: string }>();
+  return r.results;
+}
+
+// ── Stanje sustava (zadnji sweep, CIS echo) i nadzor ──
+
+export async function postaviStanje(db: D1Database, kljuc: string, vrijednost: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO sustav_stanje (kljuc, vrijednost, azurirano) VALUES (?, ?, datetime('now'))
+       ON CONFLICT (kljuc) DO UPDATE SET vrijednost = excluded.vrijednost, azurirano = excluded.azurirano`,
+    )
+    .bind(kljuc, vrijednost)
+    .run();
+}
+
+export async function dohvatiStanje(db: D1Database): Promise<Record<string, { vrijednost: string | null; azurirano: string }>> {
+  const r = await db.prepare(`SELECT kljuc, vrijednost, azurirano FROM sustav_stanje`).all<{ kljuc: string; vrijednost: string | null; azurirano: string }>();
+  return Object.fromEntries(r.results.map((s) => [s.kljuc, { vrijednost: s.vrijednost, azurirano: s.azurirano }]));
+}
+
+// Izdani fiskalni računi bez JIR-a stariji od `sati` (po tenantu) — alarm/zdravlje.
+export async function racuniBezJiraStarijiOd(
+  db: D1Database,
+  sati: number,
+): Promise<{ tenant_id: number; broj: number; najstariji: string; primjeri: string }[]> {
+  const r = await db
+    .prepare(
+      `SELECT tenant_id, COUNT(*) AS broj, MIN(datum_vrijeme) AS najstariji,
+              group_concat(broj_racuna_full, ', ') AS primjeri
+       FROM racun
+       WHERE ${BEZ_JIRA} AND julianday(datum_vrijeme) <= julianday('now', ?)
+       GROUP BY tenant_id`,
+    )
+    .bind(`-${sati} hours`)
+    .all<{ tenant_id: number; broj: number; najstariji: string; primjeri: string }>();
+  return r.results;
+}
+
+// Računi bez JIR-a s greškom nakon koje se NE radi automatski retry.
+export async function racuniBezRetryja(
+  db: D1Database,
+): Promise<{ id: number; tenant_id: number; broj_racuna_full: string; fiskal_greska: string | null }[]> {
+  const r = await db
+    .prepare(
+      `SELECT id, tenant_id, broj_racuna_full, fiskal_greska FROM racun
+       WHERE ${BEZ_JIRA} AND fiskal_nak_dost = 0 AND fiskal_pokusaja > 0
+       ORDER BY id LIMIT 100`,
+    )
+    .all<{ id: number; tenant_id: number; broj_racuna_full: string; fiskal_greska: string | null }>();
+  return r.results;
+}
+
+// Aktivni certifikati koji ističu za ≤ `dana` (uključivo već istekle).
+export async function certifikatiKojiIsticu(
+  db: D1Database,
+  dana: number,
+): Promise<{ tenant_id: number; okolina: string; not_after: string }[]> {
+  const r = await db
+    .prepare(
+      `SELECT tenant_id, okolina, not_after FROM certifikat
+       WHERE aktivan = 1 AND not_after IS NOT NULL AND julianday(not_after) <= julianday('now', ?)`,
+    )
+    .bind(`+${dana} days`)
+    .all<{ tenant_id: number; okolina: string; not_after: string }>();
   return r.results;
 }
 
@@ -1147,6 +1274,26 @@ export async function setKorisnikTenantAktivan(db: D1Database, tenantId: number,
     .prepare(`UPDATE korisnik_tenant SET aktivan = ? WHERE id = ? AND tenant_id = ?`)
     .bind(aktivan ? 1 : 0, id, tenantId)
     .run();
+}
+
+// ───────────────────────── Alarmi (Faza 4.2) ─────────────────────────
+
+export interface AlarmRow {
+  kljuc: string;
+  tenant_id: number | null;
+  poruka: string;
+  prvi_put: string;
+  zadnje_slanje: string;
+  broj_slanja: number;
+}
+
+// Alarmi poslani u zadnjih `dana` dana — admin naslovnica.
+export async function listAlarmi(db: D1Database, dana = 7): Promise<AlarmRow[]> {
+  const r = await db
+    .prepare(`SELECT * FROM alarm WHERE zadnje_slanje >= datetime('now', ?) ORDER BY zadnje_slanje DESC LIMIT 50`)
+    .bind(`-${dana} days`)
+    .all<AlarmRow>();
+  return r.results;
 }
 
 // ───────────────────────── Brojači za health/admin ─────────────────────────

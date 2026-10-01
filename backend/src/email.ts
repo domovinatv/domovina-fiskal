@@ -76,12 +76,28 @@ ${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban
 <p>S poštovanjem,<br>${escapeHtml(k.tenant.naziv)}<br>OIB: ${escapeHtml(k.tenant.oib)}</p>`;
 
   const imeDatoteke = `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;
+  return posaljiPoruku(env, { na, replyTo, subject, html, text, privitak: { pdf, imeDatoteke } });
+}
+
+// Obavijest bez privitka (alarmi platforme/tenanta) — isti kanali kao računi.
+export async function posaljiObavijest(
+  env: EmailKanali,
+  p: { na: string; subject: string; text: string },
+): Promise<{ kanal: 'cloudflare' | 'resend' }> {
+  const html = `<pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${escapeHtml(p.text)}</pre>`;
+  return posaljiPoruku(env, { ...p, html });
+}
+
+// Slanje kroz kanale: Cloudflare binding → (greška/nedostupnost) → Resend.
+async function posaljiPoruku(
+  env: EmailKanali,
+  p: { na: string; replyTo?: string | null; subject: string; html: string; text: string; privitak?: { pdf: Uint8Array; imeDatoteke: string } },
+): Promise<{ kanal: 'cloudflare' | 'resend' }> {
+  const { na, replyTo, subject, html, text, privitak } = p;
 
   // 1) Cloudflare binding (preferiran čim Email Sending bude aktiviran).
   if (env.EMAIL) {
     try {
-      // Kopija u samostalni ArrayBuffer (binding ne prima view s offsetom).
-      const privitak = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
       await env.EMAIL.send({
         to: na,
         from: EMAIL_POSILJATELJ,
@@ -89,7 +105,19 @@ ${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban
         subject,
         html,
         text,
-        attachments: [{ content: privitak, filename: imeDatoteke, type: 'application/pdf', disposition: 'attachment' }],
+        ...(privitak
+          ? {
+              attachments: [
+                {
+                  // Kopija u samostalni ArrayBuffer (binding ne prima view s offsetom).
+                  content: privitak.pdf.buffer.slice(privitak.pdf.byteOffset, privitak.pdf.byteOffset + privitak.pdf.byteLength) as ArrayBuffer,
+                  filename: privitak.imeDatoteke,
+                  type: 'application/pdf',
+                  disposition: 'attachment' as const,
+                },
+              ],
+            }
+          : {}),
       });
       return { kanal: 'cloudflare' };
     } catch (e) {
@@ -116,7 +144,7 @@ ${k.tenant.iban ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban
       subject,
       html,
       text,
-      attachments: [{ filename: imeDatoteke, content: uBase64(pdf) }],
+      ...(privitak ? { attachments: [{ filename: privitak.imeDatoteke, content: uBase64(privitak.pdf) }] } : {}),
     }),
   });
   if (!odgovor.ok) {

@@ -17,7 +17,7 @@ import type {
   RacunRow,
   TenantRow,
 } from '../types';
-import type { ProizvodRow, RacunKontekst } from '../db';
+import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
 import { escapeHtml } from '../util';
 
@@ -120,7 +120,7 @@ function pillStatus(s: string): string {
 
 // ───────────────────────── Tenanti (popis + forma) ─────────────────────────
 
-export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string {
+export function renderTenantiPage(tenanti: TenantRow[], greska?: string, alarmi: AlarmRow[] = []): string {
   const redovi = tenanti
     .map(
       (t) => `<tr>
@@ -137,6 +137,12 @@ export function renderTenantiPage(tenanti: TenantRow[], greska?: string): string
   return layout(
     'DOMOVINA Fiskal — tenanti',
     `${greska ? `<div class="greska">${escapeHtml(greska)}</div>` : ''}
+${alarmi.length ? `<h2>Alarmi (zadnjih 7 dana)</h2>
+<div class="box"><table><tr><th>Ključ</th><th>Poruka</th><th>Zadnje slanje</th><th>Puta</th></tr>${alarmi
+  .map(
+    (a) => `<tr><td class="mono">${escapeHtml(a.kljuc)}</td><td>${escapeHtml(a.poruka.split('\n')[0])}</td><td class="mono">${escapeHtml(a.zadnje_slanje)}</td><td>${a.broj_slanja}</td></tr>`,
+  )
+  .join('')}</table></div>` : ''}
 <h1>Tenanti</h1>
 <div class="box">
   <form method="post" action="/admin/tenanti">

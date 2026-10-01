@@ -17,8 +17,9 @@ enabled = true
 
 # Cron: sweep naknadne dostave (fiskalni računi bez JIR-a → retry s NakDost=true).
 # Rok po čl. 21. st. 2. NN 89/2025 je dva RADNA dana — 15-minutni sweep je unutar toga.
+# Dnevno u 06:00 UTC: alarmi za istek certifikata (tenanti + CIS poslužitelj).
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "0 6 * * *"]
 
 # Fontovi za PDF (DejaVu subset s HR dijakriticima) bundlaju se kao binarni podaci.
 [[rules]]
@@ -66,6 +67,8 @@ DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.p
 #   RESEND_API_KEY  # Resend fallback za slanje emailova (dok CF Email Sending nije aktiviran)
 #   DOKU_SOFTWARE_API_TOKEN  # GUID naše integracije za doku eRačun API (isti za sve tenante;
 #                            # per-tenant API-TOKEN se unosi u /admin i sprema enkriptiran)
+#   ALARM_EMAIL     # primatelj alarmnih mailova platforme (Faza 4.2); bez njega alarmi
+#                   # idu samo u log + tablicu alarm (admin naslovnica)
 #
 # NAPOMENA (okoline): glavni worker = PRODUKCIJA (OKOLINA=prod), [env.test] dolje
 # = TEST okruženje (fiskal-test.domovina.ai, zasebna D1, OKOLINA=test). Secrets za
@@ -86,7 +89,7 @@ custom_domain = true
 enabled = true
 
 [env.test.triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "0 6 * * *"]
 
 [[env.test.send_email]]
 name = "EMAIL"

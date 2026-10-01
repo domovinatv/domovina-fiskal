@@ -283,6 +283,13 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
     if (!cert.kljuc_pem_encrypted) {
       return { status: 409, greska: 'Certifikat je spremljen bez izvučenog ključa (prije faze 2) — ponovno ga uploadaj s lozinkom' };
     }
+    // Istekao cert: račun izdan sada ne bi se mogao fiskalizirati (ni ZKI) — N2.
+    if (cert.not_after && new Date(cert.not_after).getTime() <= Date.now()) {
+      return { status: 409, greska: `Certifikat je istekao ${cert.not_after} — obnovi ga (upload novog P12 u adminu) prije izdavanja fiskalnih računa` };
+    }
+    if (cert.oib_certifikata && cert.oib_certifikata !== tenant.oib) {
+      return { status: 409, greska: `OIB certifikata (${cert.oib_certifikata}) ne odgovara OIB-u tenanta (${tenant.oib}) — CIS bi odbio račun (s005)` };
+    }
     const sAe = model.stavke.findIndex((s) => s.pdvKategorija === 'AE');
     if (sAe >= 0) {
       return {
@@ -486,9 +493,9 @@ apiV1.post('/racun/:id/fiskaliziraj', async (c) => {
       ...(await racunUOdgovor(c.env.DB, svjezi)),
       fiskalizacija: fiskal.ok
         ? { status: 'fiskaliziran' }
-        : { status: 'ceka_jir', greska: fiskal.greska ?? null, automatskiRetry: fiskal.retryable ?? false },
+        : { status: 'ceka_jir', greska: fiskal.greska ?? null, automatskiRetry: fiskal.retryable ?? false, uTijeku: !!fiskal.uTijeku },
     },
-    fiskal.ok ? 200 : 502,
+    fiskal.ok ? 200 : fiskal.uTijeku ? 409 : 502,
   );
 });
 

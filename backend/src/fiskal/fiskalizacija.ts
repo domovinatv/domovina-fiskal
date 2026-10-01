@@ -9,12 +9,17 @@ import type { Env } from '../types';
 import type { RacunKontekst } from '../db';
 import {
   getAktivniCertifikat,
+  getRacun,
   getRacunKontekst,
   logPoruka,
+  otkljucajFiskalizaciju,
+  postaviStanje,
   racuniZaNaknadnuDostavu,
+  zakljucajZaFiskalizaciju,
   zapisiFiskalGresku,
   zapisiJir,
   zapisiZki,
+  zaustaviStareBezJira,
 } from '../db';
 import { dekriptirajKljucPem } from '../kripto';
 import { uCente } from '../util';
@@ -127,20 +132,61 @@ export interface FiskalizacijaIshod {
   greska?: string;
   greske?: CisGreska[];
   retryable?: boolean;
+  uTijeku?: boolean; // drugi pozivatelj upravo šalje isti račun (lease zauzet)
 }
 
 // Glavni tok: izračunaj/upiši ZKI (ako nedostaje) pa pošalji RacunZahtjev.
 // Koriste ga: POST /racun (sinkrono nakon izdavanja), retry endpoint, admin i cron sweep.
+// Lease (Faza 4.2): samo jedan pozivatelj šalje račun u isto vrijeme; svaki
+// neuspjeh — i rani izlaz prije slanja — zapisuje se kao pokušaj (backoff, alarmi).
 export async function fiskalizirajRacun(env: Env, tenantId: number, racunId: number): Promise<FiskalizacijaIshod> {
+  const racun = await getRacun(env.DB, tenantId, racunId);
+  if (!racun) return { ok: false, greska: `Račun ${racunId} ne postoji` };
+  if (racun.tip_dokumenta !== 'fiskalni_b2c') return { ok: false, greska: 'Samo fiskalni B2C računi se fiskaliziraju' };
+  if (racun.jir) return { ok: true, jir: racun.jir, zki: racun.zki ?? undefined };
+
+  if (!(await zakljucajZaFiskalizaciju(env.DB, tenantId, racunId))) {
+    // Lease nije dobiven: ili je JIR upravo stigao, ili netko drugi šalje.
+    const svjezi = await getRacun(env.DB, tenantId, racunId);
+    if (svjezi?.jir) return { ok: true, jir: svjezi.jir, zki: svjezi.zki ?? undefined };
+    return {
+      ok: false,
+      uTijeku: true,
+      zki: svjezi?.zki ?? undefined,
+      greska: 'Fiskalizacija ovog računa je već u tijeku — JIR stiže tim pokušajem ili naknadnom dostavom',
+      retryable: true,
+    };
+  }
+
+  try {
+    return await fiskalizirajZakljucano(env, tenantId, racunId);
+  } catch (e) {
+    // Neočekivano (npr. iznimka pri potpisu/dekripciji): zabilježi kao pokušaj
+    // s retryjem — inače bi račun ostao s pokušaja=0 i blokirao sweep (N2).
+    const poruka = `Neočekivana greška fiskalizacije: ${(e as Error).message}`;
+    await zapisiFiskalGresku(env.DB, tenantId, racunId, poruka, true).catch(() => {});
+    return { ok: false, greska: poruka, retryable: true };
+  } finally {
+    await otkljucajFiskalizaciju(env.DB, racunId).catch(() => {});
+  }
+}
+
+async function fiskalizirajZakljucano(env: Env, tenantId: number, racunId: number): Promise<FiskalizacijaIshod> {
   const k = await getRacunKontekst(env.DB, tenantId, racunId);
   if (!k) return { ok: false, greska: `Račun ${racunId} ne postoji` };
-  if (k.racun.tip_dokumenta !== 'fiskalni_b2c') return { ok: false, greska: 'Samo fiskalni B2C računi se fiskaliziraju' };
-  if (k.racun.jir) return { ok: true, jir: k.racun.jir, zki: k.racun.zki ?? undefined };
+
+  // Rani izlaz = neuspjeli pokušaj koji se BILJEŽI. Certifikat (nedostaje,
+  // istekao, krivi OIB) je retryable — rješava ga upload novog certa, a sweep
+  // tada sam dovrši račun; greška mapiranja nije (traži izmjenu podataka).
+  const neuspjeh = async (greska: string, retryable: boolean, zki?: string): Promise<FiskalizacijaIshod> => {
+    await zapisiFiskalGresku(env.DB, tenantId, racunId, greska, retryable);
+    return { ok: false, zki: zki ?? k.racun.zki ?? undefined, greska, retryable };
+  };
 
   const m = await ucitajPotpisniMaterijal(env, tenantId);
-  if ('greska' in m) return { ok: false, greska: m.greska };
+  if ('greska' in m) return neuspjeh(m.greska, true);
   if (m.materijal.oibCertifikata && m.materijal.oibCertifikata !== k.tenant.oib) {
-    return { ok: false, greska: `OIB certifikata (${m.materijal.oibCertifikata}) ≠ OIB tenanta (${k.tenant.oib}) — CIS bi vratio s005` };
+    return neuspjeh(`OIB certifikata (${m.materijal.oibCertifikata}) ≠ OIB tenanta (${k.tenant.oib}) — CIS bi vratio s005`, true);
   }
 
   const okolina = okolinaIzEnv(env);
@@ -164,7 +210,7 @@ export async function fiskalizirajRacun(env: Env, tenantId: number, racunId: num
 
   const nakDost = k.racun.fiskal_nak_dost === 1;
   const mapirano = mapirajZaCis(k, nakDost);
-  if ('greska' in mapirano) return { ok: false, zki, greska: mapirano.greska };
+  if ('greska' in mapirano) return neuspjeh(mapirano.greska, false, zki);
 
   // Svako slanje = NOVI IdPoruke (i kod ponavljanja!), Zaglavlje/DatumVrijeme = sada.
   const idPoruke = crypto.randomUUID();
@@ -229,17 +275,36 @@ export async function cisEcho(env: Env, tekst = 'domovina-fiskal echo proba'): P
   return { ok: parsirano.echoTekst === tekst, odgovor: parsirano.echoTekst ?? odgovor.tijelo.slice(0, 500) };
 }
 
-// Cron sweep naknadne dostave — pokušaj sve kandidate, greške samo zabilježi.
-export async function sweepNaknadnaDostava(env: Env): Promise<{ pokusano: number; uspjelo: number }> {
+// Koliko računa sweep šalje CIS-u istodobno (CIS cilja < 2 s po pozivu; u
+// najgorem slučaju 50 računa × 15 s timeouta / 5 ≈ 150 s, ispod limita crona).
+const SWEEP_KONKURENTNOST = 5;
+
+export interface SweepIshod {
+  pokusano: number;
+  uspjelo: number;
+  zaustavljeno: { id: number; tenant_id: number; broj_racuna_full: string }[];
+}
+
+// Cron sweep naknadne dostave (Faza 4.2): stari bez JIR-a izlaze iz automatike,
+// kandidati (backoff, fer po tenantu, LIMIT) idu u grupama po 5. Greške
+// pojedinog računa ne zaustavljaju ostale — svaka je zapisana na računu.
+export async function sweepNaknadnaDostava(env: Env): Promise<SweepIshod> {
+  const zaustavljeno = await zaustaviStareBezJira(env.DB);
   const kandidati = await racuniZaNaknadnuDostavu(env.DB);
   let uspjelo = 0;
-  for (const kandidat of kandidati) {
-    try {
-      const ishod = await fiskalizirajRacun(env, kandidat.tenant_id, kandidat.id);
-      if (ishod.ok) uspjelo++;
-    } catch (e) {
-      console.error(`sweep: račun ${kandidat.id} — ${(e as Error).message}`);
-    }
+  for (let i = 0; i < kandidati.length; i += SWEEP_KONKURENTNOST) {
+    const grupa = kandidati.slice(i, i + SWEEP_KONKURENTNOST);
+    const ishodi = await Promise.allSettled(grupa.map((k) => fiskalizirajRacun(env, k.tenant_id, k.id)));
+    ishodi.forEach((ishod, j) => {
+      if (ishod.status === 'fulfilled' && ishod.value.ok) uspjelo++;
+      if (ishod.status === 'rejected') console.error(`sweep: račun ${grupa[j].id} — ${(ishod.reason as Error)?.message}`);
+    });
   }
-  return { pokusano: kandidati.length, uspjelo };
+  const rezultat = { pokusano: kandidati.length, uspjelo, zaustavljeno };
+  await postaviStanje(
+    env.DB,
+    'sweep_zadnji',
+    JSON.stringify({ kada: new Date().toISOString(), pokusano: rezultat.pokusano, uspjelo, zaustavljeno: zaustavljeno.length }),
+  );
+  return rezultat;
 }
