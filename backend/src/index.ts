@@ -57,7 +57,7 @@ app.get('/api/v1/zdravlje', async (c) => {
     {
       ok,
       okolina: okolinaIzEnv(c.env),
-      cisEcho: { ok: cisOk, zadnjiOk, zadnjiPokusaj },
+      cisEcho: { ok: cisOk, zadnjiOk, zadnjiPokusaj, posluziteljCertNotAfter: stanje.cis_posluzitelj_cert_not_after?.vrijednost ?? null },
       sweepZadnji: sweep,
       racunaBezJira24h,
     },

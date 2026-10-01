@@ -33,18 +33,27 @@ const ENDPOINTI: Record<Okolina, { host: string; port: number; putanja: string; 
   prod: { host: 'cis.porezna-uprava.hr', port: 8449, putanja: '/FiskalizacijaService', caPem: finaRdcCa2020 },
 };
 
-// Poznati poslužiteljski certifikati CIS-a (Faza 4.6, N8) — notAfter iz TLS
-// handshakea. Alarm se diže 30 dana prije isteka; kod zamjene certifikata
-// ažuriraj OVDJE (i dodaj novi CA u ca/ UZ stari ako se mijenja izdavatelj).
-export const CIS_POSLUZITELJ_CERT: Record<Okolina, { notAfter: string; izvor: string }> = {
-  test: { notAfter: '2099-01-01T00:00:00Z', izvor: 'privremeno — provjeriti u 4.6' },
-  prod: { notAfter: '2026-12-18T00:00:00Z', izvor: 'plan Faze 4 (N8), Fina RDC 2020' },
+// Poslužiteljski certifikati CIS-a (Faza 4.6, N8). Izvor istine je notAfter
+// leaf certifikata iz TLS handshakea (subtls userCert) koji echo bilježi u
+// sustav_stanje; ova konstanta je rezerva dok echo još nije prošao. Očitano
+// openssl s_client 01.10.2026. Novi cert istog izdavatelja (Fina Demo CA 2020 /
+// Fina RDC 2020, oba vrijede do 2030.) prolazi bez izmjene koda; mijenja li se
+// izdavatelj, dodaj novi CA u ca/ UZ stari (prihvaćaju se oba).
+export const CIS_POSLUZITELJ_CERT: Record<Okolina, { notAfter: string; izdavatelj: string }> = {
+  test: { notAfter: '2026-12-12T14:25:21Z', izdavatelj: 'Fina Demo CA 2020' },
+  prod: { notAfter: '2026-12-18T06:13:03Z', izdavatelj: 'Fina RDC 2020' },
 };
 
-// Vraća poznati cert ako ističe za ≤ `dana` (inače null).
-export function cisPosluziteljCertIstice(okolina: Okolina, dana: number, sada = Date.now()): { notAfter: string } | null {
-  const c = CIS_POSLUZITELJ_CERT[okolina];
-  return Date.parse(c.notAfter) - sada <= dana * 86_400_000 ? { notAfter: c.notAfter } : null;
+// Vraća cert ako ističe za ≤ `dana` (inače null). `opazeno` = notAfter iz
+// zadnjeg handshakea (ima prednost pred konstantom).
+export function cisPosluziteljCertIstice(
+  okolina: Okolina,
+  dana: number,
+  opazeno?: string | null,
+  sada = Date.now(),
+): { notAfter: string } | null {
+  const notAfter = opazeno || CIS_POSLUZITELJ_CERT[okolina].notAfter;
+  return Date.parse(notAfter) - sada <= dana * 86_400_000 ? { notAfter } : null;
 }
 
 const SOAP_ACTION_BAZA = 'http://e-porezna.porezna-uprava.hr/fiskalizacija/2012/services/FiskalizacijaService/';
@@ -54,6 +63,7 @@ const TIMEOUT_MS = 15_000; // CIS cilja odgovor < 2 s; velikodušna margina za T
 export interface CisHttpOdgovor {
   status: number;
   tijelo: string;
+  posluziteljCertNotAfter?: string; // notAfter CIS-ova leaf certifikata iz handshakea (ISO)
 }
 
 export type CisTransport = (okolina: Okolina, operacija: CisOperacija, envelopa: string) => Promise<CisHttpOdgovor>;
@@ -128,7 +138,7 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
       sirovo.set(k, pomak);
       pomak += k.byteLength;
     }
-    return parsirajHttp(sirovo);
+    return { ...parsirajHttp(sirovo), posluziteljCertNotAfter: tls.userCert?.validityPeriod?.notAfter?.toISOString() };
   } finally {
     clearTimeout(timer);
     socket.close().catch(() => {});

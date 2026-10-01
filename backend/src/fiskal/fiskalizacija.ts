@@ -267,12 +267,19 @@ async function fiskalizirajZakljucano(env: Env, tenantId: number, racunId: numbe
 }
 
 // EchoRequest — provjera dostupnosti/veze (nije potpisan, ne treba certifikat).
-export async function cisEcho(env: Env, tekst = 'domovina-fiskal echo proba'): Promise<{ ok: boolean; odgovor: string }> {
+export async function cisEcho(
+  env: Env,
+  tekst = 'domovina-fiskal echo proba',
+): Promise<{ ok: boolean; odgovor: string; posluziteljCertNotAfter?: string }> {
   const okolina = okolinaIzEnv(env);
   const envelopa = soapEnvelopa(echoXml(tekst));
   const odgovor = await soapPoziv(okolina, 'echo', envelopa);
   const parsirano = parsirajOdgovor(odgovor.tijelo);
-  return { ok: parsirano.echoTekst === tekst, odgovor: parsirano.echoTekst ?? odgovor.tijelo.slice(0, 500) };
+  return {
+    ok: parsirano.echoTekst === tekst,
+    odgovor: parsirano.echoTekst ?? odgovor.tijelo.slice(0, 500),
+    ...(odgovor.posluziteljCertNotAfter ? { posluziteljCertNotAfter: odgovor.posluziteljCertNotAfter } : {}),
+  };
 }
 
 // Koliko računa sweep šalje CIS-u istodobno (CIS cilja < 2 s po pozivu; u

@@ -438,7 +438,7 @@ admin.post('/tenant/:id/prostori/:pid/cis-status', async (c) => {
 // CIS Echo proba (bez potpisa/certifikata) — dokazuje mrežni put do CIS-a.
 admin.get('/cis/echo', async (c) => {
   try {
-    const rezultat = await cisEcho(c.env);
+    const rezultat = await cisEcho(c.env); // uključuje posluziteljCertNotAfter (Faza 4.6)
     return c.json({ okolina: okolinaIzEnv(c.env), ...rezultat });
   } catch (e) {
     return c.json({ okolina: okolinaIzEnv(c.env), ok: false, greska: (e as Error).message }, 502);

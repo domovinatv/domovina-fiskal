@@ -225,3 +225,20 @@ describe('Cron i admin', () => {
     expect(html).toContain('Alarmi (zadnjih 7 dana)');
   });
 });
+
+describe('CIS poslužiteljski certifikat (4.6)', () => {
+  it('echo bilježi notAfter iz handshakea; alarm ≤ 30 dana koristi opaženo, inače konstantu', async () => {
+    const { cisPosluziteljCertIstice, CIS_POSLUZITELJ_CERT } = await import('../src/fiskal/cis');
+    const za20dana = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    postaviMock(async (_o, _op, envelopa) => ({ ...echoOdgovor(envelopa), posluziteljCertNotAfter: za20dana }));
+    expect(await provjeriCisEcho(testEnv)).toBe(true);
+    const red = await db.prepare(`SELECT vrijednost FROM sustav_stanje WHERE kljuc = 'cis_posluzitelj_cert_not_after'`).first<{ vrijednost: string }>();
+    expect(red!.vrijednost).toBe(za20dana);
+    const { env } = lazniEmail();
+    expect(await obradiAlarme(env, { dnevno: true })).toContain(`cis-posluzitelj-cert:test:${za20dana}`);
+    // Konstanta: PROD Fina RDC 2020 cert ističe 18.12.2026. — alarm od 18.11.2026.
+    expect(CIS_POSLUZITELJ_CERT.prod.notAfter).toBe('2026-12-18T06:13:03Z');
+    expect(cisPosluziteljCertIstice('prod', 30, null, Date.parse('2026-11-17T00:00:00Z'))).toBeNull();
+    expect(cisPosluziteljCertIstice('prod', 30, null, Date.parse('2026-11-19T00:00:00Z'))).toEqual({ notAfter: '2026-12-18T06:13:03Z' });
+  });
+});

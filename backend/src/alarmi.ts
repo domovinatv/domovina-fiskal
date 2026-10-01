@@ -78,6 +78,7 @@ export async function provjeriCisEcho(env: Env): Promise<boolean> {
   await postaviStanje(env.DB, 'cis_echo_zadnji_pokusaj', sada);
   try {
     const r = await cisEcho(env);
+    if (r.posluziteljCertNotAfter) await postaviStanje(env.DB, 'cis_posluzitelj_cert_not_after', r.posluziteljCertNotAfter);
     if (r.ok) await postaviStanje(env.DB, 'cis_echo_zadnji_ok', sada);
     else await postaviStanje(env.DB, 'cis_echo_zadnja_greska', `neočekivan echo: ${r.odgovor.slice(0, 200)}`);
     return r.ok;
@@ -155,16 +156,17 @@ export async function izracunajAlarme(env: Env, opcije: { dnevno?: boolean } = {
       });
     }
 
-    const posluzitelj = cisPosluziteljCertIstice(okolina, 30);
+    const posluzitelj = cisPosluziteljCertIstice(okolina, 30, stanje.cis_posluzitelj_cert_not_after?.vrijednost);
     if (posluzitelj) {
       alarmi.push({
         kljuc: `cis-posluzitelj-cert:${okolina}:${posluzitelj.notAfter}`,
         tenantId: null,
         naslov: `CIS poslužiteljski certifikat (${okolina}) ističe ${posluzitelj.notAfter.slice(0, 10)}`,
         tekst:
-          `Poznati poslužiteljski certifikat CIS-a (${okolina}) ističe ${posluzitelj.notAfter}.\n` +
-          `Provjeri na fina.hr i stranicama Porezne je li najavljen novi cert/CA; ako jest, dodaj CA u src/fiskal/ca/ ` +
-          `UZ postojeći i ažuriraj CIS_POSLUZITELJ_CERT u src/fiskal/cis.ts. Inače TLS prema CIS-u puca.`,
+          `Poslužiteljski certifikat CIS-a (${okolina}) ističe ${posluzitelj.notAfter} (zadnji TLS handshake ili konstanta u kodu).\n` +
+          `CIS ga obično zamijeni prije isteka; novi cert istog izdavatelja (Fina CA 2020) radi bez izmjene koda.\n` +
+          `Provjeri na fina.hr i stranicama Porezne je li najavljen novi cert ili CA; mijenja li se izdavatelj, dodaj novi CA ` +
+          `u src/fiskal/ca/ UZ postojeći i ažuriraj CIS_POSLUZITELJ_CERT u src/fiskal/cis.ts — inače TLS prema CIS-u puca.`,
         intervalSekundi: 7 * DAN,
       });
     }
