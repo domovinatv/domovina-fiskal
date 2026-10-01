@@ -34,12 +34,33 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 2. [`docs/handoff/faza-1-dokumenti-pdf.md`](docs/handoff/faza-1-dokumenti-pdf.md) — ponude/računi (nefiskalni) + PDF + QR + email.
 3. [`docs/handoff/faza-2-fiskalizacija-b2c.md`](docs/handoff/faza-2-fiskalizacija-b2c.md) — B2C fiskalizacija 1.0 (ZKI/JIR/CIS TEST, DEMO cert).
 4. [`docs/handoff/faza-3-eracun-2.0.md`](docs/handoff/faza-3-eracun-2.0.md) — eRačun 2.0 preko posrednika + eIzvještavanje.
+5. [`docs/handoff/faza-4-produkcija-b2c-webshop.md`](docs/handoff/faza-4-produkcija-b2c-webshop.md) — produkcijska B2C za webshopove (tablica stanja na vrhu).
 
 ## Pravila rada
 - Prije koda provjeri ⚠️ stavke iz `99-gap-analiza.md` i „Razrješenje otvorenih ⚠️" sekcije u `12-15`.
 - **Secrets NIKAD u repo** (javan!). Certifikati/tajni ključevi enkriptirani at-rest (`04-*`, `05-*`).
 - Commit poruke i sve na hrvatskom. Push na `origin/main` (`domovinatv/domovina-fiskal`).
 - Nakon svake faze: `/verify` (pokreni app i dokaži da radi), pa commit.
+
+## Stanje Faze 4 (ažurirano 2026-10-01)
+- 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
+  deployan (migracije 0007–0009, crons `*/15` + `0 6`) i E2E prošao na CIS TEST-u.
+  **PROD nije diran** — svaki PROD korak (backup, migracije, deploy, prvi račun,
+  čišćenje, rotacija `ENC_MASTER_KEY`/doku tokena) traži izričito odobrenje.
+  Stanje po koracima: tablica na vrhu plana; nalazi u
+  `docs/research/faza-4-dnevnik-implementacije.md`.
+- **Testovi:** `cd backend && npm test` (vitest u workerd-u, lokalni D1, CIS je
+  mockan i pravi CIS je u testovima zabranjen). `npm run deploy:test` =
+  typecheck + testovi + deploy TEST. ⚠️ `npm run deploy` je **PROD** (predeploy
+  sad traži typecheck + testove).
+- **TEST admin** lozinka je rotirana → `secrets/fiskal-test-admin.env`
+  (gitignored). PROD admin je u `backend/.tajne/lozinke.env` (`*_PROD`).
+- **API za webshop:** `Idempotency-Key`/`vanjskaReferenca`, `GET
+  /api/v1/racun?vanjskaReferenca=`, `POST /api/v1/racun/:id/storno`,
+  `GET /api/v1/zdravlje` — ugovor u §3 plana Faze 4.
+- **Onboarding tenanta:** `backend/scripts/dodaj-tenant.sh --okolina test|prod …`
+  (PROD traži upis OIB-a kao potvrdu). MARCIDEA (tenant 5 na TEST-u) i dalje
+  nema demo cert (v. dnevnik §6).
 
 ## Stanje repoa (ažurirano 2026-07-05)
 - ✅ **Faza 0 gotova i deployana** — `backend/` (Worker+Hono+D1) živi na

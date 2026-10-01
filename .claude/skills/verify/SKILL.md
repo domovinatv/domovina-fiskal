@@ -7,6 +7,13 @@ description: Pokreni i provjeri domovina-fiskal backend (Cloudflare Worker + Hon
 
 Sve se izvodi iz `backend/`.
 
+## Automatski testovi (Faza 4.7) — prvo ovo
+
+```bash
+cd backend
+npm run typecheck && npm test   # vitest u workerd-u, lokalni D1, CIS mockan (pravi CIS zabranjen)
+```
+
 ## Pokretanje
 
 ```bash
@@ -41,6 +48,11 @@ npx wrangler dev --port 8787      # pozadinski; server je spreman kad GET / vrat
   u D1 provjeri `oib_certifikata` = tenant OIB i `length(kljuc_pem_encrypted) > 0`.
 
 ## Fiskalizacija B2C (faza 2) — E2E protiv CIS TEST-a
+
+⚠️ Lokalno UVIJEK `npx wrangler dev --env test` (+ `npx wrangler d1 migrations apply
+fiskal_domovina_test --local --env test`). Bez `--env test` je `OKOLINA=prod` → fiskalni
+račun bi išao na PRODUKCIJSKI CIS. Faza 4 scenarij (idempotencija, storno, sweep,
+alarmi): `docs/research/faza-4-dnevnik-implementacije.md` §5.
 
 Preduvjeti: FINA DEMO cert + lozinka (lokalno u `backend/.tajne/`, gitignored);
 prostor mora biti označen „prijavljen" (`POST /admin/tenant/:id/prostori/:pid/cis-status`).

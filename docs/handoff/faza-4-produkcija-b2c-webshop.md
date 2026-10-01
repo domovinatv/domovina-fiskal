@@ -1,6 +1,25 @@
 # Faza 4: produkcijska B2C fiskalizacija za webshopove (automatski račun nakon kartice)
 
-Plan je napisan 01.10.2026. Ništa od ovoga još nije implementirano.
+Plan je napisan 01.10.2026. **Implementirano istog dana (01.10.2026.), osim PROD koraka** —
+stanje po koracima u tablici niže; kronologija i nalazi u
+[`docs/research/faza-4-dnevnik-implementacije.md`](../research/faza-4-dnevnik-implementacije.md).
+
+| Korak | Stanje | Commit |
+|---|---|---|
+| 4.7 Testovi | ✅ vitest + workers pool, 49 testova (`npm test`); predeploy/deploy:test traže typecheck + testove | `7a5198e` (+ testovi u svakom koraku) |
+| 4.1 Idempotencija | ✅ | `b0dce30` |
+| 4.2 Robusna fiskalizacija | ✅ lease, trag svake greške, fer sweep, alarmi, `/api/v1/zdravlje` | `d3a4e56` |
+| 4.3 Storno | ✅ validacija + trigger, `POST /racun/:id/storno`, referenca u PDF-u/mailu | `7fc63fb`, `0bc11f4` |
+| 4.4 Email i API | ✅ (4.4b webhook namjerno preskočen) | `764463b` |
+| 4.5 Admin i sigurnost | ✅ kod; TEST `ADMIN_PASS` rotiran. ⏳ PROD: zaseban `ENC_MASTER_KEY`, pravi `DOKU_SOFTWARE_API_TOKEN` — čekaju odobrenje | `c1663de` |
+| 4.6 CIS poslužiteljski cert | ✅ notAfter iz handshakea + alarm; najava zamjene za 12/2026 još nije objavljena | `26068e9` |
+| 4.8.1 Push | ✅ | — |
+| 4.8.2 TEST migracije + deploy | ✅ 0007–0009, verzija `a75738d8` (crons `*/15` + `0 6`) | — |
+| 4.8.3 E2E na CIS TEST-u | ✅ na ITalku (tenant 1) — MARCIDEA nema demo cert (v. dnevnik §6); `ALARM_EMAIL` i `RESEND_API_KEY` na testu nisu postavljeni | — |
+| 4.8.4 PROD | ⏳ čeka izričito odobrenje | — |
+| 4.8.5 Čišćenje prod baze | ⏳ čeka odobrenje | — |
+| 4.9 Onboarding MARCIDEA na PROD | 🟡 pripremljen `backend/scripts/dodaj-tenant.sh` (nije izvršen) | `fa2cf06` |
+| Usput: bug FINA P12 upload | ✅ od `9bbb563` se FINA P12 nije mogao uploadati | `90bfda1` |
 
 **Cilj.** Domovina Fiskal treba moći sigurno i automatski izdavati fiskalni B2C
 račun na **velikom broju računa**. Webshop ga poziva nakon svake kartične

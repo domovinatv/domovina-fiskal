@@ -137,6 +137,28 @@ Dvije odvojene staze: **B2C 1.0** (ZKI/JIR/QR, CIS SOAP `fin/2012`) vs **B2B/B2G
 
 ---
 
+## 4a. Faza 4 (produkcijska B2C) — riješeno i otvoreno (01.10.2026.)
+
+Plan i stanje po koracima: [`docs/handoff/faza-4-produkcija-b2c-webshop.md`](../handoff/faza-4-produkcija-b2c-webshop.md);
+nalazi: [`docs/research/faza-4-dnevnik-implementacije.md`](../research/faza-4-dnevnik-implementacije.md).
+
+| Nalaz | Stanje |
+|---|---|
+| N1 idempotencija | ✅ `vanjskaReferenca` / `Idempotency-Key`, 200 replay / 409, bez rupe pri utrci |
+| N2 račun bez ZKI-ja blokira sweep | ✅ istek certa prije trošenja broja (409); svaka greška je pokušaj; potvrđeno i na TEST-u |
+| N3 claim | ✅ lease `fiskal_zakljucano_do` |
+| N4 alarmi / rok 2 radna dana | ✅ alarmi + `/api/v1/zdravlje`; ⚠️ `ALARM_EMAIL` još nije postavljen ni na TEST-u ni na PROD-u |
+| N5 spor sweep | ✅ backoff, fer po tenantu, 5 istodobno, LIMIT 50, 7 dana |
+| N6 storno | ✅ validacija + trigger, `POST /racun/:id/storno`, referenca u PDF-u/mailu; CIS TEST prihvaća negativne iznose |
+| N7 sigurnost | ✅ CSRF; TEST `ADMIN_PASS` rotiran; PROD `ADMIN_PASS` nije placeholder. ⚠️ PROD: isti `ENC_MASTER_KEY` kao test i TEST `DOKU_SOFTWARE_API_TOKEN` — čeka odobrenje |
+| N8 CIS poslužiteljski cert | ✅ praćenje iz handshakea + alarm. ⚠️ TEST ističe 12.12.2026., PROD 18.12.2026.; najava zamjene još nije objavljena (zadnja: [PU 8137](https://porezna-uprava.gov.hr/hr/istek-posluziteljskog-certifikata-u-sijecnju-2026-godine/8137), pristup 01.10.2026.) |
+| N9–N11 | ✅ (webhook 4.4b namjerno odgođen) |
+| N12 testovi | ✅ 49 testova, `npm test` |
+| **Novo:** FINA P12 upload pokvaren od `9bbb563` | ✅ ispravljeno (`90bfda1`) |
+| ⚠️ **Novo:** ITalkov AKD TEST cert (id 3) nije dekriptibilan test KEK-om | uzrok neutvrđen; zamijenjen FINA DEMO certom. Prije PROD-a provjeriti da se ITalkov PROD cert dekriptira PROD KEK-om (prvi PROD račun ili echo + `fiskaliziraj` na probnom računu) |
+
+---
+
 ## 5. Preporučeni redoslijed implementacije
 
 1. **Temelji.** Worker + Hono + D1 skela (uzor `pipeline.domovina.ai`), multi-tenant API ključ (hashiran), podatkovni model iz `05` (migracije `000X_*.sql`), admin skela (Basic Auth, server-rendered HTML), stroga **zod/valibot** validacija JSON API-ja (dizajn iz `fira-custom-webshop-api.md`, ali stroži; `utf8mb4`/pun Unicode).

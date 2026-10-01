@@ -51,6 +51,10 @@ hosting sidecara (Mac Mini vs VPS) · izbor CA (FINA/AKD) · D1 vs Postgres.
 
 ## Faza 4 — Produkcija B2C
 > **Razrađeno 01.10.2026.:** [`docs/handoff/faza-4-produkcija-b2c-webshop.md`](./docs/handoff/faza-4-produkcija-b2c-webshop.md) — idempotencija, robusni sweep, alarmi, storno, sigurnost, testovi, prvi PROD CIS poziv.
+>
+> **Stanje 01.10.2026.: 🟡 kod gotov, TEST deployan i E2E prošao na CIS TEST-u; PROD čeka odobrenje.**
+> 4.1–4.7 ✅ · 4.8 TEST ✅ · 4.8 PROD ⏳ · 4.9 skripta pripremljena. Dnevnik:
+> [`docs/research/faza-4-dnevnik-implementacije.md`](./docs/research/faza-4-dnevnik-implementacije.md).
 - FINA **produkcijski** aplikacijski cert; prod endpoint; monitoring/alerting; audit (`poruka_log`).
 
 ## Faza 5 — eRačun 2.0 (preko posrednika)

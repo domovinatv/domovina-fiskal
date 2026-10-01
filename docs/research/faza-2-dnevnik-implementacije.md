@@ -160,7 +160,7 @@ flowchart LR
 |---|---|
 | Verifikacija potpisa CIS **odgovora** (inkluzivni C14N asimetrija) | TODO — MVP vjeruje TLS-u (subtls verificira server cert) |
 | Prelazak na PROD CIS | čeka min. 2 dana stabilnog TEST rada → `OKOLINA=prod` + prod cert već uploadan |
-| **Čišćenje probnih računa prije pravog prod rada** | probni računi (TEST CIS) troše slijed `fiskalni/PP1/2026` u našoj D1 — prije prvog PRAVOG računa obrisati probne zapise ili krenuti s novim prostorom, da slijed u produkcijskoj Poreznoj kreće od 1 |
+| **Čišćenje probnih računa prije pravog prod rada** (→ Faza 4.8 korak 5, čeka odobrenje) | probni računi (TEST CIS) troše slijed `fiskalni/PP1/2026` u našoj D1 — prije prvog PRAVOG računa obrisati probne zapise ili krenuti s novim prostorom, da slijed u produkcijskoj Poreznoj kreće od 1 |
 | `ProvjeraZahtjev` (TEST-only validacija) | builder je spreman (`zahtjevXml('ProvjeraZahtjev', …)`), endpoint nije izložen |
 | Vlastiti DKIM za email (Resend primaran) | naslijeđeno iz faze 1, v. PLAN.md |
 
