@@ -42,6 +42,14 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 - Commit poruke i sve na hrvatskom. Push na `origin/main` (`domovinatv/domovina-fiskal`).
 - Nakon svake faze: `/verify` (pokreni app i dokaži da radi), pa commit.
 
+## Pregled koda i plan refactora (2026-10-02)
+- 📋 **Neovisni review backenda** (Fable 5.1, kod nije diran):
+  [`docs/handoff/2026-10-02-pregled-koda-i-plan-refactora.md`](docs/handoff/2026-10-02-pregled-koda-i-plan-refactora.md)
+  — 24 nalaza s `datoteka:redak`, plan u 9 koraka (§6), što ne dirati (§5),
+  popis testova koji nedostaju (§4). **Izvedba refactora je sljedeća sesija.**
+  Kritično prije svega: **K1** — `backend/src/fiskal/ca/*.pem` nisu u gitu
+  (ignorira ih `*.pem`), svježi clone se ne builda; nema CI-ja.
+
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
   deployan (migracije 0007–0009, crons `*/15` + `0 6`) i E2E prošao na CIS TEST-u.
