@@ -628,6 +628,17 @@ admin.post('/tenant/:id/dokument/novi', async (c) => {
     const detalji = rezultat.detalji?.map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
     return ponovnaForma(detalji ? `${rezultat.greska} — ${detalji}` : rezultat.greska, rezultat.status);
   }
+  // K2 (pregled 2026-10-02): fiskalni B2C se fiskalizira ODMAH, kao na API-ju —
+  // ZKI mora biti na računu u trenutku izdavanja; JIR ako CIS odgovori, inače
+  // ga dovršava sweep naknadne dostave. (Refactor korak 2 ovo seli u zajednički
+  // servis izdajDokument.)
+  if (parsed.data.tip === 'FISKALNI_B2C' && !rezultat.ponovljen) {
+    const ishod = await fiskalizirajRacun(c.env, tenant.id, rezultat.racun.id).catch((e) => ({
+      ok: false as const, greska: (e as Error).message, jir: undefined,
+    }));
+    const poruka = ishod.ok ? `Izdano i fiskalizirano — JIR ${ishod.jir}` : `Izdano sa ZKI-jem, JIR čeka naknadnu dostavu: ${ishod.greska}`;
+    return c.redirect(`/admin/racun/${rezultat.racun.id}?ok=${encodeURIComponent(poruka)}`, 303);
+  }
   return c.redirect(`/admin/racun/${rezultat.racun.id}`, 303);
 });
 

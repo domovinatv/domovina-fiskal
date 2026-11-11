@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getTenant } from '../src/db';
 import { b2cTijelo, napraviTenanta, poziv, testEnv, type TestniTenant } from './pomocno/okolina';
-import { cisVracaJir } from './pomocno/cis-mock';
+import { cisNedostupan, cisVracaJir } from './pomocno/cis-mock';
 
 const db = testEnv.DB;
 const AUTH = `Basic ${btoa(`${testEnv.ADMIN_USER}:${testEnv.ADMIN_PASS}`)}`;
@@ -106,5 +106,50 @@ describe('CSRF (4.5)', () => {
     expect((await adminPost(putanja, podaci, { Origin: ORIGIN })).status).toBe(303);
     expect((await adminPost(putanja, podaci, { 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
     expect((await adminPost(putanja, podaci, {})).status).toBe(303); // curl/skripte
+  });
+});
+
+// K2 (pregled 2026-10-02): admin „Novi dokument" za FISKALNI_B2C mora odmah
+// izračunati ZKI i pokušati JIR, kao API — ne čekati cron sweep.
+describe('Admin novi fiskalni dokument (K2)', () => {
+  const forma = (t: TestniTenant) => {
+    const p = new URLSearchParams({
+      tip: 'FISKALNI_B2C', pp_nu: 'WEB|1', operater: t.operaterOib, nacin: 'KARTICA', akcija: 'izdaj',
+    });
+    p.append('st_naziv[]', 'Savjetovanje');
+    p.append('st_kolicina[]', '1');
+    p.append('st_cijena[]', '50.00');
+    p.append('st_stopa[]', '25');
+    return p.toString();
+  };
+  const posalji = (t: TestniTenant) =>
+    poziv(`/admin/tenant/${t.tenant.id}/dokument/novi`, {
+      method: 'POST',
+      headers: { Authorization: AUTH, 'Content-Type': 'application/x-www-form-urlencoded', Origin: ORIGIN },
+      body: forma(t),
+    });
+  const zadnji = (tenantId: number) =>
+    db.prepare('SELECT zki, jir, fiskal_pokusaja, fiskal_nak_dost FROM racun WHERE tenant_id = ? ORDER BY id DESC LIMIT 1')
+      .bind(tenantId)
+      .first<{ zki: string | null; jir: string | null; fiskal_pokusaja: number; fiskal_nak_dost: number }>();
+
+  it('CIS radi → ZKI i JIR odmah', async () => {
+    cisVracaJir();
+    const t = await napraviTenanta();
+    const r = await posalji(t);
+    expect(r.status, await r.clone().text()).toBe(303);
+    const red = await zadnji(t.tenant.id);
+    expect(red?.zki).toMatch(/^[0-9a-f]{32}$/);
+    expect(red?.jir).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('CIS nedostupan → ZKI odmah, čeka naknadnu dostavu', async () => {
+    cisNedostupan();
+    const t = await napraviTenanta();
+    expect((await posalji(t)).status).toBe(303);
+    const red = await zadnji(t.tenant.id);
+    expect(red?.zki).toMatch(/^[0-9a-f]{32}$/);
+    expect(red?.jir).toBeNull();
+    expect(red).toMatchObject({ fiskal_pokusaja: 1, fiskal_nak_dost: 1 });
   });
 });
