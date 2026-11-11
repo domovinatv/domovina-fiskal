@@ -3,7 +3,7 @@ import { getRacun } from '../src/db';
 import { fiskalizirajRacun, sweepNaknadnaDostava } from '../src/fiskal/fiskalizacija';
 import { obradiAlarme, provjeriCisEcho } from '../src/alarmi';
 import type { Env } from '../src/types';
-import { b2cTijelo, json, napraviTenanta, poziv, slijed, testEnv, type TestniTenant } from './pomocno/okolina';
+import { adminSkripta, b2cTijelo, json, napraviTenanta, poziv, slijed, testEnv, type TestniTenant } from './pomocno/okolina';
 import { cisNedostupan, cisVracaJir, echoOdgovor, jirOdgovor, postaviMock } from './pomocno/cis-mock';
 
 const db = testEnv.DB;
@@ -222,8 +222,7 @@ describe('Cron i admin', () => {
     cisVracaJir();
     await izvediCron('*/15 * * * *', testEnv);
     expect((await poziv('/api/v1/zdravlje').then(json)).cisEcho.ok).toBe(true);
-    const auth = `Basic ${btoa(`${testEnv.ADMIN_USER}:${testEnv.ADMIN_PASS}`)}`;
-    const html = await (await poziv('/admin', { headers: { Authorization: auth } })).text();
+    const html = await (await poziv('/admin', { headers: { Authorization: adminSkripta() } })).text();
     expect(html).toContain('Alarmi (zadnjih 7 dana)');
   });
 });

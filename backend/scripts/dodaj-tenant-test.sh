@@ -70,10 +70,16 @@ TEST_ADMIN="$REPO_DIR/secrets/fiskal-test-admin.env"
 [[ -f "$DEV_VARS" ]] || { echo "GREŠKA: nema $DEV_VARS (ADMIN_USER/ADMIN_PASS)." >&2; exit 1; }
 ADMIN_USER="$(grep '^ADMIN_USER=' "$DEV_VARS" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
 ADMIN_PASS="$(grep '^ADMIN_PASS=' "$DEV_VARS" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-[[ -n "$ADMIN_USER" && -n "$ADMIN_PASS" ]] || { echo "GREŠKA: ADMIN_USER/ADMIN_PASS nisu postavljeni u $DEV_VARS." >&2; exit 1; }
+SKRIPTA_TOKEN="$(grep '^ADMIN_SKRIPTA_TOKEN=' "$DEV_VARS" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+[[ -n "$SKRIPTA_TOKEN" || ( -n "$ADMIN_USER" && -n "$ADMIN_PASS" ) ]] || { echo "GREŠKA: ni ADMIN_SKRIPTA_TOKEN ni ADMIN_USER/ADMIN_PASS u $DEV_VARS." >&2; exit 1; }
 
-# curl uz Basic Auth; -f NE koristimo jer i 400 stranice nose flash poruke.
-acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+# curl uz bearer token (docs/knowledge/20-admin-prijava.md), prijelazno Basic Auth;
+# -f NE koristimo jer i 400 stranice nose flash poruke.
+if [[ -n "$SKRIPTA_TOKEN" ]]; then
+  acurl() { printf 'header = "Authorization: Bearer %s"\n' "$SKRIPTA_TOKEN" | curl -sS -K - "$@"; }
+else
+  acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+fi
 
 echo "── Lion Base tenant na TEST okruženju ($BASE) ──"
 

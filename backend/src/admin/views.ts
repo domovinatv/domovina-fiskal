@@ -3,7 +3,8 @@
  *
  * DOMOVINA brand (isti shell kao pipeline.domovina.ai / pay.domovina.ai):
  *   navy #002F6C — primarna boja, red #FF0000 — naglasak, muted #5A6570 — body.
- * Sve server-rendered, bez client JS-a (skela; auto-refresh dolazi kasnije po potrebi).
+ * Sve server-rendered; malo inline JS-a (nonce dodaje CSP middleware u app.ts, inline
+ * event handleri nisu dopušteni).
  */
 
 import type {
@@ -56,7 +57,9 @@ header { padding: .9rem 1.5rem; border-bottom: 1px solid var(--border);
 header .brand { display: flex; align-items: center; gap: .6rem; }
 header .brand .word { font-weight: 800; letter-spacing: .04em; font-size: 1.1rem; }
 header .brand .accent { color: var(--red); }
-header nav { display: flex; gap: .8rem; font-size: .9rem; font-weight: 600; }
+header nav { display: flex; gap: .8rem; font-size: .9rem; font-weight: 600; align-items: center; }
+header nav form.odjava { margin: 0; }
+header nav form.odjava button { padding: .3rem .8rem; font-size: .85rem; background: #5A6570; }
 main { padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
 h1 { font-size: 1.45rem; margin: 0 0 1rem; }
 h2 { font-size: 1.1rem; margin: 1.5rem 0 .6rem; }
@@ -86,7 +89,7 @@ button:hover { background: #013a86; }
 footer { padding: 1rem 1.5rem 2rem; color: var(--muted); font-size: .8rem; text-align: center; }
 </style>`;
 
-export function layout(naslov: string, body: string): string {
+export function layout(naslov: string, body: string, opcije: { javno?: boolean } = {}): string {
   return `<!doctype html>
 <html lang="hr">
 <head>
@@ -99,7 +102,8 @@ ${BASE_STYLE}
 <div class="tricolor"><span class="red"></span><span></span><span class="navy"></span></div>
 <header>
   <div class="brand">${HEADER_LOGO_SVG}<span class="word">DOMOVINA<span class="accent">.FISKAL</span></span></div>
-  <nav><a href="/admin">Tenanti</a><a href="/admin/racuni">Računi</a></nav>
+  ${opcije.javno ? '' : `<nav><a href="/admin">Tenanti</a><a href="/admin/racuni">Računi</a><a href="/admin/passkeys">Ključevi</a>
+    <form method="post" action="/admin/logout" class="odjava"><button type="submit">Odjava</button></form></nav>`}
 </header>
 <main>
 ${body}
@@ -539,7 +543,7 @@ export function renderNoviDokumentPage(
 <div class="box">
   <table id="stavke"><thead><tr><th>Proizvod</th><th>Naziv *</th><th>Kol.</th><th>JM</th><th>Cijena *</th><th>Popust %</th><th>PDV %</th><th>KPD</th></tr></thead>
   <tbody></tbody></table>
-  <button type="button" onclick="dodajRed()" style="margin-top:.6rem;background:#5A6570">+ stavka</button>
+  <button type="button" id="dodaj-red" style="margin-top:.6rem;background:#5A6570">+ stavka</button>
 </div>
 <div class="box" style="display:flex;flex-direction:column;gap:.7rem">
   <div class="field"><label>Napomena (na PDF-u)</label><input name="napomena"></div>
@@ -551,7 +555,7 @@ export function renderNoviDokumentPage(
 </div>
 </form>
 <template id="red-stavke"><tr>
-  <td><select name="st_proizvod[]" onchange="popuniIzKataloga(this)">${proizvodOpcije}</select></td>
+  <td><select name="st_proizvod[]">${proizvodOpcije}</select></td>
   <td><input name="st_naziv[]" style="width:11rem"></td>
   <td><input name="st_kolicina[]" value="1" style="width:3.5rem"></td>
   <td><input name="st_jm[]" value="H87" style="width:3.2rem"></td>
@@ -576,6 +580,11 @@ function popuniIzKataloga(sel) {
   tr.querySelector('[name="st_stopa[]"]').value = PDV_OBVEZNIK ? o.dataset.stopa : '0';
   tr.querySelector('[name="st_kpd[]"]').value = o.dataset.kpd;
 }
+// Bez inline onclick/onchange: CSP dopušta samo skripte s nonceom.
+document.getElementById('dodaj-red').addEventListener('click', dodajRed);
+document.querySelector('#stavke tbody').addEventListener('change', (e) => {
+  if (e.target.matches('select[name="st_proizvod[]"]')) popuniIzKataloga(e.target);
+});
 dodajRed();
 </script>`,
   );
@@ -656,5 +665,49 @@ export function renderRacuniPage(racuni: (RacunRow & { tenant_naziv?: string })[
     `<h1>Dokumenti</h1>
 <table><thead><tr><th>Tenant</th><th>Broj</th><th>Tip</th><th>Status</th><th>Iznos</th><th>Izdan</th><th></th></tr></thead>
 <tbody>${redovi || '<tr><td colspan="7" class="prazno">Još nema dokumenata.</td></tr>'}</tbody></table>`,
+  );
+}
+
+// ───────────────────────── Prijava i passkeyi ─────────────────────────
+
+const kad = (iso: string | null) => (iso ? escapeHtml(iso.slice(0, 16).replace('T', ' ')) + ' UTC' : '—');
+
+export function renderLoginPage(o: { next: string; greska: string | null; access: boolean; klijentJs: string }): string {
+  return layout(
+    'Prijava — DOMOVINA Fiskal admin',
+    `<div class="box" style="max-width:26rem;margin:3rem auto;display:flex;flex-direction:column;gap:.8rem">
+  <h1>Prijava</h1>
+  <button id="passkey-login" type="button" data-next="${escapeHtml(o.next)}">Prijava passkeyem</button>
+  ${o.access ? `<a href="/admin/sso?next=${encodeURIComponent(o.next)}" style="text-align:center">Kod na e-mail (Cloudflare Access)</a>` : ''}
+  <p id="msg" class="greska"${o.greska ? '' : ' hidden'}>${o.greska ? escapeHtml(o.greska) : ''}</p>
+  <p class="prazno" style="font-size:.8rem">Prvi put: uđi kodom na e-mail, pa u „Ključevi” dodaj passkey.</p>
+</div>
+<script>${o.klijentJs}</script>`,
+    { javno: true },
+  );
+}
+
+export interface PasskeyPrikaz { id: string; label: string; created_at: string; last_used_at: string | null }
+
+export function renderPasskeysPage(o: { email: string; kljucevi: PasskeyPrikaz[]; svjeza: boolean; klijentJs: string }): string {
+  const redovi = o.kljucevi
+    .map(
+      (k) => `<tr><td><b>${escapeHtml(k.label)}</b></td><td class="mono">${kad(k.created_at)}</td><td class="mono">${kad(k.last_used_at)}</td>
+<td><form method="post" action="/admin/passkeys" style="margin:0"><input type="hidden" name="id" value="${escapeHtml(k.id)}"><button type="submit" style="background:var(--danger)">Obriši</button></form></td></tr>`,
+    )
+    .join('');
+  return layout(
+    'Ključevi — DOMOVINA Fiskal admin',
+    `<h1>Ključevi</h1>
+<p>Passkeyi za <b>${escapeHtml(o.email)}</b></p>
+<table><thead><tr><th>Oznaka</th><th>Dodan</th><th>Zadnje korišten</th><th></th></tr></thead>
+<tbody>${redovi || '<tr><td colspan="4" class="prazno">Još nema ključeva. Dodaj passkey da sljedeći put uđeš bez koda na e-mail.</td></tr>'}</tbody></table>
+<div class="box"><form id="passkey-register">
+  <div class="field"><label>Oznaka</label><input type="text" name="label" placeholder="npr. MacBook" maxlength="80"></div>
+  <button type="submit">Dodaj passkey</button>
+</form>
+<p class="prazno" style="font-size:.82rem">${o.svjeza ? 'Prijava je svježa, možeš dodati ključ.' : 'Dodavanje traži prijavu kodom na e-mail mlađu od 10 minuta.'}</p>
+<p id="msg" class="greska" hidden></p></div>
+<script>${o.klijentJs}</script>`,
   );
 }

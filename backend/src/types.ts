@@ -5,7 +5,13 @@ import type { SendEmailBinding } from './email';
 export interface Env {
   DB: D1Database;
   OKOLINA: string; // 'test' | 'prod' — zadana okolina za certifikate
-  ADMIN_USER?: string; // Basic Auth za /admin (wrangler secret)
+  // Admin prijava (docs/knowledge/20-admin-prijava.md): Cloudflare Access ili passkey.
+  ADMIN_EMAILS?: string; // secret, „a@x,b@y” — tko smije u /admin (isto u Access politici)
+  ACCESS_TEAM_DOMAIN?: string; // var, npr. domovina.cloudflareaccess.com
+  ACCESS_AUD?: string; // var, AUD tag Access aplikacije „Fiskal admin (sso)”
+  ADMIN_HOST?: string; // var, jedini host admina (rpID passkeya)
+  ADMIN_SKRIPTA_TOKEN?: string; // secret, Bearer za skripte (dodaj-tenant.sh), ≥ 32 znaka
+  ADMIN_USER?: string; // PRIJELAZNO: Basic Auth za curl dok PROD Access prijava nije provjerena
   ADMIN_PASS?: string;
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)

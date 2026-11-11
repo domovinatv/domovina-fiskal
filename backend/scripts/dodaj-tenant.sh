@@ -18,8 +18,11 @@
 #    dokumenta (Faza 4.5) — potvrdi ih s vlasnikom PRIJE prvog računa.
 #
 # Kredencijali (nikad u repou):
-#   test → secrets/fiskal-test-admin.env (ADMIN_USER/ADMIN_PASS; rotirano 2026-10-01)
-#   prod → backend/.tajne/lozinke.env (ADMIN_USER_PROD/ADMIN_PASS_PROD)
+#   test → secrets/fiskal-test-admin.env (ADMIN_SKRIPTA_TOKEN)
+#   prod → backend/.tajne/lozinke.env (ADMIN_SKRIPTA_TOKEN_PROD)
+#   Token = wrangler secret ADMIN_SKRIPTA_TOKEN (docs/knowledge/20-admin-prijava.md).
+#   Prijelazno, dok PROD Access prijava nije provjerena: ako tokena nema, Basic Auth
+#   (ADMIN_USER/ADMIN_PASS, odnosno ADMIN_USER_PROD/ADMIN_PASS_PROD).
 # Sirovi API ključ (dfk_…) → secrets/<oib>-<okolina>-api-kljuc.txt (gitignored).
 #
 # Skripta NE radi (zasebni ručni koraci, vidi sažetak na kraju):
@@ -84,13 +87,15 @@ procitaj() { grep "^$2=" "$1" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'"; 
 if [[ "$OKOLINA" == "test" ]]; then
   KRED="$SECRETS_DIR/fiskal-test-admin.env"
   [[ -f "$KRED" ]] || { echo "GREŠKA: nema $KRED." >&2; exit 1; }
+  SKRIPTA_TOKEN="$(procitaj "$KRED" ADMIN_SKRIPTA_TOKEN)"
   ADMIN_USER="$(procitaj "$KRED" ADMIN_USER)"; ADMIN_PASS="$(procitaj "$KRED" ADMIN_PASS)"
 else
   KRED="$BACKEND_DIR/.tajne/lozinke.env"
   [[ -f "$KRED" ]] || { echo "GREŠKA: nema $KRED." >&2; exit 1; }
+  SKRIPTA_TOKEN="$(procitaj "$KRED" ADMIN_SKRIPTA_TOKEN_PROD)"
   ADMIN_USER="$(procitaj "$KRED" ADMIN_USER_PROD)"; ADMIN_PASS="$(procitaj "$KRED" ADMIN_PASS_PROD)"
 fi
-[[ -n "$ADMIN_USER" && -n "$ADMIN_PASS" ]] || { echo "GREŠKA: admin kredencijali nisu u $KRED." >&2; exit 1; }
+[[ -n "$SKRIPTA_TOKEN" || ( -n "$ADMIN_USER" && -n "$ADMIN_PASS" ) ]] || { echo "GREŠKA: admin kredencijali nisu u $KRED." >&2; exit 1; }
 KLJUC_DATOTEKA="$SECRETS_DIR/$OIB-$OKOLINA-api-kljuc.txt"
 
 # ── PROD: izričita potvrda ───────────────────────────────────────────────────
@@ -102,8 +107,14 @@ if [[ "$OKOLINA" == "prod" ]]; then
   [[ "$POTVRDA" == "$OIB" ]] || { echo "ODBIJENO: potvrda se ne podudara." >&2; exit 1; }
 fi
 
-# curl uz Basic Auth; -f NE koristimo jer i 400 stranice nose flash poruke.
-acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+# curl uz bearer token (bez kolačića → bez CSRF-a); -f NE koristimo jer i 400
+# stranice nose flash poruke. Token ide kroz config na stdin, ne u argv (ps).
+if [[ -n "$SKRIPTA_TOKEN" ]]; then
+  acurl() { printf 'header = "Authorization: Bearer %s"\n' "$SKRIPTA_TOKEN" | curl -sS -K - "$@"; }
+else
+  echo "⚠️  Nema ADMIN_SKRIPTA_TOKEN u $KRED — prijelazni Basic Auth." >&2
+  acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+fi
 
 echo "── Tenant $NAZIV na $OKOLINA ($BASE) ──"
 

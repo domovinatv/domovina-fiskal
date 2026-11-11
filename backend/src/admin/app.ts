@@ -1,9 +1,10 @@
-// Server-rendered admin (/admin) — Basic Auth. Upravljanje tenantima i njihovim
-// fiskalnim kontekstom (prostori, uređaji, operateri, API ključevi, certifikati).
+// Server-rendered admin (/admin) — prijava Cloudflare Accessom ili passkeyem (auth/).
+// Upravljanje tenantima i njihovim fiskalnim kontekstom (prostori, uređaji, operateri, API ključevi, certifikati).
 
 import { Hono } from 'hono';
-import { basicAuth } from 'hono/basic-auth';
 import type { Env } from '../types';
+import { adminZastita, type AdminHono } from './auth/zastita';
+import { prijava } from './auth/rute';
 import {
   createApiKljuc,
   createCertifikat,
@@ -58,40 +59,12 @@ import {
   renderTenantiPage,
 } from './views';
 
-export const admin = new Hono<{ Bindings: Env }>();
+export const admin = new Hono<AdminHono>();
 
-// Basic Auth gate na cijelo /admin stablo. Bez postavljenih secreta → 503 (safe default).
-admin.use('*', async (c, next) => {
-  if (!c.env.ADMIN_USER || !c.env.ADMIN_PASS) {
-    return c.text('Admin nije konfiguriran (postavi ADMIN_USER + ADMIN_PASS secrete).', 503);
-  }
-  const mw = basicAuth({
-    username: c.env.ADMIN_USER,
-    password: c.env.ADMIN_PASS,
-    realm: 'DOMOVINA Fiskal admin',
-  });
-  return mw(c, next);
-});
-
-// CSRF (Faza 4.5, N7): Basic Auth preglednik šalje sam, pa bi tuđa stranica
-// mogla poslati formu na /admin. Za POST provjeravamo da zahtjev dolazi s
-// našeg origina: Origin (svi moderni preglednici ga šalju za POST), inače
-// Sec-Fetch-Site. Klijenti bez ijednog (curl, skripte) nisu preglednik i ne
-// nose tuđe kolačiće/autorizaciju — njih propuštamo.
-admin.use('*', async (c, next) => {
-  if (c.req.method === 'GET' || c.req.method === 'HEAD') return next();
-  const nas = new URL(c.req.url).origin;
-  const origin = c.req.header('Origin');
-  if (origin !== undefined) {
-    if (origin !== nas) return c.text(`Odbijeno (CSRF): zahtjev s origina '${origin}' nije dopušten.`, 403);
-    return next();
-  }
-  const site = c.req.header('Sec-Fetch-Site');
-  if (site !== undefined && site !== 'same-origin' && site !== 'none') {
-    return c.text(`Odbijeno (CSRF): Sec-Fetch-Site '${site}'.`, 403);
-  }
-  return next();
-});
+// Prijava: Cloudflare Access (OTP) ili passkey → sesija; skripte bearer tokenom.
+// CSRF, CSP i sigurnosna zaglavlja su u adminZastita (docs/knowledge/20-admin-prijava.md).
+admin.use('*', adminZastita);
+admin.route('/', prijava);
 
 admin.get('/', async (c) => {
   const [tenanti, alarmi] = await Promise.all([listTenants(c.env.DB), listAlarmi(c.env.DB)]);

@@ -18,6 +18,12 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRACIJE: migracije,
             ENC_MASTER_KEY: '00'.repeat(32), // samo za testove
+            // Admin prijava (docs/knowledge/20-admin-prijava.md) — samo za testove.
+            ADMIN_EMAILS: 'admin@primjer.hr,Drugi@Primjer.hr',
+            ADMIN_SKRIPTA_TOKEN: 'testni-skripta-token-0123456789abcdef',
+            ACCESS_TEAM_DOMAIN: 'test.cloudflareaccess.com',
+            ACCESS_AUD: 'testni-aud',
+            // Prijelazni Basic Auth fallback (do PROD provjere Accessa).
             ADMIN_USER: 'admin',
             ADMIN_PASS: 'test-lozinka',
             ALARM_EMAIL: 'alarmi@primjer.hr',

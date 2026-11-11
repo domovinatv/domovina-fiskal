@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getTenant } from '../src/db';
-import { b2cTijelo, napraviTenanta, poziv, testEnv, type TestniTenant } from './pomocno/okolina';
+import { adminSkripta, b2cTijelo, napraviTenanta, poziv, testEnv, type TestniTenant } from './pomocno/okolina';
 import { cisNedostupan, cisVracaJir } from './pomocno/cis-mock';
 
 const db = testEnv.DB;
-const AUTH = `Basic ${btoa(`${testEnv.ADMIN_USER}:${testEnv.ADMIN_PASS}`)}`;
+const AUTH = adminSkripta();
 const ORIGIN = 'https://fiskal-test.domovina.ai';
 
 function adminPost(putanja: string, polja: Record<string, string> = {}, zaglavlja: Record<string, string> = { Origin: ORIGIN }) {
@@ -97,15 +97,25 @@ describe('Deaktivacije (4.5)', () => {
 });
 
 describe('CSRF (4.5)', () => {
-  it('POST s tuđeg origina ili cross-site → 403; isti origin i ne-preglednik → prolazi', async () => {
+  // Skripta (bearer) ne nosi kolačić pa nema CSRF rizika — prolazi bez Origina.
+  // Preglednička sesija: tests u admin-prijava.test.ts. Prijelazni Basic Auth: stara blaga provjera.
+  it('Basic Auth (prijelazno): tuđi origin / cross-site → 403; isti origin i curl → prolazi', async () => {
     const t = await napraviTenanta();
     const putanja = `/admin/tenant/${t.tenant.id}/uredi`;
     const podaci = podaciTenanta(t);
-    expect((await adminPost(putanja, podaci, { Origin: 'https://zlo.example' })).status).toBe(403);
-    expect((await adminPost(putanja, podaci, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
-    expect((await adminPost(putanja, podaci, { Origin: ORIGIN })).status).toBe(303);
-    expect((await adminPost(putanja, podaci, { 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
-    expect((await adminPost(putanja, podaci, {})).status).toBe(303); // curl/skripte
+    const basic = { Authorization: `Basic ${btoa(`${testEnv.ADMIN_USER}:${testEnv.ADMIN_PASS}`)}` };
+    const post = (z: Record<string, string>) =>
+      poziv(putanja, { method: 'POST', headers: { ...basic, 'Content-Type': 'application/x-www-form-urlencoded', ...z }, body: new URLSearchParams(podaci).toString() });
+    expect((await post({ Origin: 'https://zlo.example' })).status).toBe(403);
+    expect((await post({ 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+    expect((await post({ Origin: ORIGIN })).status).toBe(303);
+    expect((await post({ 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
+    expect((await post({})).status).toBe(303); // curl
+  });
+
+  it('skripta (bearer) prolazi bez Origina', async () => {
+    const t = await napraviTenanta();
+    expect((await adminPost(`/admin/tenant/${t.tenant.id}/uredi`, podaciTenanta(t), {})).status).toBe(303);
   });
 });
 

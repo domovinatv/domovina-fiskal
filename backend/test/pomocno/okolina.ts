@@ -89,12 +89,16 @@ export async function napraviTenanta(
 }
 
 // Poziv workera izravno (isti modul graf kao test → vi.mock vrijedi i ovdje).
-export async function poziv(putanja: string, init: RequestInit & { kljuc?: string } = {}): Promise<Response> {
+export async function poziv(
+  putanja: string,
+  init: RequestInit & { kljuc?: string; env?: Env; host?: string } = {},
+): Promise<Response> {
   const zaglavlja = new Headers(init.headers);
   if (init.kljuc) zaglavlja.set('Authorization', `Bearer ${init.kljuc}`);
   if (init.body && !zaglavlja.has('Content-Type')) zaglavlja.set('Content-Type', 'application/json');
   const ctx = createExecutionContext();
-  const odgovor = await worker.fetch(new Request(`https://fiskal-test.domovina.ai${putanja}`, { ...init, headers: zaglavlja }), testEnv, ctx);
+  const host = init.host ?? 'fiskal-test.domovina.ai';
+  const odgovor = await worker.fetch(new Request(`https://${host}${putanja}`, { ...init, headers: zaglavlja, redirect: 'manual' }), init.env ?? testEnv, ctx);
   await waitOnExecutionContext(ctx);
   return odgovor;
 }
@@ -129,4 +133,24 @@ export async function slijed(tenantId: number, vrsta = 'fiskalni') {
     .bind(tenantId, vrsta)
     .first<{ n: number; d: number; max: number | null; sekvenca: number | null }>();
   return red!;
+}
+
+// Admin: skripta (bearer) i preglednička sesija upisana izravno u D1 (kao docs §Lokalno).
+export const ADMIN_EMAIL = 'admin@primjer.hr';
+export const adminSkripta = () => `Bearer ${testEnv.ADMIN_SKRIPTA_TOKEN}`;
+
+export async function adminSesija(
+  opcije: { email?: string; method?: 'access' | 'passkey'; prijeMinuta?: number; neaktivnoMinuta?: number; istekla?: boolean } = {},
+): Promise<string> {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))),
+    (b) => b.toString(16).padStart(2, '0')).join('');
+  const sada = Date.now();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const kreirana = sada - (opcije.prijeMinuta ?? 0) * 60_000;
+  await testEnv.DB.prepare(
+    `INSERT INTO admin_sessions (token_hash, email, method, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).bind(hash, opcije.email ?? ADMIN_EMAIL, opcije.method ?? 'access', iso(kreirana),
+    iso(opcije.istekla ? sada - 60_000 : kreirana + 12 * 3600_000), iso(sada - (opcije.neaktivnoMinuta ?? 0) * 60_000)).run();
+  return `__Host-fiskal_admin=${token}`;
 }
