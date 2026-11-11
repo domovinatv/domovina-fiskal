@@ -616,3 +616,15 @@ Ukupno ~10 h rada; razumno je podijeliti u dvije sesije (0–4, pa 5–8) s
 - Nije pokrenuto: deploy, `wrangler dev`, pravi CIS, doku, GoTrue. Nalazi koji
   bi to tražili označeni su ⚠️ (K3 ponašanje CIS-a, K23 limit batcha).
 - Nije mijenjana nijedna datoteka osim ovog dokumenta.
+
+---
+
+## 10. Stanje izvedbe (dopisano 2026-11-11, Opus 5.5)
+
+| Nalaz | Commit | Napomena |
+|---|---|---|
+| K3 | `b38199b` | `provjeriPdvPravila` vraća normalizirane stavke (ne-PDV: sve osim `O` → `E`); doku `taxExemptionReason` iz `klauzula_pdv` za E/AE. §8.1: **CIS TEST prihvaća** `USustPdv=false` + `IznosOslobPdv` bez `<Pdv>` (JIR, 2026-11-11, AKD DEMO). |
+| K2 | `142735b` | minimalno: admin ruta zove `fiskalizirajRacun` nakon `kreirajDokument`; zajednički `izdajDokument` ostaje za korak 2. |
+| K4 | `2ebeed2` | `iznosShema` → `izCenti(uCente(v))`, `kolicina` → novi `izTisucinki` (bez repnih nula: `'2'`, `'2.5'`). Stroga validacija decimala nepromijenjena. |
+
+Ostali koraci §6 (0, 1, 2, 4–8) nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.

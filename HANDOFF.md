@@ -50,6 +50,21 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   Kritično prije svega: **K1** — `backend/src/fiskal/ca/*.pem` nisu u gitu
   (ignorira ih `*.pem`), svježi clone se ne builda; nema CI-ja.
 
+## Stanje 2026-11-11 — K2/K3/K4 + ne-PDV E2E, admin prijava u planu
+- ✅ **K3** (`b38199b`), **K2** (`142735b`), **K4** (`2ebeed2`) iz pregleda izvedeni
+  izvan redoslijeda §6 (na postojećoj strukturi, test koji prvo pada; 56/56),
+  jer ih treba prvi **ne-PDV** tenant koji izdaje i kroz API i kroz admin.
+  Refactor koraci 1–2 ih samo sele (K2 → `izdajDokument`). Deployano **samo TEST**.
+- ✅ **CIS TEST prihvaća ne-PDV račun** (pregled §8.1 odgovoren): `USustPdv=false`
+  + `IznosOslobPdv` (bez `<Pdv>` bloka) → JIR, AKD/Certilia DEMO cert, prostor
+  s brojčanom oznakom `2`. Storno ne-PDV računa (negativan `IznosOslobPdv`) →
+  JIR. Retry s `"10.0"` umjesto `10` → 200 replay. Admin „Novi dokument" → JIR
+  odmah (redirect s porukom).
+- ⏭️ PROD deploy ovih popravaka čeka izričito odobrenje vlasnika.
+- 📋 Admin prijava Cloudflare Access (OTP) + passkey umjesto Basic Autha, po
+  uzoru na logomedo: [`docs/handoff/2026-11-11-admin-access-passkey.md`](docs/handoff/2026-11-11-admin-access-passkey.md).
+  ⚠️ Migracija `0010` je planirana i u refactoru (§6 korak 6) — tko prvi, uzima 0010.
+
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
   deployan (migracije 0007–0009, crons `*/15` + `0 6`) i E2E prošao na CIS TEST-u.
