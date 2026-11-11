@@ -341,6 +341,7 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
   // PDV pravila ovisna o tenantu (ne-PDV obveznik, prijenos porezne obveze).
   const pravila = provjeriPdvPravila(!!tenant.u_sustavu_pdv, razrijeseno.stavke);
   if (pravila.greske.length) return { status: 400, greska: 'Validacija nije prošla', detalji: pravila.greske };
+  const stavke = pravila.stavke; // normalizirane (ne-PDV → kategorija E, K3)
 
   let kupacId: number | null = null;
   if (model.kupac) {
@@ -358,7 +359,7 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
   }
 
   const sada = new Date();
-  const iznosi = izracunajIznose(razrijeseno.stavke);
+  const iznosi = izracunajIznose(stavke);
 
   if (original) {
     const stornoCenti = uCente(iznosi.iznosSPdv, 'iznosSPdv');
@@ -374,7 +375,7 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
       };
     }
   }
-  const stavkeZaUpis: NoviRacunStavka[] = razrijeseno.stavke.map((s) => ({
+  const stavkeZaUpis: NoviRacunStavka[] = stavke.map((s) => ({
     naziv: s.naziv,
     opis: s.opis,
     kolicina: String(s.kolicina),

@@ -316,12 +316,12 @@ export function izracunajIznose(stavke: RazrijesenaStavka[]): IzracunatiIznosi {
 export function provjeriPdvPravila(
   uSustavuPdv: boolean,
   stavke: RazrijesenaStavka[],
-): { greske: { polje: string; poruka: string }[]; klauzula: string | null } {
+): { greske: { polje: string; poruka: string }[]; klauzula: string | null; stavke: RazrijesenaStavka[] } {
   const greske: { polje: string; poruka: string }[] = [];
 
   if (!uSustavuPdv) {
     // Mali obveznik (izvan sustava PDV-a): sve stavke stopa 0, kategorija E,
-    // klauzula čl. 90. st. 1. (docs/knowledge/10-* §7.2/§7.3).
+    // klauzula čl. 90. st. 1. (docs/knowledge/10-* §7.2/§7.3, §14.6).
     stavke.forEach((s, i) => {
       if (s.pdvStopa !== '0') {
         greske.push({
@@ -330,7 +330,12 @@ export function provjeriPdvPravila(
         });
       }
     });
-    return { greske, klauzula: greske.length ? null : KLAUZULA_CL90 };
+    // K3 (pregled 2026-10-02): kategorija se NORMALIZIRA u 'E' — default 'Z'
+    // (nulta stopa) bi u CIS XML stavio <Pdv> blok sa stopom 0 umjesto
+    // IznosOslobPdv, a u eRačun 'Z' bez razloga izuzeća. 'O' (izvan opsega
+    // PDV-a) ostaje kakav jest — to je drugi pojam od oslobođenja.
+    const normalizirane = stavke.map((s) => (s.pdvKategorija === 'O' ? s : { ...s, pdvKategorija: 'E' }));
+    return { greske, klauzula: greske.length ? null : KLAUZULA_CL90, stavke: normalizirane };
   }
 
   // Prijenos porezne obveze: AE se ne miješa s oporezivim stavkama (06-* §2.1).
@@ -341,5 +346,5 @@ export function provjeriPdvPravila(
       poruka: "kod prijenosa porezne obveze ('AE') SVE stavke dokumenta moraju biti 'AE' — ne miješa se s oporezivim stavkama",
     });
   }
-  return { greske, klauzula: imaAE && !greske.length ? KLAUZULA_PRIJENOS : null };
+  return { greske, klauzula: imaAE && !greske.length ? KLAUZULA_PRIJENOS : null, stavke };
 }

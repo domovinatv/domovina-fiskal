@@ -104,6 +104,9 @@ export function mapirajZaDoku(k: RacunKontekst): { invoice: DokuInvoice } | { gr
       commodityClassification: s.kpd || null,
       commodityClassificationListID: s.kpd ? s.kpd_shema || 'CG' : null,
       taxCategory: dokuTaxCategory(s.pdv_kategorija, s.pdv_stopa),
+      // K3: HR CIUS uz 'E'/'AE' traži razlog izuzeća (BT-120, 10-* §7.3) —
+      // tekst klauzule koju je izdavanje već odabralo (čl. 90. st. 1. / čl. 75.).
+      taxExemptionReason: ['E', 'AE'].includes((s.pdv_kategorija || '').toUpperCase()) ? r.klauzula_pdv || null : null,
     },
   }));
 
