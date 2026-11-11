@@ -8,7 +8,7 @@
 // BR-CO pravila; NE zbrajamo zaokružene PDV-ove pojedinačnih stavki.
 
 import { z } from 'zod';
-import { izCenti, normalizirajTekst, uCente, uTisucinke, validanOib } from './util';
+import { izCenti, izTisucinki, normalizirajTekst, uCente, uTisucinke, validanOib } from './util';
 
 // Obvezne klauzule (docs/knowledge/09-* §1.1, 10-* §7.2 — čl. 90. st. 1. potvrđen
 // na TEB izvoru 2026-07-04; do 31.12.2024. bio je st. 2.).
@@ -58,8 +58,9 @@ const tekstOpcShema = (max: number, naziv: string) =>
 const iznosShema = (naziv: string) =>
   z.union([z.string(), z.number()]).transform((v, ctx) => {
     try {
-      uCente(v, naziv);
-      return typeof v === 'number' ? v.toFixed(2) : String(v).trim();
+      // K4: kanonski oblik ('10' / 10 / '10.0' → '10.00') — hash idempotencije
+      // i baza ne smiju ovisiti o tome kako klijent serijalizira broj.
+      return izCenti(uCente(v, naziv));
     } catch (e) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: (e as Error).message });
       return z.NEVER;
@@ -103,8 +104,7 @@ const stavkaShema = z
       .default(1)
       .transform((v, ctx) => {
         try {
-          uTisucinke(v, 'stavke[].kolicina');
-          return String(v).trim();
+          return izTisucinki(uTisucinke(v, 'stavke[].kolicina')); // K4: '2' / 2 / '2.000' → '2'
         } catch (e) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, message: (e as Error).message });
           return z.NEVER;

@@ -106,3 +106,27 @@ describe('Idempotencija (vanjskaReferenca / Idempotency-Key)', () => {
     expect(treci.redni_broj).toBe(2);
   });
 });
+
+// K4 (pregled 2026-10-02): hash ne smije ovisiti o tekstualnom obliku broja —
+// PHP json_encode ili retry iz drugog koda šalje 10 umjesto "10.00".
+describe('Idempotencija — oblik brojeva (K4)', () => {
+  beforeEach(() => {
+    cisVracaJir();
+  });
+
+  it("'10' / 10 / '10.0' i kolicina '2' / 2 / '2.000' → isti račun (201, 200, 200)", async () => {
+    const t = await napraviTenanta();
+    const tijelo = (cijena: unknown, kolicina: unknown) =>
+      b2cTijelo(t, { vanjskaReferenca: 'K4-1', stavke: [{ naziv: 'X', kolicina, netoCijena: cijena, pdvStopa: '25' }] });
+    const r1 = await post(t.kljuc, tijelo('10', '2'));
+    const r2 = await post(t.kljuc, tijelo(10, 2));
+    const r3 = await post(t.kljuc, tijelo('10.0', '2.000'));
+    expect([r1.status, r2.status, r3.status]).toEqual([201, 200, 200]);
+    const ids = new Set((await Promise.all([r1, r2, r3].map((o) => json(o)))).map((r) => r.id));
+    expect(ids.size).toBe(1);
+    const st = await testEnv.DB.prepare('SELECT neto_cijena, kolicina FROM stavka WHERE racun_id = ?')
+      .bind([...ids][0])
+      .first<{ neto_cijena: string; kolicina: string }>();
+    expect(st).toEqual({ neto_cijena: '10.00', kolicina: '2' });
+  });
+});

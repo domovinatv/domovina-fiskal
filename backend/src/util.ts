@@ -44,6 +44,14 @@ export function uTisucinke(kolicina: string | number, naziv: string): number {
   return vrijednost;
 }
 
+// Tisućinke → kanonski string bez repnih nula: 2000 → '2', 2500 → '2.5',
+// 1 → '0.001'. Jedan oblik za istu količinu (hash idempotencije, K4).
+export function izTisucinki(tisucinke: number): string {
+  const cijeli = Math.floor(tisucinke / 1000);
+  const dec = String(tisucinke % 1000).padStart(3, '0').replace(/0+$/, '');
+  return dec ? `${cijeli}.${dec}` : String(cijeli);
+}
+
 // centi × tisućinke → centi, zaokruženo half-up (komercijalno zaokruživanje).
 export function pomnoziCijenuKolicinu(cijenaCenti: number, kolicinaTisucinke: number): number {
   const produkt = cijenaCenti * kolicinaTisucinke; // centi·tisućinke
