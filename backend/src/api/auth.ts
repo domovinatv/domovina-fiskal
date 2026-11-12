@@ -73,7 +73,7 @@ export const apiAuth = createMiddleware<ApiHono>(async (c, next) => {
 
   // Rute bez tenant scopea: dovoljan je identitet.
   if (RUTE_BEZ_TENANTA.has(c.req.path)) {
-    c.set('korisnik', { sub: gotrue.sub, email: gotrue.email });
+    c.set('korisnik', { sub: gotrue.sub, email: gotrue.email, emailPotvrdjen: gotrue.emailPotvrdjen });
     return next();
   }
 
@@ -83,9 +83,14 @@ export const apiAuth = createMiddleware<ApiHono>(async (c, next) => {
     return c.json({ greska: "Nedostaje 'X-Tenant-Id' zaglavlje (odaberi tenanta)" }, 400);
   }
 
-  // Membership: match po user_id (stabilan) ili email-bind fallback (§4).
-  const kt = await findKorisnikTenant(c.env.DB, tenantId, gotrue.sub, gotrue.email);
+  // Membership: match po user_id (stabilan) ili email-bind fallback (§4) —
+  // fallback SAMO uz potvrđen e-mail (K5), inače bi se netko mogao
+  // registrirati tuđom adresom i na prvoj prijavi preuzeti članstvo.
+  const kt = await findKorisnikTenant(c.env.DB, tenantId, gotrue.sub, gotrue.emailPotvrdjen ? gotrue.email : null);
   if (!kt) {
+    if (!gotrue.emailPotvrdjen) {
+      return c.json({ greska: 'E-mail adresa nije potvrđena — potvrdi je putem poveznice iz e-maila pa se prijavi ponovno' }, 403);
+    }
     return c.json({ greska: 'Korisnik nema pristup tom tenantu' }, 403);
   }
   if (!kt.user_id) {
@@ -97,6 +102,6 @@ export const apiAuth = createMiddleware<ApiHono>(async (c, next) => {
     return c.json({ greska: 'Tenant nije aktivan' }, 403);
   }
   c.set('tenant', tenant);
-  c.set('korisnik', { sub: gotrue.sub, email: gotrue.email, uloga: kt.uloga });
+  c.set('korisnik', { sub: gotrue.sub, email: gotrue.email, emailPotvrdjen: gotrue.emailPotvrdjen, uloga: kt.uloga });
   return next();
 });

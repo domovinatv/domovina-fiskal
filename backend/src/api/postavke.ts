@@ -27,7 +27,7 @@ postavkeRute.get('/moji-tenanti', async (c) => {
   if (!korisnik) {
     return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
   }
-  return c.json({ tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email) });
+  return c.json({ tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.emailPotvrdjen ? korisnik.email : null) });
 });
 
 // Profil + membershipi (opcionalni pogodniji oblik za frontend bootstrap).
@@ -38,7 +38,7 @@ postavkeRute.get('/ja', async (c) => {
   }
   return c.json({
     email: korisnik.email,
-    tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email),
+    tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.emailPotvrdjen ? korisnik.email : null),
   });
 });
 

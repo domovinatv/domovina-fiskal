@@ -211,6 +211,7 @@ export interface KorisnikTenantRow {
 export interface ApiKorisnik {
   sub: string; // GoTrue user id (uuid)
   email: string;
+  emailPotvrdjen: boolean;
   uloga?: KorisnikTenantRow['uloga'];
 }
 

@@ -174,12 +174,13 @@ export async function touchApiKljuc(db: D1Database, id: number): Promise<void> {
 // Identitet je u GoTrue-u; ovdje je SAMO autorizacija (membership + uloga).
 
 // Membership za JEDAN tenant: match po user_id (stabilan) ili — dok user_id još
-// nije vezan — po verificiranom emailu iz JWT-a (bootstrap na prvoj prijavi).
+// nije vezan — po POTVRĐENOM emailu iz GoTrue-a (bootstrap na prvoj prijavi).
+// `email = null` (nepotvrđena adresa) isključuje e-mail granu: lower(NULL) ne matcha ništa.
 export async function findKorisnikTenant(
   db: D1Database,
   tenantId: number,
   userId: string,
-  email: string,
+  email: string | null,
 ): Promise<KorisnikTenantRow | null> {
   return db
     .prepare(
@@ -203,7 +204,7 @@ export async function bindKorisnikTenant(db: D1Database, id: number, userId: str
 export async function listMojiTenanti(
   db: D1Database,
   userId: string,
-  email: string,
+  email: string | null, // null = nepotvrđen e-mail → samo user_id match (K5)
 ): Promise<{ tenantId: number; oib: string; naziv: string; uloga: string }[]> {
   const r = await db
     .prepare(

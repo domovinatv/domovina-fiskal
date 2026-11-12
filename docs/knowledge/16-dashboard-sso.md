@@ -79,8 +79,12 @@ CREATE INDEX ix_kt_user_email ON korisnik_tenant(lower(user_email));
 **Email→user_id vezanje:** superuser dodaje pristup po **emailu** (zna email, ne
 zna GoTrue `sub`). Na **prvoj prijavi** Worker iz JWT-a dobije `sub`+`email`,
 pronađe redak po verificiranom emailu i upiše `user_id` (`bound_at`). Nakon toga
-match ide po `user_id` (stabilan). GoTrue email je verificiran → email match je
-siguran za bootstrap. ⚠️ Promjena emaila u GoTrue je edge-case (§8).
+match ide po `user_id` (stabilan). Email match je siguran za bootstrap **samo
+ako je adresa potvrđena**: Worker čita `email_confirmed_at` iz `GET /auth/v1/user`
+i bez njega e-mail granu ne koristi (403 „E-mail adresa nije potvrđena”; ni
+`/moji-tenanti` ne vraća tenante vezane samo e-mailom). Tako bind ne ovisi o
+tome je li na dijeljenom GoTrue-u uključen `enable_confirmations` (K5, 2026-11-12).
+⚠️ Promjena emaila u GoTrue je edge-case (§8).
 
 ## 5. API — dvorežimski auth middleware
 

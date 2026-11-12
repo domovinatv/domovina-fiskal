@@ -9,6 +9,10 @@ import type { Env } from '../types';
 export interface GotrueKorisnik {
   sub: string; // GoTrue user id (uuid)
   email: string;
+  // K5: GoTrue `email_confirmed_at` postavljen. Bind membershipa po e-mailu
+  // (prva prijava) dopušten je samo uz potvrđenu adresu, bez obzira na to je
+  // li na dijeljenom GoTrue-u uključen enable_confirmations.
+  emailPotvrdjen: boolean;
 }
 
 // In-memory cache po tokenu (~60 s) — štedi mrežni hop na svaki API poziv.
@@ -34,10 +38,14 @@ export async function verificirajGotrueToken(env: Env, token: string): Promise<G
     cache.delete(token);
     return null;
   }
-  const tijelo = (await odgovor.json()) as { id?: string; email?: string };
+  const tijelo = (await odgovor.json()) as { id?: string; email?: string; email_confirmed_at?: string | null };
   if (!tijelo.id || !tijelo.email) return null;
 
-  const korisnik: GotrueKorisnik = { sub: tijelo.id, email: tijelo.email };
+  const korisnik: GotrueKorisnik = {
+    sub: tijelo.id,
+    email: tijelo.email,
+    emailPotvrdjen: typeof tijelo.email_confirmed_at === 'string' && tijelo.email_confirmed_at !== '',
+  };
   if (cache.size >= MAX_UNOSA) cache.clear(); // primitivna zaštita od rasta
   cache.set(token, { korisnik, istjeceMs: sad + TTL_MS });
   return korisnik;
