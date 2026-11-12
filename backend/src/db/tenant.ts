@@ -152,18 +152,20 @@ export async function deleteApiKljuc(db: D1Database, tenantId: number, id: numbe
 export async function findTenantByApiKeyHash(
   db: D1Database,
   hash: string,
-): Promise<{ tenant: TenantRow; apiKljucId: number } | null> {
+): Promise<{ tenant: TenantRow; apiKljucId: number; svjezeKoristen: boolean } | null> {
   const row = await db
     .prepare(
-      `SELECT t.*, k.id AS api_kljuc_id
+      `SELECT t.*, k.id AS api_kljuc_id,
+              (k.zadnje_koristen_at >= datetime('now', '-60 seconds')) AS svjeze_koristen
        FROM api_kljuc k JOIN tenant t ON t.id = k.tenant_id
        WHERE k.hash = ? AND k.aktivan = 1 AND t.status = 'active'`,
     )
     .bind(hash)
-    .first<TenantRow & { api_kljuc_id: number }>();
+    .first<TenantRow & { api_kljuc_id: number; svjeze_koristen: number | null }>();
   if (!row) return null;
-  const { api_kljuc_id, ...tenant } = row;
-  return { tenant: tenant as TenantRow, apiKljucId: api_kljuc_id };
+  const { api_kljuc_id, svjeze_koristen, ...tenant } = row;
+  // K22: svjezeKoristen = zadnje_koristen_at mlađi od 60 s → touch se preskače.
+  return { tenant: tenant as TenantRow, apiKljucId: api_kljuc_id, svjezeKoristen: svjeze_koristen === 1 };
 }
 
 export async function touchApiKljuc(db: D1Database, id: number): Promise<void> {

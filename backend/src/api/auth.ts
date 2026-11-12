@@ -50,7 +50,8 @@ export const apiAuth = createMiddleware<ApiHono>(async (c, next) => {
     }
     c.set('tenant', rezultat.tenant);
     c.set('apiKljucId', rezultat.apiKljucId);
-    c.executionCtx.waitUntil(touchApiKljuc(c.env.DB, rezultat.apiKljucId));
+    // K22: najviše jedan UPDATE po ključu u 60 s.
+    if (!rezultat.svjezeKoristen) c.executionCtx.waitUntil(touchApiKljuc(c.env.DB, rezultat.apiKljucId));
     return next();
   }
 
