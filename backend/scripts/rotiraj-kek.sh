@@ -64,14 +64,35 @@ secret_put() { # $1 ime, $2 vrijednost (stdin, ne argv)
   printf '%s' "$2" | (cd "$BACKEND_DIR" && npx wrangler secret put "$1" ${ENV_FLAG[@]+"${ENV_FLAG[@]}"}) >/dev/null
 }
 polje() { jq -r ".$2" <<<"$1"; }
-cekaj_propagaciju() { echo "   (čekam 10 s da se secret propagira)"; sleep 10; }
+# Secret postaje vidljiv tek kad se nova verzija Workera propagira (izmjereno
+# 2026-11-12 na TEST-u: 5–10 s, dakle fiksnih 10 s je na granici). Zato se ne
+# spava naslijepo nego se ponavlja suha provjera dok ne vrati OČEKIVANO stanje,
+# dvaput zaredom (zahtjevi mogu pogoditi različite lokacije). Bez toga bi korak 3
+# na staroj verziji vidio „sve na tekućem”, premotao 0 i obrisao stari KEK.
+# $1 = jq uvjet nad odgovorom suhe provjere. Postavlja R. Vraća 1 nakon ~90 s.
+cekaj_stanje() {
+  local zaredom=0 i
+  echo "   (čekam da se secret propagira…)"
+  for i in $(seq 1 45); do
+    sleep 2
+    R="$(rotacija '?suho=1')"
+    if jq -e "$1" >/dev/null 2>&1 <<<"$R"; then
+      zaredom=$((zaredom + 1))
+      [[ $zaredom -ge 2 ]] && return 0
+    else
+      zaredom=0
+    fi
+  done
+  return 1
+}
 
 echo "── Rotacija ENC_MASTER_KEY na $OKOLINA ($BASE) ──"
 
 # 0. Polazno stanje
 R="$(rotacija '?suho=1')"
 jq -e '.ukupno != null' >/dev/null <<<"$R" || { echo "GREŠKA: $BASE nema /admin/kripto/rotacija (deployaj kod) ili odgovor nije JSON: $R" >&2; exit 1; }
-echo "0. Redaka s omotanim DEK-om: $(polje "$R" ukupno); tekući KEK otvara: $(polje "$R" tekuci)"
+UKUPNO="$(polje "$R" ukupno)"
+echo "0. Redaka s omotanim DEK-om: $UKUPNO; tekući KEK otvara: $(polje "$R" tekuci)"
 [[ "$(polje "$R" nijedan)" == "0" && "$(polje "$R" tekuci)" == "$(polje "$R" ukupno)" ]] ||
   { echo "STOP: tekući KEK ne otvara sve retke (nijedan: $(polje "$R" nijedanRedovi)). Ne rotiram." >&2; exit 1; }
 
@@ -90,10 +111,8 @@ fi
 [[ "$STARI" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "GREŠKA: stari KEK mora biti 64 hex znaka." >&2; exit 1; }
 echo "1. Postavljam ENC_MASTER_KEY_STARI i provjeravam da otvara sve retke…"
 secret_put ENC_MASTER_KEY_STARI "$STARI"
-cekaj_propagaciju
-R="$(rotacija '?suho=1')"
-if [[ "$(polje "$R" stariOtvara)" != "$(polje "$R" ukupno)" ]]; then
-  echo "STOP: upisani stari KEK otvara $(polje "$R" stariOtvara)/$(polje "$R" ukupno) redaka — nije tekući. ENC_MASTER_KEY nije diran." >&2
+if ! cekaj_stanje '.stariOtvara == .ukupno'; then
+  echo "STOP: nakon ~90 s upisani stari KEK otvara $(polje "$R" stariOtvara)/$(polje "$R" ukupno) redaka — nije tekući (ili se secret nije propagirao). ENC_MASTER_KEY nije diran." >&2
   printf 'y\n' | (cd "$BACKEND_DIR" && npx wrangler secret delete ENC_MASTER_KEY_STARI ${ENV_FLAG[@]+"${ENV_FLAG[@]}"}) >/dev/null || true
   exit 1
 fi
@@ -111,21 +130,23 @@ printf '' | pbcopy
 # 3. Zamjena tekućeg
 echo "3. Postavljam novi ENC_MASTER_KEY (Worker čita s oba)…"
 secret_put ENC_MASTER_KEY "$NOVI"
-cekaj_propagaciju
-R="$(rotacija '?suho=1')"
+# Novi KEK ne otvara još ništa: tek kad Worker vidi novi, svi su „na starom”.
+cekaj_stanje ".tekuci == 0 and .stari == $UKUPNO and .nijedan == 0" ||
+  { echo "STOP: Worker nakon ~90 s ne pokazuje novi KEK (zadnje: $R). Ništa nije premotano; ENC_MASTER_KEY_STARI ostaje (Worker čita s oba). Ponovi suhu provjeru ručno i javi se." >&2; exit 1; }
 echo "   tekući: $(polje "$R" tekuci), na starom: $(polje "$R" stari), nijedan: $(polje "$R" nijedan)"
-[[ "$(polje "$R" nijedan)" == "0" ]] || { echo "STOP: $(polje "$R" nijedanRedovi) ne otvara ni jedan KEK. ENC_MASTER_KEY_STARI ostaje; javi se." >&2; exit 1; }
 
 # 4. Premotavanje
 R="$(rotacija '')"
-echo "4. Premotano: $(polje "$R" premotano) (očekivano $(polje "$R" stari))"
-[[ "$(polje "$R" premotano)" == "$(polje "$R" stari)" ]] || { echo "STOP: neočekivan rezultat: $R. ENC_MASTER_KEY_STARI ostaje." >&2; exit 1; }
+echo "4. Premotano: $(polje "$R" premotano) (očekivano $UKUPNO)"
+[[ "$(polje "$R" premotano)" == "$UKUPNO" ]] || { echo "STOP: neočekivan rezultat: $R. ENC_MASTER_KEY_STARI ostaje." >&2; exit 1; }
 
 # 5. Sve na novom → stari van
 R="$(rotacija '?suho=1')"
-[[ "$(polje "$R" tekuci)" == "$(polje "$R" ukupno)" ]] || { echo "STOP: nisu svi na novom KEK-u: $R. ENC_MASTER_KEY_STARI ostaje." >&2; exit 1; }
+[[ "$(polje "$R" tekuci)" == "$UKUPNO" && "$(polje "$R" ukupno)" == "$UKUPNO" ]] || { echo "STOP: nisu svi na novom KEK-u: $R. ENC_MASTER_KEY_STARI ostaje." >&2; exit 1; }
 echo "5. Svih $(polje "$R" ukupno) redaka je na novom KEK-u. Brišem ENC_MASTER_KEY_STARI…"
 printf 'y\n' | (cd "$BACKEND_DIR" && npx wrangler secret delete ENC_MASTER_KEY_STARI ${ENV_FLAG[@]+"${ENV_FLAG[@]}"}) >/dev/null
+cekaj_stanje ".tekuci == $UKUPNO and .stariOtvara == 0" ||
+  { echo "UPOZORENJE: nakon brisanja starog KEK-a provjera ne vraća $UKUPNO/$UKUPNO na tekućem: $R" >&2; exit 1; }
 
 echo
 echo "✓ Rotacija na $OKOLINA gotova. Sljedeće, ručno:"
