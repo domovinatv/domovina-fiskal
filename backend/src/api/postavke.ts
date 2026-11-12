@@ -13,10 +13,9 @@ import {
   listPoslovniProstori,
   jeUniqueGreska,
 } from '../db';
-import type { ApiVarijable } from '../types';
 import { normalizirajTekst, validanOib } from '../util';
 import { jsonTijelo } from './pomocno';
-import type { ApiHono } from './tipovi';
+import type { ApiHono, ApiKontekst } from './tipovi';
 
 export const postavkeRute = new Hono<ApiHono>();
 
@@ -48,7 +47,7 @@ postavkeRute.get('/ja', async (c) => {
 // izdavati/fiskalizirati, ali NE mijenjati postavke. Mašinski dfk_ ključ
 // (bez korisnika) je tenant-scoped puni pristup — bez dodatnih ograničenja.
 
-function operaterBezPostavki(c: { get: (k: 'korisnik') => ApiVarijable['korisnik'] }): boolean {
+function operaterBezPostavki(c: ApiKontekst): boolean {
   return c.get('korisnik')?.uloga === 'operater';
 }
 
