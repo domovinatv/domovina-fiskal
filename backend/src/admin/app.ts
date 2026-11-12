@@ -43,7 +43,8 @@ import {
   zabiljeziSlanjeEmaila,
   jeUniqueGreska,
 } from '../db';
-import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
+import { cisEcho, fiskalizirajRacun } from '../fiskal/fiskalizacija';
+import { okolinaIzEnv } from '../okolina';
 import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';

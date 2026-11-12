@@ -11,7 +11,8 @@
 
 import { fetchSTimeoutom, TIMEOUT_MS } from '../util';
 
-export type DokuOkolina = 'test' | 'prod';
+import type { Okolina as DokuOkolina } from '../okolina';
+export type { DokuOkolina };
 
 const BASE_URL: Record<DokuOkolina, string> = {
   test: 'https://api-test.doku.hr',

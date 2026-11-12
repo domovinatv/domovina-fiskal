@@ -21,7 +21,8 @@ import { LazyReadFunctionReadQueue, startTls, TrustedCert } from 'subtls';
 import finaDemoCa2020 from './ca/fina-demo-ca-2020.pem';
 import finaRdcCa2020 from './ca/fina-rdc-ca-2020.pem';
 
-export type Okolina = 'test' | 'prod';
+export type { Okolina } from '../okolina';
+import type { Okolina } from '../okolina';
 export type CisOperacija = 'racuni' | 'echo' | 'provjera';
 
 // CIS poslužiteljski certifikat potpisuje Fina sub-CA (test: Demo CA 2020,

@@ -5,7 +5,8 @@ import { admin } from './admin/app';
 import { apiV1 } from './api';
 import { brojaci, dohvatiStanje, racuniBezJiraStarijiOd } from './db';
 import { obradiAlarme, provjeriCisEcho } from './alarmi';
-import { okolinaIzEnv, sweepNaknadnaDostava } from './fiskal/fiskalizacija';
+import { sweepNaknadnaDostava } from './fiskal/fiskalizacija';
+import { okolinaIzEnv } from './okolina';
 import { layout } from './admin/views';
 import { escapeHtml } from './util';
 

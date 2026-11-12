@@ -18,12 +18,9 @@ import {
   zapisiEracunStatus,
 } from '../db';
 import { dekriptirajTajnu, kekoviZaCitanje } from '../kripto';
-import { DokuKlijent, type DokuExchangeStatus, type DokuOkolina } from './doku';
+import { DokuKlijent, type DokuExchangeStatus } from './doku';
 import { mapirajZaDoku } from './mapiranje';
-
-export function okolinaZaDoku(env: Env): DokuOkolina {
-  return env.OKOLINA === 'prod' ? 'prod' : 'test';
-}
+import { okolinaIzEnv, type Okolina } from '../okolina';
 
 // doku exchange status → interni status računa.
 function statusRacunaIzDoku(s: DokuExchangeStatus | null): string {
@@ -32,10 +29,10 @@ function statusRacunaIzDoku(s: DokuExchangeStatus | null): string {
 }
 
 // Sastavi klijent za tenanta (dešifrira token). Vraća grešku umjesto bacanja.
-async function napraviKlijent(env: Env, tenantId: number): Promise<{ klijent: DokuKlijent; okolina: DokuOkolina } | { greska: string }> {
+async function napraviKlijent(env: Env, tenantId: number): Promise<{ klijent: DokuKlijent; okolina: Okolina } | { greska: string }> {
   if (!env.DOKU_SOFTWARE_API_TOKEN) return { greska: 'DOKU_SOFTWARE_API_TOKEN secret nije postavljen' };
   if (!env.ENC_MASTER_KEY) return { greska: 'ENC_MASTER_KEY secret nije postavljen' };
-  const okolina = okolinaZaDoku(env);
+  const okolina = okolinaIzEnv(env);
   const konfig = await getDokuKonfig(env.DB, tenantId, okolina);
   if (!konfig) return { greska: `Tenant nema doku token za okolinu '${okolina}' — postavi ga u adminu` };
   const token = await dekriptirajTajnu(kekoviZaCitanje(env), {

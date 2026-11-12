@@ -4,7 +4,7 @@ import type { SendEmailBinding } from './email';
 
 export interface Env {
   DB: D1Database;
-  OKOLINA: string; // 'test' | 'prod' — zadana okolina za certifikate
+  OKOLINA: 'test' | 'prod'; // zadana okolina; čitati kroz okolinaIzEnv (src/okolina.ts)
   // Admin prijava (docs/knowledge/20-admin-prijava.md): Cloudflare Access ili passkey.
   ADMIN_EMAILS?: string; // secret, „a@x,b@y” — tko smije u /admin (isto u Access politici)
   ACCESS_TEAM_DOMAIN?: string; // var, npr. domovina.cloudflareaccess.com
@@ -118,6 +118,9 @@ export interface DokuKonfigRow {
   updated_at: string;
 }
 
+// Dopuštene vrijednosti racun.status (CHECK u 0002).
+export type RacunStatus = 'nacrt' | 'izdano' | 'poslan' | 'fiskaliziran' | 'odbijen' | 'storniran' | 'naplacen';
+
 export interface RacunRow {
   id: number;
   tenant_id: number;
@@ -167,7 +170,7 @@ export interface RacunRow {
   fiskal_zakljucano_do: string | null; // lease fiskalizacije (0008)
   vanjska_referenca: string | null; // idempotencijski ključ klijenta (0007)
   zahtjev_hash: string | null;
-  status: string;
+  status: RacunStatus;
   created_at: string;
 }
 

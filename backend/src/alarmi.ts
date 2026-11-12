@@ -15,7 +15,8 @@ import {
   racuniBezRetryja,
 } from './db';
 import { emailKonfiguriran, posaljiObavijest } from './email';
-import { cisEcho, okolinaIzEnv } from './fiskal/fiskalizacija';
+import { cisEcho } from './fiskal/fiskalizacija';
+import { okolinaIzEnv } from './okolina';
 import { cisPosluziteljCertIstice } from './fiskal/cis';
 
 const SAT = 3600;

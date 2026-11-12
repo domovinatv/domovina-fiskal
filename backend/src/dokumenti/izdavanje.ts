@@ -18,7 +18,8 @@ import {
   type NoviRacunStavka,
   type SekvencaVrsta,
 } from '../db';
-import { fiskalizirajRacun, okolinaIzEnv, type FiskalizacijaIshod } from '../fiskal/fiskalizacija';
+import { fiskalizirajRacun, type FiskalizacijaIshod } from '../fiskal/fiskalizacija';
+import { okolinaIzEnv } from '../okolina';
 import type { Env, RacunRow, TenantRow } from '../types';
 import { godinaZagreb, izCenti, kanonskiJson, sha256Hex, uCente } from '../util';
 import { izracunajIznose, provjeriPdvPravila, type RacunModel, type RazrijesenaStavka } from '../validacija';

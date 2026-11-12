@@ -24,13 +24,11 @@ import {
 import { dekriptirajKljucPem, kekoviZaCitanje } from '../kripto';
 import { izCenti, uCente } from '../util';
 import { certPemUDerB64 } from './certifikat';
-import { greskaJeRetryable, parsirajOdgovor, soapPoziv, type CisGreska, type Okolina } from './cis';
+import { greskaJeRetryable, parsirajOdgovor, soapPoziv, type CisGreska } from './cis';
 import { echoXml, soapEnvelopa, potpisiZahtjev, zahtjevXml, type CisRacun, type PotpisniMaterijal } from './xml';
 import { fiskalniQrPayload, izracunajZki } from './zki';
+import { okolinaIzEnv } from '../okolina';
 
-export function okolinaIzEnv(env: Env): Okolina {
-  return env.OKOLINA === 'prod' ? 'prod' : 'test';
-}
 
 export interface PotpisniKontekst extends PotpisniMaterijal {
   oibCertifikata: string | null;
