@@ -9,6 +9,8 @@
 // i potpisuje/šalje svojim certom. Alternativa je /upload (mi šaljemo gotov UBL) —
 // ostavljeno za fazu vlastite generacije UBL-a (gap-analiza stavka 3).
 
+import { fetchSTimeoutom, TIMEOUT_MS } from '../util';
+
 export type DokuOkolina = 'test' | 'prod';
 
 const BASE_URL: Record<DokuOkolina, string> = {
@@ -116,11 +118,11 @@ export class DokuKlijent {
   private async pozovi<T>(metoda: string, putanja: string, tijelo?: unknown): Promise<DokuRezultat<T>> {
     let odgovor: Response;
     try {
-      odgovor = await fetch(`${this.base}${putanja}`, {
+      odgovor = await fetchSTimeoutom('doku', `${this.base}${putanja}`, {
         method: metoda,
         headers: this.zaglavlja(),
         body: tijelo === undefined ? undefined : JSON.stringify(tijelo),
-      });
+      }, TIMEOUT_MS.doku);
     } catch (e) {
       return { ok: false, status: 0, greska: `Transport prema doku-u nije uspio: ${(e as Error).message}` };
     }

@@ -124,3 +124,28 @@ export function escapeHtml(s: unknown): string {
 export function godinaZagreb(d: Date): number {
   return Number(new Intl.DateTimeFormat('en', { timeZone: 'Europe/Zagreb', year: 'numeric' }).format(d));
 }
+
+// ── Vanjski HTTP pozivi s timeoutom (K6) ──
+// Bez timeouta zaglavljen upstream drži Worker zahtjev do platformskog limita.
+// Vrijednosti po servisu; firecrawl scrape s LLM ekstrakcijom traje ~60 s.
+export const TIMEOUT_MS = {
+  gotrue: 5_000, // na putu svakog dashboard zahtjeva
+  doku: 20_000,
+  resend: 15_000,
+  registar: 10_000, // sudreg, VIES
+  firecrawl: 70_000,
+} as const;
+
+// fetch s AbortSignal.timeout. Timeout baca Error s nazivom servisa i riječju
+// „timeout”, da se u logu/poruci razlikuje od HTTP greške (koja se vraća kao
+// Response, kao i kod običnog fetch-a).
+export async function fetchSTimeoutom(naziv: string, ulaz: string, init: RequestInit, ms: number): Promise<Response> {
+  try {
+    return await fetch(ulaz, { ...init, signal: AbortSignal.timeout(ms) });
+  } catch (e) {
+    if ((e as Error)?.name === 'TimeoutError') {
+      throw new Error(`${naziv}: nema odgovora nakon ${ms / 1000} s (timeout)`);
+    }
+    throw e;
+  }
+}

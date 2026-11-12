@@ -13,7 +13,7 @@
 // IBAN nema javnog strojnog izvora (FINA registar računa nije otvoren).
 
 import type { Env } from './types';
-import { validanOib } from './util';
+import { fetchSTimeoutom, TIMEOUT_MS, validanOib } from './util';
 
 const SUDREG_API = 'https://sudreg-data.gov.hr/api';
 const VIES_API = 'https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number';
@@ -41,14 +41,14 @@ let sudregToken: { vrijednost: string; isticeMs: number } | null = null;
 
 async function dohvatiSudregToken(env: Env): Promise<string> {
   if (sudregToken && Date.now() < sudregToken.isticeMs - 60_000) return sudregToken.vrijednost;
-  const r = await fetch(`${SUDREG_API}/oauth/token`, {
+  const r = await fetchSTimeoutom('sudreg', `${SUDREG_API}/oauth/token`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${btoa(`${env.SUDREG_CLIENT_ID}:${env.SUDREG_CLIENT_SECRET}`)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: 'grant_type=client_credentials',
-  });
+  }, TIMEOUT_MS.registar);
   if (!r.ok) throw new Error(`sudreg token HTTP ${r.status}`);
   const { access_token, expires_in } = (await r.json()) as { access_token: string; expires_in?: number };
   sudregToken = { vrijednost: access_token, isticeMs: Date.now() + (expires_in ?? 21_600) * 1000 };
@@ -66,9 +66,11 @@ interface SudregSubjekt {
 // null = subjekt nije trgovačko društvo (404) — NIJE greška; greške bacaju.
 async function dohvatiSudreg(env: Env, oib: string): Promise<SudregSubjekt | null> {
   const token = await dohvatiSudregToken(env);
-  const r = await fetch(
+  const r = await fetchSTimeoutom(
+    'sudreg',
     `${SUDREG_API}/javni/detalji_subjekta?expand_relations=true&tip_identifikatora=oib&identifikator=${oib}`,
     { headers: { Authorization: `Bearer ${token}` } },
+    TIMEOUT_MS.registar,
   );
   if (r.status === 404 || r.status === 400) return null;
   if (!r.ok) throw new Error(`sudreg HTTP ${r.status}`);
@@ -82,11 +84,11 @@ interface ViesOdgovor {
 }
 
 async function dohvatiVies(oib: string): Promise<ViesOdgovor> {
-  const r = await fetch(VIES_API, {
+  const r = await fetchSTimeoutom('VIES', VIES_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ countryCode: 'HR', vatNumber: oib }),
-  });
+  }, TIMEOUT_MS.registar);
   if (!r.ok) throw new Error(`VIES HTTP ${r.status}`);
   return (await r.json()) as ViesOdgovor;
 }
@@ -243,11 +245,11 @@ const CW_SHEMA = {
 // firecrawl 'links' format (bez LLM-a) pa filter na /tvrtka/ ili /obrt/ linkove;
 // pretraga po OIB-u vraća najviše jedan subjekt.
 export async function nadjiCompanywallUrl(env: Env, oib: string): Promise<string | null> {
-  const r = await fetch('https://api.firecrawl.dev/v2/scrape', {
+  const r = await fetchSTimeoutom('firecrawl', 'https://api.firecrawl.dev/v2/scrape', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.FIRECRAWL_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: `https://www.companywall.hr/pretraga?n=${oib}`, formats: ['links'] }),
-  });
+  }, TIMEOUT_MS.firecrawl);
   const odgovor = (await r.json()) as { success?: boolean; error?: string; data?: { links?: string[] } };
   if (!r.ok || !odgovor.success) throw new Error(odgovor.error ?? `firecrawl HTTP ${r.status}`);
   return (odgovor.data?.links ?? []).find((l) => /https:\/\/www\.companywall\.hr\/(tvrtka|obrt)\//.test(l)) ?? null;
@@ -261,7 +263,7 @@ export async function dohvatiCompanywallPoOibu(env: Env, oib: string): Promise<C
 }
 
 export async function dohvatiCompanywall(env: Env, url: string): Promise<CompanywallInfo> {
-  const r = await fetch('https://api.firecrawl.dev/v2/scrape', {
+  const r = await fetchSTimeoutom('firecrawl', 'https://api.firecrawl.dev/v2/scrape', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.FIRECRAWL_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -273,7 +275,7 @@ export async function dohvatiCompanywall(env: Env, url: string): Promise<Company
         schema: CW_SHEMA,
       }],
     }),
-  });
+  }, TIMEOUT_MS.firecrawl);
   const odgovor = (await r.json()) as { success?: boolean; error?: string; data?: { json?: Record<string, unknown> } };
   if (!r.ok || !odgovor.success) throw new Error(odgovor.error ?? `firecrawl HTTP ${r.status}`);
   const j = odgovor.data?.json ?? {};

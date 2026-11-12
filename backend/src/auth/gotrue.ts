@@ -5,6 +5,7 @@
 // JWKS je kasniji end-state — vidi docs/knowledge/16-dashboard-sso.md §8.
 
 import type { Env } from '../types';
+import { fetchSTimeoutom, TIMEOUT_MS } from '../util';
 
 export interface GotrueKorisnik {
   sub: string; // GoTrue user id (uuid)
@@ -28,12 +29,12 @@ export async function verificirajGotrueToken(env: Env, token: string): Promise<G
   const pogodak = cache.get(token);
   if (pogodak && pogodak.istjeceMs > sad) return pogodak.korisnik;
 
-  const odgovor = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: env.SUPABASE_ANON_KEY ?? '',
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const odgovor = await fetchSTimeoutom(
+    'GoTrue',
+    `${env.SUPABASE_URL}/auth/v1/user`,
+    { headers: { apikey: env.SUPABASE_ANON_KEY ?? '', Authorization: `Bearer ${token}` } },
+    TIMEOUT_MS.gotrue,
+  );
   if (!odgovor.ok) {
     cache.delete(token);
     return null;

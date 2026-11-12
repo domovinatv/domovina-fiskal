@@ -8,7 +8,7 @@
 
 import type { RacunKontekst } from './db';
 import { iznosHr, stornoOpis, trebaNalogZaPlacanje } from './pdf/racun-pdf';
-import { escapeHtml } from './util';
+import { escapeHtml, fetchSTimeoutom, TIMEOUT_MS } from './util';
 
 // Privitci ≤ 4 MB: Cloudflare Email Sending limitira CIJELU poruku na 5 MB za
 // proizvoljne primatelje (25 MB samo za verificirane adrese) — ostavljamo
@@ -139,7 +139,7 @@ async function posaljiPoruku(
   if (!env.RESEND_API_KEY) {
     throw new Error('Nijedan email kanal nije konfiguriran (send_email binding ni RESEND_API_KEY)');
   }
-  const odgovor = await fetch('https://api.resend.com/emails', {
+  const odgovor = await fetchSTimeoutom('Resend', 'https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
@@ -154,7 +154,7 @@ async function posaljiPoruku(
       text,
       ...(privitak ? { attachments: [{ filename: privitak.imeDatoteke, content: uBase64(privitak.pdf) }] } : {}),
     }),
-  });
+  }, TIMEOUT_MS.resend);
   if (!odgovor.ok) {
     const tijelo = await odgovor.text().catch(() => '');
     throw new Error(`Resend ${odgovor.status}: ${tijelo.slice(0, 300)}`);
