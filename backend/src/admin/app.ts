@@ -41,6 +41,7 @@ import {
   setProstorCisStatus,
   upsertDokuKonfig,
   zabiljeziSlanjeEmaila,
+  jeUniqueGreska,
 } from '../db';
 import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
 import { parsirajP12 } from '../fiskal/certifikat';
@@ -102,7 +103,7 @@ admin.post('/tenanti', async (c) => {
     });
     return c.redirect(`/admin/tenant/${t.id}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Tenant s OIB-om ${oib} već postoji.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Tenant s OIB-om ${oib} već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantiPage(await listTenants(c.env.DB), poruka), 400);
   }
 });
@@ -207,7 +208,7 @@ admin.post(`/tenant/:id${ID}/prostori`, async (c) => {
     });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Prostor '${oznaka}' već postoji.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Prostor '${oznaka}' već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
 });
@@ -227,7 +228,7 @@ admin.post(`/tenant/:id${ID}/uredjaji`, async (c) => {
     await createNaplatniUredaj(c.env.DB, ppId, { oznaka, opis: String(form.opis ?? '').trim() || null });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Uređaj '${oznaka}' već postoji u tom prostoru.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Uređaj '${oznaka}' već postoji u tom prostoru.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
 });
@@ -245,7 +246,7 @@ admin.post(`/tenant/:id${ID}/operateri`, async (c) => {
     await createOperater(c.env.DB, tenantId, { oibOperatera: oib, ime: normalizirajTekst(String(form.ime ?? '')) || null });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Operater ${oib} već postoji.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Operater ${oib} već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
 });
@@ -269,7 +270,7 @@ admin.post(`/tenant/:id${ID}/korisnici`, async (c) => {
     await createKorisnikTenant(c.env.DB, tenantId, { userEmail: email, uloga });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Korisnik ${email} već ima pristup ovom tenantu.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Korisnik ${email} već ima pristup ovom tenantu.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
 });
@@ -467,7 +468,7 @@ admin.post(`/tenant/:id${ID}/proizvodi`, async (c) => {
     });
     return c.redirect(`/admin/tenant/${tenantId}`, 303);
   } catch (e) {
-    const poruka = String(e).includes('UNIQUE') ? `Proizvod sa šifrom već postoji.` : `Greška: ${e}`;
+    const poruka = jeUniqueGreska(e) ? `Proizvod sa šifrom već postoji.` : `Greška: ${e}`;
     return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
   }
 });

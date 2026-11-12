@@ -11,6 +11,7 @@ import {
   listNaplatniUredjaji,
   listOperateri,
   listPoslovniProstori,
+  jeUniqueGreska,
 } from '../db';
 import type { ApiVarijable } from '../types';
 import { normalizirajTekst, validanOib } from '../util';
@@ -88,7 +89,7 @@ postavkeRute.post('/postavke/prostor', async (c) => {
     });
     return c.json({ id: p.id, oznaka: p.oznaka }, 201);
   } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Prostor '${oznaka}' već postoji` }, 409);
+    if (jeUniqueGreska(e)) return c.json({ greska: `Prostor '${oznaka}' već postoji` }, 409);
     throw e;
   }
 });
@@ -105,7 +106,7 @@ postavkeRute.post('/postavke/uredjaj', async (c) => {
     const u = await createNaplatniUredaj(c.env.DB, pp.id, { oznaka, opis: String(body.opis ?? '').trim() || null });
     return c.json({ id: u.id, oznaka: u.oznaka }, 201);
   } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Uređaj '${oznaka}' već postoji u tom prostoru` }, 409);
+    if (jeUniqueGreska(e)) return c.json({ greska: `Uređaj '${oznaka}' već postoji u tom prostoru` }, 409);
     throw e;
   }
 });
@@ -122,7 +123,7 @@ postavkeRute.post('/postavke/operater', async (c) => {
     });
     return c.json({ id: o.id, oib: o.oib_operatera }, 201);
   } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Operater ${oib} već postoji` }, 409);
+    if (jeUniqueGreska(e)) return c.json({ greska: `Operater ${oib} već postoji` }, 409);
     throw e;
   }
 });

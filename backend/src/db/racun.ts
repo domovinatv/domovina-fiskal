@@ -8,6 +8,7 @@ import type {
   TenantRow,
 } from '../types';
 import { getTenant } from './tenant';
+import { jeUniqueGreska } from './greske';
 
 // ───────────────────────── Račun (izdavanje + čitanje) ─────────────────────────
 
@@ -331,8 +332,7 @@ export async function getRacunPoReferenci(db: D1Database, tenantId: number, refe
 
 // Je li greška D1 upisa povreda jedinstvenosti vanjske reference (utrka)?
 export function jeSukobReference(e: unknown): boolean {
-  const poruka = String((e as Error)?.message ?? e);
-  return poruka.includes('UNIQUE') && poruka.includes('vanjska_referenca');
+  return jeUniqueGreska(e, 'vanjska_referenca');
 }
 
 export async function getStavke(db: D1Database, racunId: number): Promise<StavkaRow[]> {
