@@ -1,12 +1,39 @@
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
 import { admin } from './admin/app';
 import { apiV1 } from './api';
 import { brojaci, dohvatiStanje, racuniBezJiraStarijiOd } from './db';
 import { obradiAlarme, provjeriCisEcho } from './alarmi';
 import { okolinaIzEnv, sweepNaknadnaDostava } from './fiskal/fiskalizacija';
+import { layout } from './admin/views';
+import { escapeHtml } from './util';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// K9: neuhvaćena iznimka (D1 greška, bug) → JSON na API-ju, HTML u adminu,
+// umjesto Honoovog plain-text „Internal Server Error”. Klijent dobiva samo id;
+// detalji (poruka, stack) idu u log pod istim id-em. Sub-appovi (admin, apiV1)
+// nemaju vlastiti onError, pa njihove iznimke stižu ovdje.
+app.onError((greska, c) => {
+  if (greska instanceof HTTPException) return greska.getResponse(); // namjerni HTTP odgovor (Hono middleware)
+  const id = crypto.randomUUID();
+  const tenant = (c as unknown as { get(k: string): { id?: number } | undefined }).get('tenant');
+  console.error(
+    `[greška ${id}] ${c.req.method} ${c.req.path}${tenant?.id ? ` tenant=${tenant.id}` : ''}:`,
+    greska instanceof Error ? (greska.stack ?? greska.message) : String(greska),
+  );
+  if (c.req.path === '/admin' || c.req.path.startsWith('/admin/')) {
+    return c.html(
+      layout(
+        'Greška — DOMOVINA Fiskal',
+        `<h1>Interna greška</h1><p>Nešto je pošlo po zlu. Oznaka greške za log: <code>${escapeHtml(id)}</code></p><p><a href="/admin">← natrag</a></p>`,
+      ),
+      500,
+    );
+  }
+  return c.json({ greska: 'Interna greška', id }, 500);
+});
 
 // Health / info.
 app.get('/', async (c) => {
