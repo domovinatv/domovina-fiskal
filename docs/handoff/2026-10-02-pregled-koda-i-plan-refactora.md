@@ -569,6 +569,13 @@ validiraj → na grešku `renderTenantDetaljPage({ ...d, greska })` sa statusom 
 inače redirect. Helper `akcijaTenanta(c, async (d, form) => string | null)`
 smanji ~150 redaka. Nije hitno; raditi samo ako koraci 0–8 stanu u budžet.
 
+### Korak 10 — Admin views na `hono/jsx`, opcionalno (dopisano 2026-11-12)
+`admin/views.ts` slaže HTML template stringovima i ručnim `escapeHtml`; jedan
+zaboravljen escape je XSS. `hono/jsx` (ili `html` iz `hono/html`) escapea
+interpolacije sam. Imena atributa ne smiju dolaziti iz korisničkih podataka
+(CVE-2026-56761), Hono ≥ 4.12.27. Obrazloženje i zašto ne Astro:
+`docs/knowledge/22-astro-vs-hono.md`. Raditi zajedno s korakom 9 ili nakon njega.
+
 ---
 
 ## 7. Procjena i rizici

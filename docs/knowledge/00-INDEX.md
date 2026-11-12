@@ -33,6 +33,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 19 | [`19-proizvodjac-i-odrzavatelj-softvera.md`](./19-proizvodjac-i-odrzavatelj-softvera.md) | **ITalk kao proizvođač/održavatelj softvera (F1.0)**: nema registracije ni licenciranja — samo OIB uz poslovni prostor; suodgovornost čl. 14 i kazna do 66.360 € (čl. 71); prelazak Fira/Solo → ITalk |
 | 20 | [`20-admin-prijava.md`](./20-admin-prijava.md) | **Admin prijava** `/admin`: Cloudflare Access (OTP) + passkey → sesija u D1, bearer `ADMIN_SKRIPTA_TOKEN` za skripte; model iz logomeda/omm/pay. Prompt: `../handoff/2026-11-11-admin-access-passkey.md` |
 | 21 | [`21-pohrana-certifikata.md`](./21-pohrana-certifikata.md) | **Pohrana certifikata i lozinki**: envelope enkripcija (DEK po certifikatu, KEK `ENC_MASTER_KEY`), lozinka P12 se ne sprema; scenariji curenja baze/KEK-a, isti KEK lokalno/TEST/PROD, K16; mermaid dijagrami |
+| 22 | [`22-astro-vs-hono.md`](./22-astro-vs-hono.md) | **Astro ili Hono na Workers**: isti runtime, različit sloj; fiskal ostaje na Honu; admin views → `hono/jsx` kao kandidat; pravilo za ekosustav (API → Hono, stranice → Astro, hibrid) |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)
