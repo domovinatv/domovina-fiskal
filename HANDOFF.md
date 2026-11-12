@@ -73,8 +73,8 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 - ✅ **PROD deployan 2026-11-12** (verzija `77f1d48d`): migracija 0010 na `fiskal_domovina`,
   `ADMIN_EMAILS`, novi `ADMIN_SKRIPTA_TOKEN` (= `ADMIN_SKRIPTA_TOKEN_PROD` u
   `backend/.tajne/lozinke.env`). Smoke: `/admin` → 302 `/admin/login`, `/admin/sso` → Access,
-  bearer 200, krivi bearer 401, Basic → 302. ⏭️ Vlasnik: prijava kodom + passkey na
-  fiskal.domovina.ai (passkey je po hostu); obrisati PROD `ADMIN_USER`/`ADMIN_PASS`.
+  bearer 200, krivi bearer 401, Basic → 302. Vlasnik se prijavio kodom i passkeyem na
+  PROD-u (`last_used_at` upisan); PROD `ADMIN_USER`/`ADMIN_PASS` obrisani. Gotovo.
   ⚠️ `wrangler d1 migrations apply` je jednom vratio 7403 i uz `CLOUDFLARE_ACCOUNT_ID`;
   ponovljeni poziv je prošao (prolazna greška, ne konfiguracija).
 
