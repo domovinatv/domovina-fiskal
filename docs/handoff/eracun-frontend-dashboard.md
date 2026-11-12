@@ -37,7 +37,8 @@ detalje (schematron poruke), prikazati ih korisniku doslovno.
 
 `GET /racun/:id` odgovor ima blok
 `eracun: {dokuId, status, deliveryBlock, zadnjaProvjera, greska}` i
-`status` računa prelazi u `fiskaliziran` kad je doku status DELIVERED/FISCALIZED.
+`status` računa ostaje `poslan`; je li eRačun fiskaliziran/dostavljen čita se iz
+`eracun.status` (FISCALIZED/DELIVERED). Do K14 (2026-11-12) `status` je prelazio u `fiskaliziran`.
 
 ## Obavezna polja za eRačun (backend guardovi — UI ih treba spriječiti unaprijed)
 

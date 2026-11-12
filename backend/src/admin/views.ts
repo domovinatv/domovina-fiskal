@@ -116,11 +116,17 @@ ${body}
 
 function pillStatus(s: string): string {
   const klasa =
-    s === 'active' || s === 'izdano' || s === 'fiskaliziran' || s === 'prijavljen' ? 'p-ok'
+    s === 'active' || s === 'izdano' || s === 'fiskaliziran' || s === 'prijavljen' || s === 'FISCALIZED' || s === 'DELIVERED' ? 'p-ok'
     : s === 'nacrt' || s === 'neposlano' ? 'p-info'
     : s === 'greska' || s === 'odbijen' ? 'p-warn'
     : 'p-off';
   return `<span class="pill ${klasa}">${escapeHtml(s)}</span>`;
+}
+
+// Status dokumenta; za eRačun uz njega i doku status (K14: racun.status je
+// tada 'poslan', napredak FISCALIZED/DELIVERED je u eracun_status).
+function pillRacun(r: { status: string; eracun_status?: string | null }): string {
+  return pillStatus(r.status) + (r.eracun_status ? ` ${pillStatus(r.eracun_status)}` : '');
 }
 
 // ───────────────────────── Tenanti (popis + forma) ─────────────────────────
@@ -326,7 +332,7 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
   const racuniRedovi = d.racuni
     .map(
       (r) => `<tr><td class="mono"><a href="/admin/racun/${r.id}">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</a></td><td>${escapeHtml(r.tip_dokumenta)}</td>
-<td>${pillStatus(r.status)}</td><td class="mono">${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</td>
+<td>${pillRacun(r)}</td><td class="mono">${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</td>
 <td class="mono">${escapeHtml(r.datum_vrijeme)}</td>
 <td><a href="/admin/racun/${r.id}/pdf" target="_blank">PDF</a></td></tr>`,
     )
@@ -615,7 +621,7 @@ export function renderRacunDetaljPage(k: RacunKontekst, poruka?: { ok?: string; 
     `Dokument ${r.broj_racuna_full ?? `#${r.id}`}`,
     `${poruka?.greska ? `<div class="greska">${escapeHtml(poruka.greska)}</div>` : ''}
 ${poruka?.ok ? `<div class="flash">${escapeHtml(poruka.ok)}</div>` : ''}
-<h1>${escapeHtml(r.tip_dokumenta)} <span class="mono">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</span> ${pillStatus(r.status)}</h1>
+<h1>${escapeHtml(r.tip_dokumenta)} <span class="mono">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</span> ${pillRacun(r)}</h1>
 <p><a href="/admin/tenant/${r.tenant_id}">← ${escapeHtml(k.tenant.naziv)}</a> ·
    <a href="/admin/racun/${r.id}/pdf" target="_blank"><strong>📄 PDF</strong></a></p>
 <div style="display:flex;gap:.7rem;margin:.8rem 0">
@@ -655,7 +661,7 @@ export function renderRacuniPage(racuni: (RacunRow & { tenant_naziv?: string })[
   const redovi = racuni
     .map(
       (r) => `<tr><td>${escapeHtml(r.tenant_naziv ?? r.tenant_id)}</td><td class="mono"><a href="/admin/racun/${r.id}">${escapeHtml(r.broj_racuna_full ?? `#${r.id} (skica)`)}</a></td>
-<td>${escapeHtml(r.tip_dokumenta)}</td><td>${pillStatus(r.status)}</td>
+<td>${escapeHtml(r.tip_dokumenta)}</td><td>${pillRacun(r)}</td>
 <td class="mono">${iznosHr(r.iznos_s_pdv)} ${escapeHtml(r.valuta)}</td>
 <td class="mono">${escapeHtml(r.datum_vrijeme)}</td>
 <td><a href="/admin/racun/${r.id}/pdf" target="_blank">PDF</a></td></tr>`,

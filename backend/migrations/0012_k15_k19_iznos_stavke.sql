@@ -11,6 +11,11 @@
 -- Uvjet `iznos IS NULL` čini ga ponovljivim: retke koje stari kod upiše između
 -- migracije i deploya novog koda pokriva ponovno izvođenje istog UPDATE-a.
 --
+-- K14: racun.status = 'fiskaliziran' odsad znači samo B2C s JIR-om. eRačuni
+-- (doku) koje je stari kod označio 'fiskaliziran' vraćaju se na 'poslan',
+-- FISCALIZED/DELIVERED ostaje u eracun_status. Na dan pisanja: TEST 1 redak,
+-- PROD 0.
+--
 -- K19: ix_racun_ceka_jir (0004) gleda samo status 'izdano', a sweep od 0009 gleda
 -- i 'storniran' preko ix_racun_sweep. ix_racun_eracun_ceka (0006) ne koristi
 -- nijedan upit.
@@ -36,6 +41,9 @@ FROM (
   )
 ) AS x
 WHERE stavka.id = x.id AND stavka.iznos IS NULL;
+
+UPDATE racun SET status = 'poslan', updated_at = datetime('now')
+WHERE doku_id IS NOT NULL AND jir IS NULL AND status = 'fiskaliziran';
 
 DROP INDEX IF EXISTS ix_racun_ceka_jir;
 DROP INDEX IF EXISTS ix_racun_eracun_ceka;

@@ -7,7 +7,7 @@
 // Multitenant model: BYO-key — token je PO tenantu (doku_konfig), a naša
 // integracija se doku-u predstavlja globalnim DOKU_SOFTWARE_API_TOKEN-om.
 
-import type { Env } from '../types';
+import type { Env, RacunStatus } from '../types';
 import {
   getDokuKonfig,
   getRacunKontekst,
@@ -22,10 +22,11 @@ import { DokuKlijent, type DokuExchangeStatus } from './doku';
 import { mapirajZaDoku } from './mapiranje';
 import { okolinaIzEnv, type Okolina } from '../okolina';
 
-// doku exchange status → interni status računa.
-function statusRacunaIzDoku(s: DokuExchangeStatus | null): string {
-  if (s === 'DELIVERED' || s === 'FISCALIZED') return 'fiskaliziran';
-  return 'poslan'; // IMPORTED ili nepoznato
+// doku exchange status → interni status računa. K14: eRačun je uvijek
+// 'poslan'; 'fiskaliziran' znači samo B2C s JIR-om. Napredak (FISCALIZED,
+// DELIVERED) je u racun.eracun_status.
+export function statusRacunaIzDoku(_s: DokuExchangeStatus | null): RacunStatus {
+  return 'poslan';
 }
 
 // Sastavi klijent za tenanta (dešifrira token). Vraća grešku umjesto bacanja.

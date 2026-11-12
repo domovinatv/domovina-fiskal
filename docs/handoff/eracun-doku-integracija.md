@@ -107,14 +107,16 @@ stateDiagram-v2
   FISCALIZED --> DELIVERED: dostavljeno primatelju (AS4)
   poslan --> blokiran_AMS: deliveryBlock=AMS<br/>(primatelj neregistriran)
   note right of DELIVERED
-    interni racun.status → 'fiskaliziran'
-    (FISCALIZED ili DELIVERED)
+    interni racun.status ostaje 'poslan' (K14, 2026-11-12)
+    napredak je u eracun_status
   end note
 ```
 
 - doku `exchange.status` ∈ `IMPORTED → FISCALIZED → DELIVERED`.
 - doku `payments.status` ∈ `UNPAID / PARTIAL / COMPLETE / OVERPAID` (eIzvještavanje o naplati).
-- Interni `racun.status`: `poslan` (IMPORTED/nepoznato) → `fiskaliziran` (FISCALIZED/DELIVERED).
+- Interni `racun.status`: uvijek `poslan`; FISCALIZED/DELIVERED čita se iz `eracun_status`
+  (`eracun.status` u API-ju). Do 2026-11-12 (K14, migracija 0012) status je prelazio u
+  `fiskaliziran`, što se miješalo s B2C računom s JIR-om.
 
 ## 4. Što je dodano u kod
 
