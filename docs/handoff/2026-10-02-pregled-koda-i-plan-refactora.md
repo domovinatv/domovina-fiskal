@@ -647,4 +647,22 @@ Korak 3 je time gotov.
 | K12 | `a4233f8` | `pokusaja = MAX(…, 1)`, `zadnji_pokusaj`, `substr(…, 1, 2000)`. |
 | K13 | `11b76b0` | API: `idIzParametra` na svih 8 `:id` ruta, `isSafeInteger`. Admin: route regex `ID = '{[1-9][0-9]{0,14}}'` → 404. `test/id-parametar.test.ts`. |
 
-Testovi 93/93. Ništa od koraka 4 nije deployano. Koraci 5–8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+Testovi 93/93. Ništa od koraka 4 nije deployano.
+
+K5, težina: dijeljeni GoTrue ima `mailer_autoconfirm: false` (`GET
+https://api.domovina.ai/auth/v1/settings`, 2026-11-12; i `domovina-api/.env.example`
+`ENABLE_EMAIL_AUTOCONFIRM=false`), dakle rupa je na toj konfiguraciji bila
+teorijska. `anonymous_users: true` ne smeta: anonimni korisnik nema `email` → 401.
+
+**Korak 5 (2026-11-12):**
+
+| Nalaz | Commit | Napomena |
+|---|---|---|
+| K10 | `586effd` | Vlasnik: `/zdravlje` još nitko ne nadzire. 503 samo platforma; `obveznikaSBacklogom` + `GET /api/v1/zdravlje/backlog` (503 dok backlog postoji). Ugovor u `faza-4-*` §4.2 dopunjen. |
+| K11 | `78f65b4` | Ključ `bez-retryja:<tenant>`, prvih 20 brojeva + ukupno, greška najstarijeg računa. |
+
+K16: vlasnik je umjesto odluke tražio objašnjenje pohrane →
+`docs/knowledge/21-pohrana-certifikata.md` (`0b5f1fb`). Zaključak tamo: brisanje
+`pkcs12_encrypted` ne mijenja izloženost (isti DEK kao ključ PEM); veći rizik je
+isti `ENC_MASTER_KEY` lokalno/TEST/PROD. Odluka o K16 za migraciju 0011 još otvorena.
+Testovi 95/95. Koraci 6–8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
