@@ -148,14 +148,6 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
     if (cert.oib_certifikata && cert.oib_certifikata !== tenant.oib) {
       return { vrsta: 'sukob', greska: `OIB certifikata (${cert.oib_certifikata}) ne odgovara OIB-u tenanta (${tenant.oib}) — CIS bi odbio račun (s005)` };
     }
-    const sAe = model.stavke.findIndex((s) => s.pdvKategorija === 'AE');
-    if (sAe >= 0) {
-      return {
-        vrsta: 'validacija',
-        greska: 'Validacija nije prošla',
-        detalji: [{ polje: `stavke.${sAe}.pdvKategorija`, poruka: "prijenos porezne obveze ('AE') je B2B mehanizam — ne može na B2C fiskalni račun" }],
-      };
-    }
   }
 
   // Storno (Faza 4.3, N6): original istog tenanta, fiskalni, sa ZKI-jem, ne
@@ -192,6 +184,20 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
 
   const razrijeseno = await razrijesiStavke(db, tenant.id, model.stavke);
   if ('greska' in razrijeseno) return { vrsta: 'validacija', greska: 'Validacija nije prošla', detalji: [razrijeseno.greska] };
+
+  // Prijenos porezne obveze ('AE') je B2B mehanizam. Provjera ide na
+  // RAZRIJEŠENIM stavkama da uhvati i kategoriju iz kataloga (K21), a još
+  // uvijek prije trošenja broja iz slijeda.
+  if (model.tip === 'FISKALNI_B2C') {
+    const sAe = razrijeseno.stavke.findIndex((s) => s.pdvKategorija === 'AE');
+    if (sAe >= 0) {
+      return {
+        vrsta: 'validacija',
+        greska: 'Validacija nije prošla',
+        detalji: [{ polje: `stavke.${sAe}.pdvKategorija`, poruka: "prijenos porezne obveze ('AE') je B2B mehanizam — ne može na B2C fiskalni račun" }],
+      };
+    }
+  }
 
   // PDV pravila ovisna o tenantu (ne-PDV obveznik, prijenos porezne obveze).
   const pravila = provjeriPdvPravila(!!tenant.u_sustavu_pdv, razrijeseno.stavke);
