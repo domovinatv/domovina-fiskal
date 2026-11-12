@@ -65,7 +65,7 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
 - ✅ **Admin prijava Cloudflare Access (OTP) + passkey** umjesto Basic Autha (2026-11-12),
   SPOT [`docs/knowledge/20-admin-prijava.md`](docs/knowledge/20-admin-prijava.md). Migracija
   **`0010_admin_prijava`** je zauzeta → refactor (§6 korak 6) uzima **`0011`**. Access
-  aplikacija „Fiskal admin (sso)” + politika „Fiskal admini” na D.O.M. računu (obje
+  aplikacija „FISKAL ADMIN” + politika „Fiskal admini” na D.O.M. računu (obje
   destinacije, TEST i PROD). **TEST deployan** (migracija, `ADMIN_EMAILS`,
   `ADMIN_SKRIPTA_TOKEN` → `secrets/fiskal-test-admin.env`). **Basic Auth uklonjen
   2026-11-12** (kod zakomentiran u `zastita.ts`). TEST: passkey prijava provjerena

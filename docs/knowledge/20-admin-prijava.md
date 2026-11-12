@@ -15,7 +15,7 @@
   ide u Access politiku „Fiskal admini”, **svaki e-mail kao zasebno Include → Email pravilo**
   (jedno pravilo s „a, b” Access uspoređuje doslovno i ne propušta nikoga, a OTP se tiho
   ne šalje — zamka iz logomeda, 31. 10. 2026.).
-- `/admin/sso` štiti Access aplikacija „Fiskal admin (sso)” (D.O.M. račun, tim
+- `/admin/sso` štiti Access aplikacija „FISKAL ADMIN” (do 2026-11-12 „Fiskal admin (sso)”; id `81552ee1-…`) (D.O.M. račun, tim
   `domovina.cloudflareaccess.com`, IdP One-time PIN), s destinacijama
   `fiskal-test.domovina.ai/admin/sso` i `fiskal.domovina.ai/admin/sso`. Worker dodatno
   provjerava JWT (RS256, issuer, `ACCESS_AUD`) i `ADMIN_EMAILS`. Access sesija je po timu:
@@ -96,6 +96,7 @@ ključa, Access JWT (krivi AUD/issuer → odbijen), `safeNext`, bearer skripta, 
   prikazuje), ali se primijeni samo na `body`, a elementi kartice ga pregaze svojim klasama.
   Postavljen je na `#002F6C` bez vidljivog učinka. Vlastiti HTML login stranice nije ponuđen.
   Natpis „Cloudflare Access”, gumbi („Send login code”) i OTP mail ostaju Cloudflareovi.
-  Naslov kartice je ime Access aplikacije.
-- **Zamka:** `PUT /accounts/{id}/access/organizations` vrati 200, ali login stranica ostane stara.
-  Dashboard sprema `PATCH`-om (samo `login_design`) i to se vidi odmah.
+  Naslov kartice je ime Access aplikacije („Log in to FISKAL ADMIN”).
+- **Zamka:** izmjene organizacije i aplikacije preko API-ja (`PUT`/`PATCH`, 200) na login stranici
+  se vide tek nakon ~1–2 min (cache na rubu). Ne zaključivati „nije uspjelo” odmah; provjeriti
+  `fetch(location.href, {cache:'no-store'})` u petlji. Dashboard za organizaciju šalje `PATCH`.

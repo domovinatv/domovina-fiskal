@@ -60,7 +60,7 @@ SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 # CORS origini za customer dashboard (CSV). Prod domena + lokalni razvoj.
 DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.pages.dev,http://localhost:3000"
 
-# Admin prijava (docs/knowledge/20-admin-prijava.md): Access aplikacija „Fiskal admin (sso)”
+# Admin prijava (docs/knowledge/20-admin-prijava.md): Access aplikacija „FISKAL ADMIN”
 # na D.O.M. računu štiti samo /admin/sso; ista aplikacija (isti AUD) za TEST i PROD.
 ACCESS_TEAM_DOMAIN = "domovina.cloudflareaccess.com"
 ACCESS_AUD = "49d6fdad0c14863f084036fba398973311a46fa32b794ebab67a8736358d080c"
