@@ -22,7 +22,7 @@ import {
   zaustaviStareBezJira,
 } from '../db';
 import { dekriptirajKljucPem, kekoviZaCitanje } from '../kripto';
-import { uCente } from '../util';
+import { izCenti, uCente } from '../util';
 import { certPemUDerB64 } from './certifikat';
 import { greskaJeRetryable, parsirajOdgovor, soapPoziv, type CisGreska, type Okolina } from './cis';
 import { echoXml, soapEnvelopa, potpisiZahtjev, zahtjevXml, type CisRacun, type PotpisniMaterijal } from './xml';
@@ -113,8 +113,8 @@ export function mapirajZaCis(k: RacunKontekst, nakDost: boolean): { cis: CisRacu
       oznPosPr: k.ppOznaka,
       oznNapUr: k.nuOznaka,
       pdv,
-      iznosOslobPdv: oslobCenti ? (oslobCenti / 100).toFixed(2) : null,
-      iznosNePodlOpor: nePodlCenti ? (nePodlCenti / 100).toFixed(2) : null,
+      iznosOslobPdv: oslobCenti ? izCenti(oslobCenti) : null,
+      iznosNePodlOpor: nePodlCenti ? izCenti(nePodlCenti) : null,
       iznosUkupno: r.iznos_s_pdv ?? '0.00',
       nacinPlac: nacin,
       oibOper: k.operaterOib,
