@@ -8,6 +8,8 @@ node_modules/
 *.p12
 *.pfx
 *.pem
+# Iznimka: javni Fina CA certifikati (trust anchor za CIS), v. backend/src/fiskal/ca/README.md
+!backend/src/fiskal/ca/*.pem
 *.key
 certs/
 secrets/
