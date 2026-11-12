@@ -732,3 +732,30 @@ Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti.
   CIS echo, oba tenanta, `/zdravlje/backlog` ✅. Svi PROD retci nose novu oznaku.
 - Lokalni `.dev.vars` ima vlastiti KEK (`b46bfa1a520f`) — lokalni stari certifikati
   su time nečitljivi (namjerno).
+
+**Korak 6 i 7 (2026-11-12, večer, Opus 5.5):**
+
+| Nalaz | Commit | Napomena |
+|---|---|---|
+| K15 | `44bf075` | Migracija `0012_k15_k19_iznos_stavke.sql`: `stavka.iznos` + backfill cjelobrojnim SQL-om (`WHERE iznos IS NULL`, ponovljiv). Formula u `util.osnovicaStavkeCenti`; `iznosRetka()` čita spremljeno, računa istom funkcijom samo za NULL. API `stavke[].iznos` (aditivno), admin stupac Iznos. Test izvodi UPDATE iz same migracije na 144 kombinacije. |
+| K19 | `3ff13a7` | DROP `ix_racun_ceka_jir`, `ix_racun_eracun_ceka` u 0012. |
+| K20 | `67bf19a` | `izCenti` u `mapirajZaCis`. `xml.ts:40` i `hub3.ts:90` i dalje `toFixed` (xml je §5). |
+| S4 | `32451a7` | `db/greske.ts` `jeUniqueGreska(e, stupac?)`. |
+| S5 | `8d0035e` | `src/okolina.ts` (`Okolina`, `okolinaIzEnv`), `RacunStatus` union, `Env.OKOLINA: 'test' \| 'prod'`; `okolinaZaDoku` obrisan. |
+| S6 | `c21c914` | |
+| K18 | `4d8f921` | `APP_VERSION` iz `package.json`, verzija **0.5.0**. |
+| K17 | `3600490` | `GET /` bez brojača (`brojaci()` obrisan); PROD `DASHBOARD_ORIGIN` bez `localhost:3000` (lokalni dashboard razvoj → TEST). |
+| K22 | `45d91ce` | touch API ključa najviše jednom u 60 s (svježina u istom SELECT-u). |
+| K14 | `61ace97` | Vlasnik odobrio. eRačun ostaje `poslan`, napredak u `eracun_status`; 0012 vraća postojeće (TEST 1 redak, PROD 0). Promjena API polja `status` za eRačune; docs `eracun-*` ažurirani. |
+
+**Deploy 0012 (nije napravljen):** migracija prvo, pa kod. Stari kod u prozoru
+između upisuje `stavka.iznos = NULL` (prikaz radi preko pričuve); nakon deploya
+ponoviti backfill UPDATE iz 0012 (ili samo provjeriti `SELECT COUNT(*) FROM stavka
+WHERE iznos IS NULL` = 0). K14 UPDATE je također ponovljiv. Na PROD-u prije toga
+Time Travel bookmark.
+
+Opažanje (nije popravljeno): `izracunajIznose` množi centi × tisućinke × 10⁴ u
+doubleu; iznad 2⁵³ (npr. 1000 kom × 9 000 €) međuumnožak više nije točan i
+zaokruživanje može promašiti cent. SQL backfill je tu točan (int64), pa bi se
+razišli. Realno daleko od webshop volumena; popravak bi bio BigInt ili dijeljenje
+prije množenja — kandidat za korak 8 (test `izracunajIznose`).
