@@ -685,3 +685,24 @@ Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti.
 - macOS bash 3.2 + `set -u`: prazan niz `"${A[@]}"` ruši skriptu → `${A[@]+"${A[@]}"}`.
 - Live GoTrue postavke: `GET https://api.domovina.ai/auth/v1/settings` s anon
   ključem (`mailer_autoconfirm`, `anonymous_users`). Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+
+**Deploy i rotacija na TEST-u (2026-11-12, Opus 5.5):**
+
+- Migracija 0011 + deploy (`36f45076`). Smoke: API B2C (SUSRET 4/2/1) i admin
+  B2C (5/2/1) → JIR na CIS TEST-u (K8, K2), upload certifikata (K16, novi redak
+  bez obrisanih stupaca) → JIR, `/zdravlje` i `/zdravlje/backlog` 200.
+- Suha provjera rotacije našla 3 retka (`certifikat` 1–3, ITalk, 4. 7. 2026.)
+  koje ne otvara nijedan KEK: šifrirani ranijim TEST KEK-om, promijenjenim oko
+  1. 10. Nitko ih ne referencira; obrisani uz odobrenje vlasnika. **Isto
+  očekivati na PROD-u** — suha provjera nakon deploya pokaže.
+- Rotacija prošla iz trećeg pokušaja; oba neuspjela pokušaja zaustavila su se
+  prije zamjene ključa:
+  1. fiksnih 10 s je premalo za propagaciju secreta (izmjereno 5–10 s). Gore,
+     korak 3 bi na staroj verziji Workera premotao 0 i obrisao stari KEK →
+     `5e1e5e2` (čekanje na očekivano stanje, korak 4 mora premotati sve).
+  2. Claude Code `!` nema pravi `/dev/tty` (`-r` prolazi, open ne) →
+     `43af741`. Skriptu pokreće vlasnik u Terminal.app.
+- Novi TEST KEK `ENC_MASTER_KEY:a34812c2bb54` (u vlasnikovom password
+  manageru); `ENC_MASTER_KEY_STARI` obrisan; smoke ponovljen (6/2/1, 9/PP1/1,
+  upload + 10/PP1/1) ✅. Lokalni `.dev.vars` i PROD su i dalje na starom
+  `9f7ec2135439`.
