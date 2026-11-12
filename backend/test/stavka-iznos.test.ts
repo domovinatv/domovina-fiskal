@@ -58,11 +58,7 @@ describe('stavka.iznos (K15)', () => {
     const kombinacije: { kolicina: string; netoCijena: string; popustPosto: string }[] = [];
     for (const kolicina of ['1', '3', '0.001', '2.5', '12.345', '1000']) {
       for (const netoCijena of ['0.01', '0.33', '19.99', '-40.00', '1234567.89', '-0.05']) {
-        for (const popustPosto of ['0', '5.5', '33.33', '99.99']) {
-          // JS računa u doubleu: iznad 2^53 međuumnožak više nije točan (vidi §10).
-          const sirovo = Math.abs(Number(netoCijena) * 100 * Number(kolicina) * 1000 * 10000);
-          if (sirovo <= Number.MAX_SAFE_INTEGER) kombinacije.push({ kolicina, netoCijena, popustPosto });
-        }
+        for (const popustPosto of ['0', '5.5', '33.33', '99.99']) kombinacije.push({ kolicina, netoCijena, popustPosto });
       }
     }
     let rb = 100;

@@ -55,10 +55,14 @@ export function izTisucinki(tisucinke: number): string {
 // Osnovica retka (K15): cijena × količina × (1 − popust), jedno half-up
 // zaokruživanje po stavci, simetrično oko nule (storno). Isti izračun ponavlja
 // backfill u migrations/0012 — promjena ovdje traži i promjenu tamo.
+// BigInt: međuumnožak centi × tisućinke × bps prelazi 2^53 već kod ~9 mil. €
+// po retku prije zaokruživanja, a double tada promaši cent.
 export function osnovicaStavkeCenti(cijenaCenti: number, kolicinaTisucinke: number, popustPosto: string): number {
   const popustBps = Math.round(Number(popustPosto) * 100); // 5.5% → 550
-  const sirovo = cijenaCenti * kolicinaTisucinke * (10000 - popustBps);
-  return Math.sign(sirovo) * Math.round(Math.abs(sirovo) / (1000 * 10000));
+  const sirovo = BigInt(cijenaCenti) * BigInt(kolicinaTisucinke) * BigInt(10000 - popustBps);
+  const abs = sirovo < 0n ? -sirovo : sirovo;
+  const zaokruzeno = (abs + 5_000_000n) / 10_000_000n; // half-up od |x|
+  return Number(sirovo < 0n ? -zaokruzeno : zaokruzeno);
 }
 
 // Iznos retka za prikaz (PDF, API, admin): spremljeni `stavka.iznos`. Izračun
