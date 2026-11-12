@@ -760,9 +760,18 @@ zaokruživanje može promašiti cent. SQL backfill je tu točan (int64), pa bi s
 razišli. Realno daleko od webshop volumena; popravak bi bio BigInt ili dijeljenje
 prije množenja — kandidat za korak 8 (test `izracunajIznose`).
 
-**Korak 8, djelomično (2026-11-12):** `001290a` novac (+ BigInt popravak osnovice
-iznad 2⁵³ — opažanje gore je time riješeno), `95613b8` K23 500 stavki (lokalno
-prolazi; udaljeni D1 nije provjeren), `923dba7`/`34cbaf6` CIS mapiranje i parsiranje.
-Ostalo iz §4: `zahtjevXml`, hub3/EPC, `kanonskiJson`/hash, `mapirajZaDoku`, AKD
-`parsirajP12`, `zagrebDijelovi`/`godinaZagreb`, `izdajSkicu` utrka, slijednost `N`,
-PDF. Testovi 194/194 (puni run). Ništa od 0012 nije deployano.
+**Korak 8 (2026-11-12/13, Opus 5.5):** svi redci iz §4 imaju test.
+
+| Područje | Commit | Napomena |
+|---|---|---|
+| novac | `001290a` | **Popravak:** osnovica retka u BigInt-u (623 904,85 € × 950,5 davalo je cent manje, međuumnožak > 2⁵³). Opažanje gore time riješeno. |
+| K23 | `95613b8` | 500 stavki lokalno prolazi; **udaljeni D1 nije provjeren** → smoke na TEST-u. |
+| CIS | `923dba7`, `34cbaf6`, `61a2464` | `mapirajZaCis`, `parsirajHttp`/`dechunk` (dobili `export`), `parsirajOdgovor`, retry tablica, `zahtjevXml` varijante. |
+| datumi, hash, HUB3/EPC | `525839b` | **Popravak:** HUB3 polje skraćeno na limit moglo je završiti razmakom. |
+| slijed | `4ca1835` | utrka `izdaj` (200 + 409), slijednost `N`/`P`. |
+| PDF | `26b51c5` | B2C 1 str., 60 stavki > 1 str., storno. |
+| doku | `3e1589f` | `S-25`/`Z`, `taxCompanyID`, KPD, IBAN, kupac. |
+| GoTrue | `bd5725e` | 400 bez `X-Tenant-Id`, 403 tuđi tenant, operater bez postavki, cache. |
+| AKD P12 | `a59c903` | ECDSA-potpisan leaf u `globalni-setup.ts`; mutacijom provjereno da pokriva `bag.asn1` granu. |
+
+Testovi 222/222. Ništa od 0012 nije deployano. Korak 9 (admin helper, S3) opcionalan.
