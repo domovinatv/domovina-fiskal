@@ -75,3 +75,42 @@ describe('K5: bind po e-mailu traži potvrđenu adresu', () => {
     expect(r.status).toBe(401);
   });
 });
+
+// Korak 8 (§4): ostatak korisničkog puta.
+describe('GoTrue put: tenant, uloga, cache', () => {
+  async function korisnik(uloga: 'vlasnik' | 'operater') {
+    const t = await napraviTenanta({ certifikat: false });
+    const email = `${uloga}-${crypto.randomUUID()}@primjer.hr`;
+    await createKorisnikTenant(db, t.tenant.id, { userEmail: email, uloga });
+    const spy = mockGotrue({ id: crypto.randomUUID(), email, email_confirmed_at: '2026-11-12T10:00:00Z' });
+    return { t, spy, token: noviToken() };
+  }
+
+  it('bez X-Tenant-Id → 400', async () => {
+    const { token } = await korisnik('vlasnik');
+    expect((await poziv('/api/v1/racun', { headers: zaglavlja(token) })).status).toBe(400);
+  });
+
+  it('tuđi tenant → 403', async () => {
+    const { token } = await korisnik('vlasnik');
+    const tudji = await napraviTenanta({ certifikat: false });
+    expect((await poziv('/api/v1/racun', { headers: zaglavlja(token, tudji.tenant.id) })).status).toBe(403);
+  });
+
+  it('operater čita, ali ne mijenja postavke → 403', async () => {
+    const { t, token } = await korisnik('operater');
+    expect((await poziv('/api/v1/racun', { headers: zaglavlja(token, t.tenant.id) })).status).toBe(200);
+    const r = await poziv('/api/v1/postavke/prostor', {
+      method: 'POST',
+      headers: { ...zaglavlja(token, t.tenant.id), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oznaka: 'NOVI', datumPocetkaPrimjene: '2026-01-01' }),
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it('isti token u kratkom roku → GoTrue se zove jednom (cache)', async () => {
+    const { t, spy, token } = await korisnik('vlasnik');
+    for (let i = 0; i < 3; i++) expect((await poziv('/api/v1/racun', { headers: zaglavlja(token, t.tenant.id) })).status).toBe(200);
+    expect(spy.mock.calls.filter(([u]) => String(u instanceof Request ? u.url : u).endsWith('/auth/v1/user'))).toHaveLength(1);
+  });
+});
