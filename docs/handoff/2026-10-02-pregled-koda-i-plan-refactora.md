@@ -759,3 +759,10 @@ doubleu; iznad 2⁵³ (npr. 1000 kom × 9 000 €) međuumnožak više nije toč
 zaokruživanje može promašiti cent. SQL backfill je tu točan (int64), pa bi se
 razišli. Realno daleko od webshop volumena; popravak bi bio BigInt ili dijeljenje
 prije množenja — kandidat za korak 8 (test `izracunajIznose`).
+
+**Korak 8, djelomično (2026-11-12):** `001290a` novac (+ BigInt popravak osnovice
+iznad 2⁵³ — opažanje gore je time riješeno), `95613b8` K23 500 stavki (lokalno
+prolazi; udaljeni D1 nije provjeren), `cc*`/`34cbaf6` CIS mapiranje i parsiranje.
+Ostalo iz §4: `zahtjevXml`, hub3/EPC, `kanonskiJson`/hash, `mapirajZaDoku`, AKD
+`parsirajP12`, `zagrebDijelovi`/`godinaZagreb`, `izdajSkicu` utrka, slijednost `N`,
+PDF. Testovi 194/194 (zadnji puni run 161 + 33 nova). Ništa od 0012 nije deployano.
