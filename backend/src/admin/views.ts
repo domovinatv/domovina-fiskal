@@ -20,10 +20,11 @@ import type {
 } from '../types';
 import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
+import pkg from '../../package.json';
 import { escapeHtml, iznosRetka } from '../util';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
-export const APP_VERSION = 'v0.4.0';
+export const APP_VERSION = `v${pkg.version}`; // K18: jedino mjesto je package.json
 
 const HEADER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="36" height="36" aria-hidden="true">
 <defs>
