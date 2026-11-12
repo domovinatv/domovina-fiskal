@@ -236,7 +236,7 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
       };
     }
   }
-  const stavkeZaUpis: NoviRacunStavka[] = stavke.map((s) => ({
+  const stavkeZaUpis: NoviRacunStavka[] = stavke.map((s, i) => ({
     naziv: s.naziv,
     opis: s.opis,
     kolicina: String(s.kolicina),
@@ -247,6 +247,7 @@ export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunM
     pdvStopa: s.pdvStopa,
     kpd: s.kpd,
     proizvodId: s.proizvodId,
+    iznos: iznosi.osnovicePoStavci[i],
   }));
 
   let racun: RacunRow;

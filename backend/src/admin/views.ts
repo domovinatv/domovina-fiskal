@@ -20,7 +20,7 @@ import type {
 } from '../types';
 import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
-import { escapeHtml } from '../util';
+import { escapeHtml, iznosRetka } from '../util';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
 export const APP_VERSION = 'v0.4.0';
@@ -600,7 +600,7 @@ export function renderRacunDetaljPage(k: RacunKontekst, poruka?: { ok?: string; 
       (s) => `<tr><td>${s.redni_broj}</td><td>${escapeHtml(s.naziv)}${s.kpd ? `<br><span class="mono" style="font-size:.72rem;color:var(--muted)">KPD ${escapeHtml(s.kpd)}</span>` : ''}</td>
 <td class="mono">${escapeHtml(s.kolicina)} ${escapeHtml(s.jedinica_mjere)}</td>
 <td class="mono">${iznosHr(s.neto_cijena)}</td><td class="mono">${escapeHtml(s.popust_posto)}%</td>
-<td class="mono">${escapeHtml(s.pdv_stopa)}% (${escapeHtml(s.pdv_kategorija)})</td></tr>`,
+<td class="mono">${escapeHtml(s.pdv_stopa)}% (${escapeHtml(s.pdv_kategorija)})</td><td class="mono">${iznosHr(iznosRetka(s))}</td></tr>`,
     )
     .join('');
   const raspodjelaRedovi = k.raspodjela
@@ -638,7 +638,7 @@ ${r.tip_dokumenta === 'fiskalni_b2c' ? `<div class="box" style="display:block">
  ${r.poslano_email_ts ? `· ✉️ poslano ${escapeHtml(r.poslano_email_ts)} na ${escapeHtml(r.poslano_email_na ?? '')}` : ''}</p>
 ${r.klauzula_pdv ? `<p><em>${escapeHtml(r.klauzula_pdv)}</em></p>` : ''}
 <h2>Stavke</h2>
-<table><thead><tr><th>#</th><th>Naziv</th><th>Količina</th><th>Cijena</th><th>Popust</th><th>PDV</th></tr></thead>
+<table><thead><tr><th>#</th><th>Naziv</th><th>Količina</th><th>Cijena</th><th>Popust</th><th>PDV</th><th>Iznos</th></tr></thead>
 <tbody>${stavkeRedovi}</tbody></table>
 <h2>PDV raščlamba</h2>
 <table style="max-width:30rem"><thead><tr><th>Stopa</th><th>Osnovica</th><th>PDV</th></tr></thead>

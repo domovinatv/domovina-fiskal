@@ -22,6 +22,7 @@ export interface NoviRacunStavka {
   pdvStopa: string;       // '25' | '13' | '5' | '0'
   kpd?: string | null;
   proizvodId?: number | null;
+  iznos: string;          // osnovica retka nakon popusta, iz izracunajIznose (K15)
 }
 
 export type SekvencaVrsta = 'ponuda' | 'racun' | 'fiskalni';
@@ -166,8 +167,8 @@ function stavkeIPdvStmts(
       db
         .prepare(
           `INSERT INTO stavka (racun_id, redni_broj, naziv, opis, kolicina, jedinica_mjere,
-                               neto_cijena, popust_posto, pdv_kategorija, pdv_stopa, kpd, proizvod_id)
-           SELECT r.id, ${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, ${p(7)}, ${p(8)}, ${p(9)}, ${p(10)}, ${p(11)}
+                               neto_cijena, popust_posto, pdv_kategorija, pdv_stopa, kpd, proizvod_id, iznos)
+           SELECT r.id, ${p(1)}, ${p(2)}, ${p(3)}, ${p(4)}, ${p(5)}, ${p(6)}, ${p(7)}, ${p(8)}, ${p(9)}, ${p(10)}, ${p(11)}, ${p(12)}
            ${izvorRacunId}`,
         )
         .bind(
@@ -183,6 +184,7 @@ function stavkeIPdvStmts(
           st.pdvStopa,
           st.kpd ?? null,
           st.proizvodId ?? null,
+          st.iznos,
         ),
     );
   }

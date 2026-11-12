@@ -8,7 +8,7 @@
 // BR-CO pravila; NE zbrajamo zaokružene PDV-ove pojedinačnih stavki.
 
 import { z } from 'zod';
-import { izCenti, izTisucinki, normalizirajTekst, uCente, uTisucinke, validanOib } from './util';
+import { izCenti, izTisucinki, normalizirajTekst, osnovicaStavkeCenti, uCente, uTisucinke, validanOib } from './util';
 
 // Obvezne klauzule (docs/knowledge/09-* §1.1, 10-* §7.2 — čl. 90. st. 1. potvrđen
 // na TEB izvoru 2026-07-04; do 31.12.2024. bio je st. 2.).
@@ -265,7 +265,7 @@ export interface IzracunatiIznosi {
   iznosSPdv: string;
   dospijevaZaPlacanje: string;
   ukupnoCenti: number; // za HUB3 barkod (iznos u centima)
-  osnovicePoStavci: string[]; // za PDF prikaz iznosa po retku
+  osnovicePoStavci: string[]; // stavka.iznos (K15)
   raspodjela: { kategorija: string; stopa: string; oporeziviIznos: string; iznosPoreza: string }[];
 }
 
@@ -277,10 +277,7 @@ export function izracunajIznose(stavke: RazrijesenaStavka[]): IzracunatiIznosi {
   for (const st of stavke) {
     const cijenaCenti = uCente(st.netoCijena, 'netoCijena');
     const kolTis = uTisucinke(st.kolicina, 'kolicina');
-    const popustBps = Math.round(Number(st.popustPosto) * 100); // 5.5% → 550
-    // osnovica = cijena × količina × (1 − popust); jedno zaokruživanje po stavci
-    const sirovo = cijenaCenti * kolTis * (10000 - popustBps);
-    const osnovica = Math.sign(sirovo) * Math.round(Math.abs(sirovo) / (1000 * 10000));
+    const osnovica = osnovicaStavkeCenti(cijenaCenti, kolTis, st.popustPosto);
     osnovicePoStavci.push(izCenti(osnovica));
     netoUkupno += osnovica;
 

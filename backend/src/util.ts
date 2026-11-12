@@ -52,6 +52,23 @@ export function izTisucinki(tisucinke: number): string {
   return dec ? `${cijeli}.${dec}` : String(cijeli);
 }
 
+// Osnovica retka (K15): cijena × količina × (1 − popust), jedno half-up
+// zaokruživanje po stavci, simetrično oko nule (storno). Isti izračun ponavlja
+// backfill u migrations/0012 — promjena ovdje traži i promjenu tamo.
+export function osnovicaStavkeCenti(cijenaCenti: number, kolicinaTisucinke: number, popustPosto: string): number {
+  const popustBps = Math.round(Number(popustPosto) * 100); // 5.5% → 550
+  const sirovo = cijenaCenti * kolicinaTisucinke * (10000 - popustBps);
+  return Math.sign(sirovo) * Math.round(Math.abs(sirovo) / (1000 * 10000));
+}
+
+// Iznos retka za prikaz (PDF, API, admin): spremljeni `stavka.iznos`. Izračun
+// je samo pričuva za redak koji je stari kod upisao između migracije 0012 i
+// deploya — ista funkcija kao pri izdavanju, dakle i dalje jedno mjesto istine.
+export function iznosRetka(s: { iznos: string | null; neto_cijena: string; kolicina: string; popust_posto: string }): string {
+  if (s.iznos != null) return s.iznos;
+  return izCenti(osnovicaStavkeCenti(uCente(s.neto_cijena, 'neto_cijena'), uTisucinke(s.kolicina, 'kolicina'), s.popust_posto));
+}
+
 // centi × tisućinke → centi, zaokruženo half-up (komercijalno zaokruživanje).
 export function pomnoziCijenuKolicinu(cijenaCenti: number, kolicinaTisucinke: number): number {
   const produkt = cijenaCenti * kolicinaTisucinke; // centi·tisućinke

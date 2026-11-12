@@ -92,7 +92,7 @@ describe('Idempotencija (vanjskaReferenca / Idempotency-Key)', () => {
       tipDokumenta: 'racun', sekvencaVrsta: 'racun', valuta: 'EUR', nacinPlacanja: 'kartica',
       datumDospijeca: null, vrijediDo: null, datumIsporuke: null, napomena: null, internaBiljeska: null, uvjeti: null,
       klauzulaPdv: null, neto: '1.00', iznosBezPdv: '1.00', pdv: '0.25', iznosSPdv: '1.25', dospijevaZaPlacanje: '1.25',
-      status: 'izdano', stavke: [{ naziv: 'X', kolicina: '1', jedinicaMjere: 'H87', netoCijena: '1.00', popustPosto: '0', pdvKategorija: 'S', pdvStopa: '25' }],
+      status: 'izdano', stavke: [{ naziv: 'X', kolicina: '1', jedinicaMjere: 'H87', netoCijena: '1.00', popustPosto: '0', pdvKategorija: 'S', pdvStopa: '25', iznos: '1.00' }],
       pdvRaspodjela: [{ kategorija: 'S', stopa: '25', oporeziviIznos: '1.00', iznosPoreza: '0.25' }],
       vanjskaReferenca: 'UTRKA-1', zahtjevHash: 'h',
     };

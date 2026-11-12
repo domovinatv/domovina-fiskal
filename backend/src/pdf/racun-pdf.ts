@@ -6,7 +6,7 @@
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { RacunKontekst } from '../db';
-import { izCenti, uCente } from '../util';
+import { iznosRetka, uCente } from '../util';
 import { epcQrBarkod, fiskalniQrBarkod, hub3Barkod } from './hub3';
 import fontRegularData from './fontovi/DejaVuSans.subset.ttf';
 import fontBoldData from './fontovi/DejaVuSans-Bold.subset.ttf';
@@ -232,13 +232,8 @@ export async function generirajRacunPdf(k: RacunKontekst): Promise<Uint8Array> {
       c.y -= 10;
       zaglavljeTablice();
     }
-    // osnovica stavke: cijena × kol × (1 − popust) — isti izračun kao u validaciji
-    const cijenaCenti = uCente(s.neto_cijena, 'cijena');
-    const kolTis = Math.round(Number(s.kolicina) * 1000);
+    const iznosStr = iznosRetka(s); // K15: spremljen pri izdavanju
     const popustBps = Math.round(Number(s.popust_posto) * 100);
-    const sirovo = cijenaCenti * kolTis * (10000 - popustBps);
-    const osnovica = Math.sign(sirovo) * Math.round(Math.abs(sirovo) / 1e7);
-    const iznosStr = izCenti(osnovica);
 
     tekst(c, String(i + 1), st.rbr, 9, { boja: MUTED });
     tekst(c, redovaNaziva[0], st.naziv, 9);

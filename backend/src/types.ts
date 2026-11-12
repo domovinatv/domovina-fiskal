@@ -186,6 +186,7 @@ export interface StavkaRow {
   kpd: string | null;
   kpd_shema: string;
   proizvod_id: number | null;
+  iznos: string | null; // osnovica retka nakon popusta (K15, 0012); NULL samo za retke prije deploya
 }
 
 export interface PdvRaspodjelaRow {

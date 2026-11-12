@@ -3,6 +3,7 @@
 
 import { getPdvRaspodjela, getStavke } from '../db';
 import type { RacunRow } from '../types';
+import { iznosRetka } from '../util';
 
 // Status fiskalizacije iz retka — za GET (poll JIR-a), popis i ponovljeni zahtjev.
 export function fiskalizacijaIzRetka(r: RacunRow): { status: 'fiskaliziran' | 'ceka_jir'; greska?: string | null; automatskiRetry?: boolean } {
@@ -72,6 +73,7 @@ export async function racunUOdgovor(db: D1Database, r: RacunRow) {
       pdvStopa: s.pdv_stopa,
       kpd: s.kpd,
       proizvodId: s.proizvod_id,
+      iznos: iznosRetka(s), // osnovica retka nakon popusta (K15)
     })),
     pdf: `/api/v1/racun/${r.id}/pdf`,
     poslanoEmail: r.poslano_email_ts ? { kada: r.poslano_email_ts, na: r.poslano_email_na } : null,
