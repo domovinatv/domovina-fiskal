@@ -92,15 +92,13 @@ prijava.post('/logout', async (c) => {
 
 /**
  * Odjava briše i Cloudflare Access sesiju (želja vlasnika 2026-11-12: odjava na tuđem
- * računalu mora obrisati sve). Lanac: `<host>/cdn-cgi/access/logout` briše kolačić
- * `CF_Authorization` na ovom hostu → `<tim>/cdn-cgi/access/logout` briše globalnu sesiju
- * tima → `/admin/login?odjava=1`. Oba URL-a opozivaju tokene za SVE aplikacije tima
- * (omm, logomedo…), a `returnTo` smije samo na domenu tima ili aplikacije istog računa.
+ * računalu mora obrisati sve). `<host>/cdn-cgi/access/logout` briše kolačić
+ * `CF_Authorization` na ovom hostu i opoziva sesiju za SVE aplikacije tima (omm, logomedo…),
+ * pa se vraća na `/admin/login?odjava=1`. Drugi skok na `<tim>/cdn-cgi/access/logout`
+ * NE dodavati: nakon prvog javlja „Failed to log out” (provjereno na TEST-u 2026-11-12).
  * https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/
  */
 export function accessLogoutUrl(env: Parameters<typeof accessConfigured>[0], origin: string): string {
   if (!accessConfigured(env)) return '/admin/login';
-  const kraj = `${origin}/admin/login?odjava=1`;
-  const tim = `https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(kraj)}`;
-  return `${origin}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(tim)}`;
+  return `${origin}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(`${origin}/admin/login?odjava=1`)}`;
 }

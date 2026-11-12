@@ -87,14 +87,12 @@ describe('Sesija', () => {
     const r = await poziv('/admin/logout', forma(kolacic));
     expect(r.status).toBe(303);
     expect(r.headers.get('set-cookie')).toContain('Max-Age=0');
-    // Odjava ide i kroz Access: host logout → team logout → /admin/login?odjava=1.
+    // Odjava ide i kroz Access: <host>/cdn-cgi/access/logout → /admin/login?odjava=1 (isti host).
     const loc = new URL(r.headers.get('location')!);
     expect(loc.pathname).toBe('/cdn-cgi/access/logout');
-    const tim = new URL(loc.searchParams.get('returnTo')!);
-    expect(tim.host).toBe('test.cloudflareaccess.com');
-    expect(tim.pathname).toBe('/cdn-cgi/access/logout');
-    expect(new URL(tim.searchParams.get('returnTo')!).pathname + '?odjava=1').toBe('/admin/login?odjava=1');
-    expect(new URL(tim.searchParams.get('returnTo')!).origin).toBe(loc.origin);
+    const povratak = new URL(loc.searchParams.get('returnTo')!);
+    expect(povratak.origin).toBe(loc.origin);
+    expect(povratak.pathname + povratak.search).toBe('/admin/login?odjava=1');
     expect((await poziv('/admin', { headers: { Cookie: kolacic } })).status).toBe(302);
   });
 

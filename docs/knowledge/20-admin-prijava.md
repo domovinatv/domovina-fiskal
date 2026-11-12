@@ -76,15 +76,17 @@ ključa, Access JWT (krivi AUD/issuer → odbijen), `safeNext`, bearer skripta, 
 
 ## Odjava i izgled Access stranice (2026-11-12)
 
-- **Odjava briše i Access.** `POST /admin/logout` briše našu sesiju pa preusmjerava lancem
-  `<host>/cdn-cgi/access/logout` → `<tim>/cdn-cgi/access/logout` → `/admin/login?odjava=1`.
-  Oba URL-a opozivaju sesiju za **sve** aplikacije tima (omm, logomedo…); stari tokeni prestaju
-  vrijediti za 20–30 s. `returnTo` smije samo na domenu tima ili aplikacije istog računa.
+- **Odjava briše i Access.** `POST /admin/logout` briše našu sesiju pa preusmjerava na
+  `<host>/cdn-cgi/access/logout?returnTo=<host>/admin/login?odjava=1`. To briše `CF_Authorization`
+  na hostu i opoziva Access sesiju za **sve** aplikacije tima (omm, logomedo…); sljedeći ulaz
+  traži novi kod. Stari tokeni prestaju vrijediti za 20–30 s. `returnTo` smije samo na domenu
+  tima ili aplikacije istog računa. Zadano trajanje globalne i aplikacijske sesije je 24 h.
   Izvor: https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/
-  (pristup 2026-11-12). Zadano trajanje globalne i aplikacijske sesije je 24 h.
-- **Zamka:** CSP `form-action` vrijedi i za preusmjeravanja nakon POST-a. S `form-action 'self'`
-  Chrome je pustio prvi skok (isti host, Access sesija opozvana) i tiho stao na domeni tima,
-  pa je klik na Odjava izgledao kao da ne radi. Zato `form-action` dopušta i `https://<ACCESS_TEAM_DOMAIN>`.
+  (pristup 2026-11-12).
+- **Zamka (2026-11-12):** drugi skok na `<tim>/cdn-cgi/access/logout` nakon prvog javlja
+  „Failed to log out”, jer je sesija već opozvana, pa ga nema. Uz njega je trebao i
+  `form-action https://<tim>` u CSP-u (`form-action` vrijedi i za preusmjeravanja nakon POST-a,
+  bez toga Chrome tiho stane); s jednim skokom na isti host dovoljno je `form-action 'self'`.
 - **Brand login stranice** (Zero Trust → Reusable components → Custom pages → Access login page,
   vrijedi za cijeli tim `domovina.cloudflareaccess.com`): ime „DOMOVINA”, logo
   `raw.githubusercontent.com/domovinatv/mediakit.domovina.tv/main/domovina_logo_square.png`,
