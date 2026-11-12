@@ -263,6 +263,31 @@ describe('GET /api/v1/zdravlje', () => {
     expect(typeof z.racunaBezJira24h).toBe('number');
     expect(JSON.stringify(z)).not.toMatch(/tenant|oib/i);
   });
+
+  it('K10: backlog tenanta ne ruši zdravlje platforme; /zdravlje/backlog je zaseban 503', async () => {
+    cisVracaJir();
+    await provjeriCisEcho(testEnv);
+    await sweepNaknadnaDostava(testEnv);
+    // Nakon sweepa: račun bez JIR-a stariji od 24 h (npr. tenant s isteklim certom).
+    const t = await napraviTenanta();
+    const id = await izdajBezJira(t);
+    await db.prepare(`UPDATE racun SET datum_vrijeme = ? WHERE id = ?`).bind(new Date(Date.now() - 25 * 3_600_000).toISOString(), id).run();
+
+    const r = await poziv('/api/v1/zdravlje');
+    const z = await json(r);
+    expect(r.status).toBe(200);
+    expect(z.ok).toBe(true);
+    expect(z.racunaBezJira24h).toBeGreaterThanOrEqual(1);
+    expect(z.obveznikaSBacklogom).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(z)).not.toMatch(/tenant|oib/i);
+
+    const b = await poziv('/api/v1/zdravlje/backlog');
+    expect(b.status).toBe(503);
+    const bz = await json(b);
+    expect(bz).toMatchObject({ ok: false });
+    expect(bz.racunaBezJira24h).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(bz)).not.toMatch(/tenant|oib/i);
+  });
 });
 
 describe('Cron i admin', () => {

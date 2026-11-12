@@ -152,6 +152,9 @@ sljedećeg.
    - CIS echo ne prolazi više od 1 h.
 6. **`GET /api/v1/zdravlje`** (bez autentikacije, bez podataka o tenantima)
    vraća `{cisEcho, sweepZadnji, racunaBezJira24h}`, za vanjski monitoring.
+   Od K10 (2026-11-12): 503 samo kad ne radi platforma (CIS echo, sweep);
+   backlog je u tijelu (`racunaBezJira24h`, `obveznikaSBacklogom`), a
+   `GET /api/v1/zdravlje/backlog` vraća 503 dok backlog postoji.
 
 ### 4.3 Storno (N6)
 

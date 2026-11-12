@@ -50,7 +50,7 @@ app.get('/', async (c) => {
       storno: 'POST /api/v1/racun/:id/storno { vanjskaReferenca?, stavke?: [{ redak, kolicina? }], napomena? }',
       idempotencija: "polje vanjskaReferenca ili zaglavlje 'Idempotency-Key' → 201 novi / 200 + Idempotent-Replay / 409",
       poReferenci: 'GET /api/v1/racun?vanjskaReferenca=…',
-      zdravlje: 'GET /api/v1/zdravlje (bez autentikacije)',
+      zdravlje: 'GET /api/v1/zdravlje (bez autentikacije; 503 = platforma) · GET /api/v1/zdravlje/backlog (503 = računi bez JIR-a > 24 h)',
       dohvat: 'GET /api/v1/racun/:id',
       pdf: 'GET /api/v1/racun/:id/pdf',
       posalji: 'POST /api/v1/racun/:id/posalji',
@@ -69,27 +69,42 @@ app.get('/', async (c) => {
 });
 
 // Zdravlje za vanjski monitoring — BEZ autentikacije i bez podataka o
-// tenantima (samo zbirni brojevi). 503 kad nešto traži pažnju. Registrirano
-// prije /api/v1 da ga Bearer middleware ne presretne.
+// tenantima (samo zbirni brojevi). Registrirano prije /api/v1 da ga Bearer
+// middleware ne presretne.
+//
+// K10: 503 samo kad PLATFORMA ne radi (CIS echo, sweep). Backlog tenanata
+// (računi bez JIR-a > 24 h) ima vlasnika i alarm mailom, pa ne smije držati
+// globalni 503 danima; vidi se u tijelu, a tko ga baš želi nadzirati koristi
+// /api/v1/zdravlje/backlog (503 dok backlog postoji).
+async function backlog(db: D1Database) {
+  const bezJira = await racuniBezJiraStarijiOd(db, 24);
+  return { racunaBezJira24h: bezJira.reduce((n, g) => n + g.broj, 0), obveznikaSBacklogom: bezJira.length };
+}
+
 app.get('/api/v1/zdravlje', async (c) => {
-  const [stanje, bezJira] = await Promise.all([dohvatiStanje(c.env.DB), racuniBezJiraStarijiOd(c.env.DB, 24)]);
+  const [stanje, b] = await Promise.all([dohvatiStanje(c.env.DB), backlog(c.env.DB)]);
   const zadnjiOk = stanje.cis_echo_zadnji_ok?.vrijednost ?? null;
   const zadnjiPokusaj = stanje.cis_echo_zadnji_pokusaj?.vrijednost ?? null;
   const cisOk = !!zadnjiOk && !!zadnjiPokusaj && Date.parse(zadnjiPokusaj) - Date.parse(zadnjiOk) <= 3_600_000;
   const sweep = stanje.sweep_zadnji?.vrijednost ? (JSON.parse(stanje.sweep_zadnji.vrijednost) as Record<string, unknown>) : null;
   const sweepSvjez = !!sweep && Date.now() - Date.parse(String(sweep.kada)) < 40 * 60_000; // cron je */15
-  const racunaBezJira24h = bezJira.reduce((n, g) => n + g.broj, 0);
-  const ok = cisOk && sweepSvjez && racunaBezJira24h === 0;
+  const ok = cisOk && sweepSvjez;
   return c.json(
     {
       ok,
       okolina: okolinaIzEnv(c.env),
       cisEcho: { ok: cisOk, zadnjiOk, zadnjiPokusaj, posluziteljCertNotAfter: stanje.cis_posluzitelj_cert_not_after?.vrijednost ?? null },
       sweepZadnji: sweep,
-      racunaBezJira24h,
+      ...b,
     },
     ok ? 200 : 503,
   );
+});
+
+app.get('/api/v1/zdravlje/backlog', async (c) => {
+  const b = await backlog(c.env.DB);
+  const ok = b.racunaBezJira24h === 0;
+  return c.json({ ok, ...b }, ok ? 200 : 503);
 });
 
 app.route('/admin', admin);
