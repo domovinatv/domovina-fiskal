@@ -158,7 +158,7 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
   }
 }
 
-function parsirajHttp(sirovo: Uint8Array): CisHttpOdgovor {
+export function parsirajHttp(sirovo: Uint8Array): CisHttpOdgovor { // export samo za testove
   // Granica zaglavlja: \r\n\r\n (tražimo u bajtovima da ne kvarimo UTF-8 tijelo).
   let granica = -1;
   for (let i = 0; i + 3 < sirovo.length; i++) {
@@ -190,7 +190,7 @@ function parsirajHttp(sirovo: Uint8Array): CisHttpOdgovor {
   return { status, tijelo: new TextDecoder('utf-8').decode(tijeloBajtovi) };
 }
 
-function dechunk(b: Uint8Array): Uint8Array {
+export function dechunk(b: Uint8Array): Uint8Array {
   const dijelovi: Uint8Array[] = [];
   let i = 0;
   for (;;) {
