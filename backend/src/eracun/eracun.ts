@@ -17,7 +17,7 @@ import {
   zapisiEracunSlanje,
   zapisiEracunStatus,
 } from '../db';
-import { dekriptirajTajnu } from '../kripto';
+import { dekriptirajTajnu, kekoviZaCitanje } from '../kripto';
 import { DokuKlijent, type DokuExchangeStatus, type DokuOkolina } from './doku';
 import { mapirajZaDoku } from './mapiranje';
 
@@ -38,7 +38,7 @@ async function napraviKlijent(env: Env, tenantId: number): Promise<{ klijent: Do
   const okolina = okolinaZaDoku(env);
   const konfig = await getDokuKonfig(env.DB, tenantId, okolina);
   if (!konfig) return { greska: `Tenant nema doku token za okolinu '${okolina}' — postavi ga u adminu` };
-  const token = await dekriptirajTajnu(env.ENC_MASTER_KEY, {
+  const token = await dekriptirajTajnu(kekoviZaCitanje(env), {
     tokenEncrypted: konfig.token_encrypted,
     encIv: konfig.enc_iv,
     dekWrapped: konfig.dek_wrapped,

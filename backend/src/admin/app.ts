@@ -48,7 +48,8 @@ import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
+import { enkriptirajCertifikat, enkriptirajTajnu, oznakaKek } from '../kripto';
+import { rotirajKek } from '../kripto-rotacija';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
 import { formatirajGreske, racunModelShema } from '../validacija';
 import {
@@ -347,7 +348,7 @@ admin.post(`/tenant/:id${ID}/certifikati`, async (c) => {
     const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, parsirano.privatniKljucPem);
     await createCertifikat(c.env.DB, tenantId, {
       okolina,
-      encKeyId: ENC_KEY_ID,
+      encKeyId: await oznakaKek(c.env.ENC_MASTER_KEY),
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: otisak,
@@ -388,7 +389,7 @@ admin.post(`/tenant/:id${ID}/doku`, async (c) => {
     await upsertDokuKonfig(c.env.DB, tenantId, {
       okolina,
       tokenEncrypted: enc.tokenEncrypted,
-      encKeyId: ENC_KEY_ID,
+      encKeyId: await oznakaKek(c.env.ENC_MASTER_KEY),
       encIv: enc.encIv,
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
@@ -412,6 +413,18 @@ admin.post(`/tenant/:id${ID}/prostori/:pid${ID}/cis-status`, async (c) => {
 });
 
 // CIS Echo proba (bez potpisa/certifikata) — dokazuje mrežni put do CIS-a.
+// Rotacija KEK-a (src/kripto-rotacija.ts): ?suho=1 samo broji. JSON, za
+// scripts/rotiraj-kek.sh (bearer ADMIN_SKRIPTA_TOKEN).
+admin.post('/kripto/rotacija', async (c) => {
+  if (!c.env.ENC_MASTER_KEY) return c.json({ greska: 'ENC_MASTER_KEY nije postavljen' }, 503);
+  const suho = c.req.query('suho') === '1';
+  if (!suho && !c.env.ENC_MASTER_KEY_STARI) {
+    return c.json({ greska: 'ENC_MASTER_KEY_STARI nije postavljen — rotacija nema što premotati' }, 400);
+  }
+  const iz = await rotirajKek(c.env, suho);
+  return c.json(iz, !suho && iz.nijedan > 0 ? 409 : 200);
+});
+
 admin.get('/cis/echo', async (c) => {
   try {
     const rezultat = await cisEcho(c.env); // uključuje posluziteljCertNotAfter (Faza 4.6)

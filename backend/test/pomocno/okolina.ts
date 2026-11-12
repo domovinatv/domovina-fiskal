@@ -15,7 +15,7 @@ import {
   createTenant,
   setProstorCisStatus,
 } from '../../src/db';
-import { ENC_KEY_ID, enkriptirajCertifikat } from '../../src/kripto';
+import { enkriptirajCertifikat, oznakaKek } from '../../src/kripto';
 import type { Env, TenantRow } from '../../src/types';
 
 export const testEnv = env as unknown as Env;
@@ -67,7 +67,7 @@ export async function napraviTenanta(
     const sada = Date.now();
     await createCertifikat(db, tenant.id, {
       okolina: 'test',
-      encKeyId: ENC_KEY_ID,
+      encKeyId: await oznakaKek(testEnv.ENC_MASTER_KEY!),
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: crypto.randomUUID(),

@@ -25,7 +25,7 @@ može li netko preuzeti tuđe certifikate ili lozinke?*
 |---|---|---|---|
 | Lozinka P12 | nigdje (samo RAM upload zahtjeva) | — | nitko nakon zahtjeva |
 | Privatni ključ (PKCS8 PEM) | D1 `certifikat.kljuc_pem_encrypted` | AES-256-GCM, DEK, IV `kljuc_iv` | samo uz KEK |
-| Cijeli P12 | D1 `certifikat.pkcs12_encrypted` | AES-256-GCM, isti DEK, IV `enc_iv` | samo uz KEK **i** lozinku P12 (P12 je iznutra još zaštićen svojom lozinkom) |
+| Cijeli P12 | **nigdje** od migracije `0011` (K16); prije u `pkcs12_encrypted` | — | — (ostaje samo SHA-256 otisak) |
 | DEK (po certifikatu) | D1 `certifikat.dek_wrapped` | AES-256-GCM pod KEK-om, IV `dek_iv` | samo uz KEK |
 | KEK | Worker secret `ENC_MASTER_KEY` | 32 bajta hex | Worker u runtimeu; nitko ga ne može pročitati natrag iz Cloudflarea |
 | Javni certifikat | D1 `certifikat.cert_pem` | plaintext | svatko s bazom (javan je i ionako) |
@@ -48,14 +48,11 @@ flowchart LR
   subgraph D1["D1 tablica certifikat (jedan redak)"]
     DW["dek_wrapped + dek_iv"]
     KP["kljuc_pem_encrypted + kljuc_iv"]
-    P12["pkcs12_encrypted + enc_iv"]
     CERT["cert_pem (javno)"]
   end
   KEK -- "AES-GCM odmotava" --> DW
   DW -- "DEK (po certifikatu)" --> KP
-  DW -- "isti DEK" --> P12
   KP --> PRIV["privatni ključ PKCS8<br/>(potpis ZKI i XML)"]
-  P12 --> P12F["P12 datoteka<br/>(još zaključana lozinkom P12)"]
 ```
 
 Svaki certifikat ima vlastiti nasumični DEK; KEK samo omata DEK-ove. Zato
@@ -74,7 +71,7 @@ sequenceDiagram
   A->>W: POST /admin/tenant/:id/certifikati (P12 + lozinka)
   W->>W: parsirajP12(p12, lozinka) — node-forge, u memoriji
   W->>W: provjera OIB-a certifikata = OIB tenanta
-  W->>W: novi DEK; AES-GCM(P12), AES-GCM(ključ PEM)
+  W->>W: novi DEK; AES-GCM(ključ PEM) — P12 se odbacuje
   W->>W: AES-GCM(DEK) pod KEK-om iz ENC_MASTER_KEY
   W->>DB: INSERT certifikat (šifrirano + cert_pem + metapodaci)
   Note over W: lozinka i plaintext ključ<br/>nestaju s krajem zahtjeva
@@ -142,6 +139,10 @@ flowchart TD
 
 ### 5.2 K16 (`pkcs12_encrypted`) u ovom kontekstu
 
+**Riješeno 2026-11-12:** migracija `0011_k16_bez_p12.sql` briše stupce
+`pkcs12_encrypted` i `enc_iv`, a upload više ne šifrira P12. Obrazloženje
+(zašto to nije bila zaštita, nego higijena):
+
 Šifrirani P12 je pod **istim DEK-om** kao šifrirani ključ PEM. Tko ima KEK,
 ima ključ PEM izravno; P12 mu ne treba. Tko nema KEK, nema ni jedno ni drugo.
 Brisanje P12 bloba zato **ne mijenja ni jedan redak tablice u §5**: to je
@@ -151,10 +152,15 @@ znači upisivati prazan blob `X''` ili prebaciti tablicu migracijom.
 
 ## 6. Preporuke, po težini
 
-1. **Zaseban PROD `ENC_MASTER_KEY`** (otvoreno od faze 4). Bez ponovnog
-   uploada: jednokratna skripta/ruta odmota svaki `dek_wrapped` starim i
-   omota novim KEK-om, promijeni `enc_key_id` u `ENC_MASTER_KEY:v2`. Stari
-   ostaje samo na TEST-u. Traži odobrenje vlasnika (PROD).
+1. **Zaseban PROD `ENC_MASTER_KEY`** (otvoreno od faze 4). Alat postoji od
+   2026-11-12: `backend/scripts/rotiraj-kek.sh --okolina test|prod` +
+   `POST /admin/kripto/rotacija` (`backend/src/kripto-rotacija.ts`). Ništa se
+   ne dešifrira niti ponovno uploada: svaki `dek_wrapped` se odmota starim i
+   omota novim KEK-om, `enc_key_id` postaje `ENC_MASTER_KEY:<12 hex SHA-256>`.
+   Tijekom prijelaza Worker čita s oba (`ENC_MASTER_KEY_STARI`), pa nema prekida.
+   Puni učinak tek kad stari KEK ne postoji **nigdje** (TEST, `.dev.vars`):
+   dok postoji, stari dumpovi i 30 dana D1 Time Travela ostaju otključivi.
+   PROD traži odobrenje vlasnika.
 2. **`.dev.vars` neka ima vlastiti lokalni KEK** (`openssl rand -hex 32`),
    nikad TEST/PROD vrijednost. PROD KEK ne treba biti nigdje osim u
    Cloudflareu i u password manageru (za oporavak).
@@ -163,8 +169,7 @@ znači upisivati prazan blob `X''` ili prebaciti tablicu migracijom.
 4. **Cloudflare račun**: 2FA, minimalni API tokeni (deploy token bez D1
    exporta i obrnuto), popis ljudi s pravom deploya. To je granica koju
    enkripcija u bazi ne može pokriti.
-5. **K16**: upisivati `X''` za nove certifikate i (po odluci) obrisati
-   postojeće. Niski prioritet, vidi §5.2.
+5. ~~K16~~ — riješeno migracijom `0011` (§5.2).
 6. Dugoročno: `docs/knowledge/11-*` §4 već opisuje izbor — (B) Worker
    dešifrira u memoriji (današnje stanje) ili (A) zaseban sidecar drži ključeve
    i samo potpisuje, pa ni deploy Workera ni baza ne otkrivaju ključ. (A) je

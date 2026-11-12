@@ -6,7 +6,56 @@
 
 import { hex, izHexa } from './util';
 
-export const ENC_KEY_ID = 'ENC_MASTER_KEY:v1';
+// Oznaka KEK-a u stupcu enc_key_id: prvih 12 hex znakova SHA-256 ključa —
+// po njoj se vidi kojim je KEK-om redak omotan, a ključ se iz nje ne može
+// izvesti. Redovi prije rotacije imaju oznaku 'ENC_MASTER_KEY:v1'.
+export async function oznakaKek(masterHex: string): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', izHexa(masterHex)));
+  return `ENC_MASTER_KEY:${hex(h).slice(0, 12)}`;
+}
+
+// KEK-ovi kojima se smije ČITATI: tekući, pa (samo tijekom rotacije) stari.
+// Šifrira se uvijek samo tekućim.
+export function kekoviZaCitanje(env: { ENC_MASTER_KEY?: string; ENC_MASTER_KEY_STARI?: string }): string[] {
+  return [env.ENC_MASTER_KEY, env.ENC_MASTER_KEY_STARI].filter((k): k is string => !!k);
+}
+
+// Odmota DEK prvim KEK-om koji uspije. AES-GCM autentificira, pa pogrešan KEK
+// sigurno baca (nema „krivog, ali uspješnog” odmotavanja).
+async function odmotajDek(kekovi: string | string[], dekWrapped: string, dekIv: string): Promise<ArrayBuffer> {
+  const lista = typeof kekovi === 'string' ? [kekovi] : kekovi;
+  let zadnja: unknown = new Error('Nijedan KEK nije zadan (ENC_MASTER_KEY)');
+  for (const k of lista) {
+    try {
+      return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: izHexa(dekIv) }, await uvoziKek(k), izHexa(dekWrapped));
+    } catch (e) {
+      zadnja = e;
+    }
+  }
+  throw zadnja;
+}
+
+// Otvara li ovaj KEK omotani DEK? (rotacija, provjera)
+export async function kekOtvara(kekHex: string, dekWrapped: string, dekIv: string): Promise<boolean> {
+  return odmotajDek(kekHex, dekWrapped, dekIv).then(
+    () => true,
+    () => false,
+  );
+}
+
+// Rotacija: DEK odmotan starim KEK-om omota se novim (novi IV). Šifrirani
+// podaci (ključ, token) se ne diraju — DEK ostaje isti.
+export async function premotajDek(
+  stariHex: string,
+  noviHex: string,
+  dekWrapped: string,
+  dekIv: string,
+): Promise<{ dekWrapped: string; dekIv: string }> {
+  const dekRaw = await odmotajDek(stariHex, dekWrapped, dekIv);
+  const noviIv = crypto.getRandomValues(new Uint8Array(12));
+  const omotan = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: noviIv }, await uvoziKek(noviHex), dekRaw);
+  return { dekWrapped: hex(new Uint8Array(omotan)), dekIv: hex(noviIv) };
+}
 
 async function uvoziKek(masterHex: string): Promise<CryptoKey> {
   if (!/^[0-9a-fA-F]{64}$/.test(masterHex)) {
@@ -85,11 +134,10 @@ export async function enkriptirajTajnu(masterHex: string, plaintext: string): Pr
 
 // Dekripcija tajne u trenutku poziva — plaintext živi samo u memoriji poziva.
 export async function dekriptirajTajnu(
-  masterHex: string,
+  kekovi: string | string[],
   e: { tokenEncrypted: string; encIv: string; dekWrapped: string; dekIv: string },
 ): Promise<string> {
-  const kek = await uvoziKek(masterHex);
-  const dekRaw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: izHexa(e.dekIv) }, kek, izHexa(e.dekWrapped));
+  const dekRaw = await odmotajDek(kekovi, e.dekWrapped, e.dekIv);
   const dek = await crypto.subtle.importKey('raw', dekRaw, 'AES-GCM', false, ['decrypt']);
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: izHexa(e.encIv) }, dek, izHexa(e.tokenEncrypted));
   return new TextDecoder().decode(pt);
@@ -98,15 +146,10 @@ export async function dekriptirajTajnu(
 // Dekripcija privatnog ključa (PKCS8 PEM) u trenutku potpisivanja — DEK i
 // plaintext žive isključivo u memoriji poziva, nikad se ne perzistiraju/logiraju.
 export async function dekriptirajKljucPem(
-  masterHex: string,
+  kekovi: string | string[],
   enkriptirano: { kljucPemEncrypted: ArrayBuffer | ArrayLike<number>; kljucIv: string; dekWrapped: string; dekIv: string },
 ): Promise<string> {
-  const kek = await uvoziKek(masterHex);
-  const dekRaw = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: izHexa(enkriptirano.dekIv) },
-    kek,
-    izHexa(enkriptirano.dekWrapped),
-  );
+  const dekRaw = await odmotajDek(kekovi, enkriptirano.dekWrapped, enkriptirano.dekIv);
   const dek = await crypto.subtle.importKey('raw', dekRaw, 'AES-GCM', false, ['decrypt']);
   const pem = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: izHexa(enkriptirano.kljucIv) },

@@ -21,7 +21,7 @@ import {
   zapisiZki,
   zaustaviStareBezJira,
 } from '../db';
-import { dekriptirajKljucPem } from '../kripto';
+import { dekriptirajKljucPem, kekoviZaCitanje } from '../kripto';
 import { uCente } from '../util';
 import { certPemUDerB64 } from './certifikat';
 import { greskaJeRetryable, parsirajOdgovor, soapPoziv, type CisGreska, type Okolina } from './cis';
@@ -52,7 +52,7 @@ export async function ucitajPotpisniMaterijal(
   if (red.not_after && new Date(red.not_after).getTime() < Date.now()) {
     return { greska: `Certifikat je istekao ${red.not_after} — obnovi ga prije fiskalizacije` };
   }
-  const privatniKljucPem = await dekriptirajKljucPem(env.ENC_MASTER_KEY, {
+  const privatniKljucPem = await dekriptirajKljucPem(kekoviZaCitanje(env), {
     kljucPemEncrypted: red.kljuc_pem_encrypted,
     kljucIv: red.kljuc_iv,
     dekWrapped: red.dek_wrapped,
