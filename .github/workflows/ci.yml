@@ -1,0 +1,27 @@
+# CI za backend: typecheck + testovi (vitest-pool-workers, lokalni D1, bez
+# Cloudflare računa — remoteBindings: false, CIS se mocka). Svježi clone mora
+# proći; to je i zaštita od ponavljanja K1 (Fina CA PEM-ovi izvan gita).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
