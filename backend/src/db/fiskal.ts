@@ -123,8 +123,13 @@ export async function racuniZaNaknadnuDostavu(
 export async function zaustaviStareBezJira(db: D1Database): Promise<{ id: number; tenant_id: number; broj_racuna_full: string }[]> {
   const r = await db
     .prepare(
+      // K12: pokusaja ≥ 1 i zadnji_pokusaj da red više ne matcha (inače bi
+      // račun s pokusaja = 0 svakih 15 min omatao poruku u samu sebe), poruka
+      // ograničena na 2000 znakova kao u zapisiFiskalGresku.
       `UPDATE racun SET fiskal_nak_dost = 0,
-              fiskal_greska = 'Automatska naknadna dostava zaustavljena nakon ${SWEEP_MAX_DANA} dana — potrebna ručna intervencija. Zadnja greška: ' || COALESCE(fiskal_greska, '—'),
+              fiskal_pokusaja = MAX(fiskal_pokusaja, 1),
+              fiskal_zadnji_pokusaj = datetime('now'),
+              fiskal_greska = substr('Automatska naknadna dostava zaustavljena nakon ${SWEEP_MAX_DANA} dana — potrebna ručna intervencija. Zadnja greška: ' || COALESCE(fiskal_greska, '—'), 1, 2000),
               updated_at = datetime('now')
        WHERE ${BEZ_JIRA}
          AND (fiskal_nak_dost = 1 OR fiskal_pokusaja = 0)

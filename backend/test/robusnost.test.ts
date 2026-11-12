@@ -190,6 +190,25 @@ describe('Sweep', () => {
     expect(poslani).toContain(`bez-jira-24h:${t.tenant.id}`);
     expect(poslani).toContain(`bez-retryja:${id}`);
   });
+
+  it('K12: stari račun s pokusaja = 0 zaustavlja se jednom, poruka se ne omata u sebe', async () => {
+    const t = await napraviTenanta();
+    const id = await izdajBezJira(t);
+    // Worker ubijen između INSERT-a i prvog pokušaja: pokusaja = 0, nak_dost = 0.
+    await db
+      .prepare(`UPDATE racun SET datum_vrijeme = ?, fiskal_pokusaja = 0, fiskal_nak_dost = 0, fiskal_greska = ? WHERE id = ?`)
+      .bind(new Date(Date.now() - 8 * 86_400_000).toISOString(), 'x'.repeat(1990), id)
+      .run();
+    cisVracaJir();
+    expect((await sweepNaknadnaDostava(testEnv)).zaustavljeno.map((z) => z.id)).toContain(id);
+    const prvi = (await getRacun(db, t.tenant.id, id))!;
+    expect(prvi.fiskal_pokusaja).toBeGreaterThanOrEqual(1);
+    expect(prvi.fiskal_zadnji_pokusaj).toBeTruthy();
+    expect(prvi.fiskal_greska!.length).toBeLessThanOrEqual(2000);
+    // Sljedeći sweep ga više ne dira.
+    expect((await sweepNaknadnaDostava(testEnv)).zaustavljeno.map((z) => z.id)).not.toContain(id);
+    expect((await getRacun(db, t.tenant.id, id))!.fiskal_greska).toBe(prvi.fiskal_greska);
+  });
 });
 
 describe('Alarmi', () => {
