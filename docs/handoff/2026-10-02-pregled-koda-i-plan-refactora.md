@@ -669,4 +669,19 @@ isti `ENC_MASTER_KEY` lokalno/TEST/PROD.
 | K16 | `d7d76ba` | Vlasnik: ukloniti i za postojeće. Migracija `0011_k16_bez_p12.sql` (DROP `pkcs12_encrypted`, `enc_iv`). **Deploy: kod i migracija zajedno.** K15/K19 idu u `0012`. |
 | Rotacija KEK-a | `ad5baa0` | `scripts/rotiraj-kek.sh` + `POST /admin/kripto/rotacija`; nije pokrenuta nigdje. Redoslijed: deploy koda na okolinu → skripta. PROD uz odobrenje. |
 
-Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti.
+
+**Naučeno u koracima 4–5 (zamke koje ne treba ponovno otkrivati):**
+- GoTrue i ostali vanjski HTTP se u testovima mockaju `vi.spyOn(globalThis, 'fetch')`:
+  `poziv()` zove `worker.fetch` u istom izolatu, pa spy vrijedi i za Worker kod.
+  Cache tokena u `gotrue.ts` je po tokenu → svaki test svoj token.
+- `datetime('now')` ima sekundnu preciznost: dva leasea u istoj sekundi bila bi
+  jednaka. Zato `strftime('%Y-%m-%d %H:%M:%f', …)` za token (K7).
+- Hono prihvaća ugniježđene zagrade u regexu parametra: `:id{[1-9][0-9]{0,14}}` radi.
+- Sub-appovi (`admin`, `apiV1`) bez vlastitog `onError` šalju iznimke na
+  `app.onError` u `index.ts` (K9).
+- SQLite: bare stupac uz `MIN(id)` u agregatu uzima vrijednost iz retka s
+  minimumom (K11 `fiskal_greska` najstarijeg računa).
+- macOS bash 3.2 + `set -u`: prazan niz `"${A[@]}"` ruši skriptu → `${A[@]+"${A[@]}"}`.
+- Live GoTrue postavke: `GET https://api.domovina.ai/auth/v1/settings` s anon
+  ključem (`mailer_autoconfirm`, `anonymous_users`). Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
