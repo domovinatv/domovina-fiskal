@@ -39,13 +39,3 @@ export async function listAlarmi(db: D1Database, dana = 7): Promise<AlarmRow[]> 
     .all<AlarmRow>();
   return r.results;
 }
-
-// ───────────────────────── Brojači za health/admin ─────────────────────────
-
-export async function brojaci(db: D1Database): Promise<{ tenanti: number; racuni: number }> {
-  const [t, r] = await db.batch<{ n: number }>([
-    db.prepare(`SELECT COUNT(*) AS n FROM tenant`),
-    db.prepare(`SELECT COUNT(*) AS n FROM racun`),
-  ]);
-  return { tenanti: t.results[0]?.n ?? 0, racuni: r.results[0]?.n ?? 0 };
-}

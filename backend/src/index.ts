@@ -3,7 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
 import { admin } from './admin/app';
 import { apiV1 } from './api';
-import { brojaci, dohvatiStanje, racuniBezJiraStarijiOd } from './db';
+import { dohvatiStanje, racuniBezJiraStarijiOd } from './db';
 import { obradiAlarme, provjeriCisEcho } from './alarmi';
 import { sweepNaknadnaDostava } from './fiskal/fiskalizacija';
 import { okolinaIzEnv } from './okolina';
@@ -36,9 +36,8 @@ app.onError((greska, c) => {
   return c.json({ greska: 'Interna greška', id }, 500);
 });
 
-// Health / info.
-app.get('/', async (c) => {
-  const counts = await brojaci(c.env.DB).catch(() => ({ tenanti: -1, racuni: -1 }));
+// Info (javno). K17: bez brojača tenanata/računa — nisu tajna, ali nisu ni potrebni javno.
+app.get('/', (c) => {
   return c.json({
     servis: 'fiskal.domovina.ai',
     svrha: 'open-source SaaS za izdavanje HR fiskaliziranih računa — B2C fiskalizacija (ZKI/JIR, CIS), eRačun 2.0 preko posrednika',
@@ -65,7 +64,6 @@ app.get('/', async (c) => {
       postavke: 'GET /api/v1/postavke · POST /api/v1/postavke/{prostor|uredjaj|operater}',
       auth: "Bearer <dfk_ API ključ> ILI Bearer <GoTrue JWT> + 'X-Tenant-Id' (dashboard)",
     },
-    brojaci: counts,
   });
 });
 

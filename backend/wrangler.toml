@@ -57,8 +57,9 @@ OKOLINA = "prod"
 SUPABASE_URL = "https://api.domovina.ai"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc3OTExMTcxMywiZXhwIjo0OTMyNzExNzEzLCJyb2xlIjoiYW5vbiJ9.Q4Ef7xMc2dmjMyfJebPDyqNirnARZzMxTWe7i0dASPI"
 
-# CORS origini za customer dashboard (CSV). Prod domena + lokalni razvoj.
-DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.pages.dev,http://localhost:3000"
+# CORS origini za customer dashboard (CSV). Samo prod domene (K17): lokalni
+# razvoj dashboarda ide protiv TEST-a, koji localhost:3000 dopušta.
+DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.pages.dev"
 
 # Admin prijava (docs/knowledge/20-admin-prijava.md): Access aplikacija „FISKAL ADMIN”
 # na D.O.M. računu štiti samo /admin/sso; ista aplikacija (isti AUD) za TEST i PROD.
