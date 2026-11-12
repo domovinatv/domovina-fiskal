@@ -633,4 +633,18 @@ Ukupno ~10 h rada; razumno je podijeliti u dvije sesije (0–4, pa 5–8) s
 
 | K21 | `c0fd7ff` | AE provjera seli iza `razrijesiStavke`. Test `test/pdv-pravila.test.ts` je prije popravka pokazao da je posljedica bila gora nego u §3: fiskalni B2C s AE proizvodom iz kataloga **izdan je** (broj potrošen, ZKI), a fiskalizacija je stala na „PDV kategorija 'AE' nije podržana” bez automatskog retryja. |
 
-Korak 3 je time gotov. Koraci 4–8 nisu započeti (korak 4 počinje s K5, koji čeka odgovor vlasnika iz §8). Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+Korak 3 je time gotov. 
+
+**Korak 4 (2026-11-12, Opus 5.5):**
+
+| Nalaz | Commit | Napomena |
+|---|---|---|
+| K5 | `04ff14e` | `emailPotvrdjen` iz `email_confirmed_at`; e-mail grana (`findKorisnikTenant`, `listMojiTenanti`) dobiva `null` za nepotvrđenu adresu → 403 „E-mail adresa nije potvrđena”. Siguran bez obzira na `enable_confirmations`. Prvi test JWT puta: `test/gotrue.test.ts`. `16-*` §4 ažuriran. |
+| K6 | `bfe9b0a` | `util.ts`: `fetchSTimeoutom` + `TIMEOUT_MS` (GoTrue 5, doku 20, Resend 15, sudreg/VIES 10, firecrawl 70 s). `test/timeout.test.ts`. |
+| K7 | `7ebf5cc` | Token = upisana vrijednost `fiskal_zakljucano_do`, sada `strftime('%Y-%m-%d %H:%M:%f')` (ms, da se dva leasea razlikuju i unutar sekunde). Usporedba s `datetime('now')` radi i za stare retke. |
+| K8 | `88435a7` | Bez unit testa (transport je mockan); provjera = smoke na CIS TEST-u nakon deploya. |
+| K9 | `c29cdfa` | Jedan `app.onError` u `index.ts` (sub-appovi nemaju svoj): `/admin*` → HTML, ostalo JSON `{ greska, id }`. `test/onerror.test.ts`. |
+| K12 | `a4233f8` | `pokusaja = MAX(…, 1)`, `zadnji_pokusaj`, `substr(…, 1, 2000)`. |
+| K13 | `11b76b0` | API: `idIzParametra` na svih 8 `:id` ruta, `isSafeInteger`. Admin: route regex `ID = '{[1-9][0-9]{0,14}}'` → 404. `test/id-parametar.test.ts`. |
+
+Testovi 93/93. Ništa od koraka 4 nije deployano. Koraci 5–8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
