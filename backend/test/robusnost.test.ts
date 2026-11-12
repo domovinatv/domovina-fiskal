@@ -122,6 +122,36 @@ describe('Lease (claim)', () => {
     expect(mock).toHaveBeenCalledTimes(1);
   });
 
+  it('K7: istekli lease A ne briše lease B koji ga je preuzeo', async () => {
+    const t = await napraviTenanta();
+    const id = await izdajBezJira(t);
+    const brane: (() => void)[] = [];
+    const mock = postaviMock(async (_o, operacija, envelopa) => {
+      if (operacija === 'echo') return echoOdgovor(envelopa);
+      await new Promise<void>((r) => brane.push(r));
+      return { status: 200, tijelo: jirOdgovor() };
+    });
+    const leaseDo = async () => (await getRacun(db, t.tenant.id, id))!.fiskal_zakljucano_do;
+
+    const a = fiskalizirajRacun(testEnv, t.tenant.id, id);
+    await new Promise((r) => setTimeout(r, 50)); // A drži lease i čeka CIS
+    // A traje predugo: lease mu istekne, B ga preuzme.
+    await db.prepare(`UPDATE racun SET fiskal_zakljucano_do = datetime('now', '-1 seconds') WHERE id = ?`).bind(id).run();
+    const b = fiskalizirajRacun(testEnv, t.tenant.id, id);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mock).toHaveBeenCalledTimes(2);
+    const leaseB = await leaseDo();
+    expect(leaseB).not.toBeNull();
+
+    brane[0](); // A završava i otpušta „svoj” lease
+    await a;
+    expect(await leaseDo()).toBe(leaseB); // B-ov lease mora ostati
+
+    brane[1]();
+    await b;
+    expect(await leaseDo()).toBeNull();
+  });
+
   it('ručni retry dok drugi šalje → 409 uTijeku', async () => {
     const t = await napraviTenanta();
     const id = await izdajBezJira(t);

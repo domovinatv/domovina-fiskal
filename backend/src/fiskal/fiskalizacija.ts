@@ -145,7 +145,8 @@ export async function fiskalizirajRacun(env: Env, tenantId: number, racunId: num
   if (racun.tip_dokumenta !== 'fiskalni_b2c') return { ok: false, greska: 'Samo fiskalni B2C računi se fiskaliziraju' };
   if (racun.jir) return { ok: true, jir: racun.jir, zki: racun.zki ?? undefined };
 
-  if (!(await zakljucajZaFiskalizaciju(env.DB, tenantId, racunId))) {
+  const lease = await zakljucajZaFiskalizaciju(env.DB, tenantId, racunId);
+  if (!lease) {
     // Lease nije dobiven: ili je JIR upravo stigao, ili netko drugi šalje.
     const svjezi = await getRacun(env.DB, tenantId, racunId);
     if (svjezi?.jir) return { ok: true, jir: svjezi.jir, zki: svjezi.zki ?? undefined };
@@ -167,7 +168,7 @@ export async function fiskalizirajRacun(env: Env, tenantId: number, racunId: num
     await zapisiFiskalGresku(env.DB, tenantId, racunId, poruka, true).catch(() => {});
     return { ok: false, greska: poruka, retryable: true };
   } finally {
-    await otkljucajFiskalizaciju(env.DB, racunId).catch(() => {});
+    await otkljucajFiskalizaciju(env.DB, tenantId, racunId, lease).catch(() => {});
   }
 }
 

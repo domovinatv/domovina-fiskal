@@ -52,21 +52,30 @@ export async function zapisiFiskalGresku(
 // Lease (claim) prije slanja CIS-u: samo jedan pozivatelj u isto vrijeme
 // (sinkroni POST, ručni retry, admin, cron). Lease istječe sam nakon 60 s
 // (CIS timeout je 15 s), pa pad Workera ne zaključava račun trajno.
-export async function zakljucajZaFiskalizaciju(db: D1Database, tenantId: number, racunId: number): Promise<boolean> {
+//
+// K7: vraća TOKEN leasea = točnu upisanu vrijednost `fiskal_zakljucano_do`
+// (milisekunde, da se dva leasea razlikuju i unutar iste sekunde), null ako
+// lease nije dobiven. Otpuštanje briše samo lease s tim tokenom: ako je naš
+// istekao i netko ga je preuzeo, njegov ostaje. Usporedba s datetime('now')
+// (sekunde) radi i za ms oblik i za stare retke: isti prefiks, string compare.
+export async function zakljucajZaFiskalizaciju(db: D1Database, tenantId: number, racunId: number): Promise<string | null> {
   const red = await db
     .prepare(
-      `UPDATE racun SET fiskal_zakljucano_do = datetime('now', '+60 seconds')
+      `UPDATE racun SET fiskal_zakljucano_do = strftime('%Y-%m-%d %H:%M:%f', 'now', '+60 seconds')
        WHERE id = ? AND tenant_id = ? AND jir IS NULL
          AND (fiskal_zakljucano_do IS NULL OR fiskal_zakljucano_do < datetime('now'))
-       RETURNING id`,
+       RETURNING fiskal_zakljucano_do`,
     )
     .bind(racunId, tenantId)
-    .first<{ id: number }>();
-  return !!red;
+    .first<{ fiskal_zakljucano_do: string }>();
+  return red?.fiskal_zakljucano_do ?? null;
 }
 
-export async function otkljucajFiskalizaciju(db: D1Database, racunId: number): Promise<void> {
-  await db.prepare(`UPDATE racun SET fiskal_zakljucano_do = NULL WHERE id = ?`).bind(racunId).run();
+export async function otkljucajFiskalizaciju(db: D1Database, tenantId: number, racunId: number, token: string): Promise<void> {
+  await db
+    .prepare(`UPDATE racun SET fiskal_zakljucano_do = NULL WHERE id = ? AND tenant_id = ? AND fiskal_zakljucano_do = ?`)
+    .bind(racunId, tenantId, token)
+    .run();
 }
 
 // Automatika naknadne dostave radi 7 dana od izdavanja; poslije toga račun
