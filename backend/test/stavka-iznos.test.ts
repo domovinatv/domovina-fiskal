@@ -96,3 +96,15 @@ describe('stavka.iznos (K15)', () => {
     expect((await iznosiStavki(racun.id))[0]).toBe('7.77');
   });
 });
+
+describe('zastarjeli indeksi (K19)', () => {
+  it('ix_racun_ceka_jir i ix_racun_eracun_ceka ne postoje, ix_racun_sweep postoji', async () => {
+    const r = await testEnv.DB
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'ix_racun_%'`)
+      .all<{ name: string }>();
+    const imena = r.results.map((x) => x.name);
+    expect(imena).not.toContain('ix_racun_ceka_jir');
+    expect(imena).not.toContain('ix_racun_eracun_ceka');
+    expect(imena).toContain('ix_racun_sweep');
+  });
+});

@@ -36,3 +36,6 @@ FROM (
   )
 ) AS x
 WHERE stavka.id = x.id AND stavka.iznos IS NULL;
+
+DROP INDEX IF EXISTS ix_racun_ceka_jir;
+DROP INDEX IF EXISTS ix_racun_eracun_ceka;
