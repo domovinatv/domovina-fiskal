@@ -1,444 +1,26 @@
-// Javni Bearer API — /api/v1/*. Dva auth moda na istim rutama:
-//   * mašinski: 'Bearer dfk_…' → SHA-256 → api_kljuc → tenant (webshop/integracija);
-//   * korisnički: 'Bearer <GoTrue JWT>' + 'X-Tenant-Id' → verify vs GoTrue →
-//     korisnik_tenant membership → tenant (customer dashboard).
+// Rute dokumenata javnog API-ja: izdavanje (s idempotencijom), storno,
+// fiskalizacija, skice, dohvat, PDF, e-mail, eRačun (doku) i popis.
 // Sve o izdavatelju (OIB, prostor, uređaji, slijednost) je server-side;
-// payload je kupac + stavke + tip. Vidi docs/knowledge/16-dashboard-sso.md.
+// payload je kupac + stavke + tip.
 
-import { Hono, type Context } from 'hono';
-import { cors } from 'hono/cors';
+import { Hono } from 'hono';
 import { z } from 'zod';
-import type { ApiVarijable, Env, RacunRow, TenantRow } from '../types';
-import {
-  bindKorisnikTenant,
-  createNaplatniUredaj,
-  createOperater,
-  createPoslovniProstor,
-  findKorisnikTenant,
-  findOrCreateKupac,
-  findTenantByApiKeyHash,
-  getAktivniCertifikat,
-  getNaplatniUredajByOznaka,
-  getOperaterByOib,
-  getPdvRaspodjela,
-  getPoslovniProstorByOznaka,
-  getProizvod,
-  getRacun,
-  getRacunKontekst,
-  getRacunPoReferenci,
-  getStavke,
-  getTenant,
-  izdajSkicu,
-  jeSukobReference,
-  stornoGreskaTriggera,
-  zbrojStornaCenti,
-  listMojiTenanti,
-  listNaplatniUredjaji,
-  listOperateri,
-  listPoslovniProstori,
-  listProizvodi,
-  listRacuni,
-  searchKpd,
-  touchApiKljuc,
-  upisiRacun,
-  zabiljeziSlanjeEmaila,
-  type NoviRacunStavka,
-  type SekvencaVrsta,
-} from '../db';
-import { verificirajGotrueToken } from '../auth/gotrue';
+import { getRacun, getRacunKontekst, getRacunPoReferenci, izdajSkicu, listRacuni, zabiljeziSlanjeEmaila } from '../db';
+import { izdajDokument, TIP_U_DB } from '../dokumenti/izdavanje';
 import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracun/eracun';
-import { fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacija';
+import { fiskalizirajRacun } from '../fiskal/fiskalizacija';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { godinaZagreb, izCenti, kanonskiJson, normalizirajTekst, sha256Hex, uCente, uTisucinke, validanOib } from '../util';
-import {
-  formatirajGreske,
-  izracunajIznose,
-  provjeriPdvPravila,
-  racunModelShema,
-  vanjskaReferencaShema,
-  type RacunModel,
-  type RazrijesenaStavka,
-} from '../validacija';
+import { godinaZagreb, izCenti, uCente, uTisucinke, validanOib } from '../util';
+import { formatirajGreske, racunModelShema, vanjskaReferencaShema, type RacunModel } from '../validacija';
+import { cijeliBroj, HTTP_ZA_VRSTU, idIzParametra, jsonTijelo } from './pomocno';
+import { racunUOdgovor, racunUPopis } from './serializacija';
+import type { ApiHono, ApiKontekst } from './tipovi';
 
-export const apiV1 = new Hono<{ Bindings: Env; Variables: ApiVarijable }>();
+export const racuniRute = new Hono<ApiHono>();
 
-// CORS za dashboard SPA (cross-origin) — MORA prije autha da preflight
-// (OPTIONS bez Authorization headera) prođe. Origini iz DASHBOARD_ORIGIN (CSV).
-apiV1.use('*', async (c, next) => {
-  const dozvoljeni = (c.env.DASHBOARD_ORIGIN ?? '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-  const mw = cors({
-    origin: (origin) => (dozvoljeni.includes(origin) ? origin : null),
-    allowHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Id', 'Idempotency-Key'],
-    exposeHeaders: ['Idempotent-Replay'],
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
-    maxAge: 86400,
-  });
-  return mw(c, next);
-});
-
-// Korisničke rute BEZ tenant scopea — JWT je dovoljan (dropdown/profil se pune
-// prije nego što je tenant odabran).
-const RUTE_BEZ_TENANTA = new Set(['/api/v1/moji-tenanti', '/api/v1/ja']);
-
-// Bearer auth — grana po OBLIKU tokena (dfk_ prefiks vs JWT).
-apiV1.use('*', async (c, next) => {
-  const auth = c.req.header('Authorization') ?? '';
-  const m = auth.match(/^Bearer\s+(\S+)$/i);
-  if (!m) {
-    return c.json({ greska: "Nedostaje 'Authorization: Bearer <API ključ ili GoTrue JWT>' zaglavlje" }, 401);
-  }
-  const token = m[1];
-
-  // ── Mašinski put (postojeći): dfk_… → SHA-256 → api_kljuc → tenant ──
-  if (token.startsWith('dfk_')) {
-    const hash = await sha256Hex(token);
-    const rezultat = await findTenantByApiKeyHash(c.env.DB, hash);
-    if (!rezultat) {
-      return c.json({ greska: 'Nevažeći ili deaktiviran API ključ' }, 401);
-    }
-    c.set('tenant', rezultat.tenant);
-    c.set('apiKljucId', rezultat.apiKljucId);
-    c.executionCtx.waitUntil(touchApiKljuc(c.env.DB, rezultat.apiKljucId));
-    return next();
-  }
-
-  // ── Korisnički put (dashboard): GoTrue JWT + X-Tenant-Id ──
-  if (!/^eyJ[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) {
-    return c.json({ greska: 'Nevažeći token — očekivan API ključ (dfk_…) ili GoTrue JWT' }, 401);
-  }
-  if (!c.env.SUPABASE_URL || !c.env.SUPABASE_ANON_KEY) {
-    return c.json({ greska: 'Korisnička prijava nije konfigurirana (SUPABASE_URL/SUPABASE_ANON_KEY)' }, 503);
-  }
-  let gotrue;
-  try {
-    gotrue = await verificirajGotrueToken(c.env, token);
-  } catch (e) {
-    return c.json({ greska: `Provjera prijave nije uspjela (GoTrue nedostupan): ${(e as Error).message}` }, 502);
-  }
-  if (!gotrue) {
-    return c.json({ greska: 'Nevažeća ili istekla prijava — prijavi se ponovno' }, 401);
-  }
-
-  // Rute bez tenant scopea: dovoljan je identitet.
-  if (RUTE_BEZ_TENANTA.has(c.req.path)) {
-    c.set('korisnik', { sub: gotrue.sub, email: gotrue.email });
-    return next();
-  }
-
-  const tenantIdRaw = c.req.header('X-Tenant-Id') ?? '';
-  const tenantId = Number(tenantIdRaw);
-  if (!tenantIdRaw || !Number.isInteger(tenantId) || tenantId <= 0) {
-    return c.json({ greska: "Nedostaje 'X-Tenant-Id' zaglavlje (odaberi tenanta)" }, 400);
-  }
-
-  // Membership: match po user_id (stabilan) ili email-bind fallback (§4).
-  const kt = await findKorisnikTenant(c.env.DB, tenantId, gotrue.sub, gotrue.email);
-  if (!kt) {
-    return c.json({ greska: 'Korisnik nema pristup tom tenantu' }, 403);
-  }
-  if (!kt.user_id) {
-    // Prva prijava: veži GoTrue sub na redak dodan po (verificiranom) emailu.
-    await bindKorisnikTenant(c.env.DB, kt.id, gotrue.sub);
-  }
-  const tenant = await getTenant(c.env.DB, tenantId);
-  if (!tenant || tenant.status !== 'active') {
-    return c.json({ greska: 'Tenant nije aktivan' }, 403);
-  }
-  c.set('tenant', tenant);
-  c.set('korisnik', { sub: gotrue.sub, email: gotrue.email, uloga: kt.uloga });
-  return next();
-});
-
-// ── Korisnički endpointi (dashboard) ──
-
-// Membershipi prijavljenog korisnika — puni dropdown za tenant-switch.
-apiV1.get('/moji-tenanti', async (c) => {
-  const korisnik = c.get('korisnik');
-  if (!korisnik) {
-    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
-  }
-  return c.json({ tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email) });
-});
-
-// Profil + membershipi (opcionalni pogodniji oblik za frontend bootstrap).
-apiV1.get('/ja', async (c) => {
-  const korisnik = c.get('korisnik');
-  if (!korisnik) {
-    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
-  }
-  return c.json({
-    email: korisnik.email,
-    tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.email),
-  });
-});
-
-const SEKVENCA_ZA_TIP: Record<string, SekvencaVrsta> = {
-  PONUDA: 'ponuda',
-  PREDRACUN: 'ponuda', // ponude i predračuni dijele slijed (Fira: tab "Ponude/Predračuni")
-  RACUN: 'racun',
-  FISKALNI_B2C: 'fiskalni', // odvojeni slijed — brojčana oznaka ide u ZKI/CIS
-  ERACUN_B2B: 'racun', // eRačun je pravni račun — dijeli slijed računa
-  ERACUN_B2G: 'racun',
-};
-const TIP_U_DB: Record<string, 'ponuda' | 'predracun' | 'racun' | 'fiskalni_b2c' | 'eracun_b2b' | 'eracun_b2g'> = {
-  PONUDA: 'ponuda',
-  PREDRACUN: 'predracun',
-  RACUN: 'racun',
-  FISKALNI_B2C: 'fiskalni_b2c',
-  ERACUN_B2B: 'eracun_b2b',
-  ERACUN_B2G: 'eracun_b2g',
-};
-
-// Razrješavanje stavki: proizvodId → podaci iz kataloga (polja u payloadu nadjačavaju).
-async function razrijesiStavke(
-  db: D1Database,
-  tenantId: number,
-  stavke: RacunModel['stavke'],
-): Promise<{ stavke: RazrijesenaStavka[] } | { greska: { polje: string; poruka: string } }> {
-  const rezultat: RazrijesenaStavka[] = [];
-  for (let i = 0; i < stavke.length; i++) {
-    const s = stavke[i];
-    if (s.proizvodId) {
-      const p = await getProizvod(db, tenantId, s.proizvodId);
-      if (!p) return { greska: { polje: `stavke.${i}.proizvodId`, poruka: `proizvod ${s.proizvodId} ne postoji u katalogu` } };
-      rezultat.push({
-        naziv: s.naziv ?? p.naziv,
-        opis: s.opis ?? p.opis,
-        kolicina: s.kolicina,
-        jedinicaMjere: s.jedinicaMjere ?? p.jedinica_mjere,
-        netoCijena: s.netoCijena ?? p.neto_cijena,
-        popustPosto: s.popustPosto,
-        pdvStopa: s.pdvStopa ?? p.pdv_stopa,
-        pdvKategorija: s.pdvKategorija ?? p.pdv_kategorija,
-        kpd: s.kpd ?? p.kpd,
-        proizvodId: p.id,
-      });
-    } else {
-      rezultat.push({
-        naziv: s.naziv!,
-        opis: s.opis ?? null,
-        kolicina: s.kolicina,
-        jedinicaMjere: s.jedinicaMjere ?? 'H87',
-        netoCijena: s.netoCijena!,
-        popustPosto: s.popustPosto,
-        pdvStopa: s.pdvStopa!,
-        pdvKategorija: s.pdvKategorija ?? (s.pdvStopa === '0' ? 'Z' : 'S'),
-        kpd: s.kpd ?? null,
-        proizvodId: null,
-      });
-    }
-  }
-  return { stavke: rezultat };
-}
-
-export type KreiranjeIshod =
-  | { racun: RacunRow; ponovljen: boolean }
-  | { status: 400 | 404 | 409; greska: string; detalji?: { polje: string; poruka: string }[]; racunId?: number };
-
-// SHA-256 kanoničkog JSON-a modela BEZ reference: isti sadržaj (neovisno o
-// redoslijedu polja i obliku brojeva — zod ih normalizira) = isti hash.
-export async function hashZahtjeva(model: RacunModel): Promise<string> {
-  const { vanjskaReferenca: _ref, ...sadrzaj } = model;
-  return sha256Hex(kanonskiJson(sadrzaj));
-}
-
-// Referenca već postoji: isti sadržaj → ponovljeni zahtjev (vrati postojeći,
-// NE izdaji ni ne fiskaliziraj ponovno); drugi sadržaj → sukob 409.
-function ishodPostojeceg(postojeci: RacunRow, zahtjevHash: string | null): KreiranjeIshod {
-  if (postojeci.zahtjev_hash && postojeci.zahtjev_hash === zahtjevHash) return { racun: postojeci, ponovljen: true };
-  return { status: 409, greska: 'vanjskaReferenca je već iskorištena za drukčiji račun', racunId: postojeci.id };
-}
-
-// Zajednička logika kreiranja dokumenta — koristi je API (JSON) i admin (forma).
-// S vanjskaReferenca je idempotentna (Faza 4.1): ponovljeni zahtjev vraća
-// postojeći dokument (ponovljen: true) i ne troši broj iz slijeda.
-export async function kreirajDokument(env: Env, tenant: TenantRow, model: RacunModel): Promise<KreiranjeIshod> {
-  const db = env.DB;
-  const referenca = model.vanjskaReferenca ?? null;
-  const zahtjevHash = referenca ? await hashZahtjeva(model) : null;
-  // Provjera reference PRIJE preduvjeta: ponovljeni zahtjev dobiva postojeći
-  // račun i kad se preduvjeti u međuvremenu promijene (npr. istekne certifikat).
-  if (referenca) {
-    const postojeci = await getRacunPoReferenci(db, tenant.id, referenca);
-    if (postojeci) return ishodPostojeceg(postojeci, zahtjevHash);
-  }
-
-  const pp = await getPoslovniProstorByOznaka(db, tenant.id, model.poslovniProstor);
-  if (!pp) return { status: 404, greska: `Poslovni prostor s oznakom '${model.poslovniProstor}' ne postoji` };
-  if (pp.datum_zatvaranja) return { status: 409, greska: `Poslovni prostor '${pp.oznaka}' je zatvoren (${pp.datum_zatvaranja})` };
-
-  // Fiskalni B2C preduvjeti se provjeravaju PRIJE trošenja broja iz sekvence —
-  // izdani fiskalni račun bez certifikata bio bi trajno nefiskalizabilan.
-  if (model.tip === 'FISKALNI_B2C') {
-    if (pp.cis_status !== 'prijavljen') {
-      return {
-        status: 409,
-        greska: `Poslovni prostor '${pp.oznaka}' nije označen kao prijavljen u CIS (prijava ide kroz ePoreznu; označi je u adminu)`,
-      };
-    }
-    const okolina = okolinaIzEnv(env);
-    const cert = await getAktivniCertifikat(db, tenant.id, okolina);
-    if (!cert) return { status: 409, greska: `Tenant nema aktivan certifikat za okolinu '${okolina}' — uploadaj P12 u adminu` };
-    if (!cert.kljuc_pem_encrypted) {
-      return { status: 409, greska: 'Certifikat je spremljen bez izvučenog ključa (prije faze 2) — ponovno ga uploadaj s lozinkom' };
-    }
-    // Istekao cert: račun izdan sada ne bi se mogao fiskalizirati (ni ZKI) — N2.
-    if (cert.not_after && new Date(cert.not_after).getTime() <= Date.now()) {
-      return { status: 409, greska: `Certifikat je istekao ${cert.not_after} — obnovi ga (upload novog P12 u adminu) prije izdavanja fiskalnih računa` };
-    }
-    if (cert.oib_certifikata && cert.oib_certifikata !== tenant.oib) {
-      return { status: 409, greska: `OIB certifikata (${cert.oib_certifikata}) ne odgovara OIB-u tenanta (${tenant.oib}) — CIS bi odbio račun (s005)` };
-    }
-    const sAe = model.stavke.findIndex((s) => s.pdvKategorija === 'AE');
-    if (sAe >= 0) {
-      return {
-        status: 400,
-        greska: 'Validacija nije prošla',
-        detalji: [{ polje: `stavke.${sAe}.pdvKategorija`, poruka: "prijenos porezne obveze ('AE') je B2B mehanizam — ne može na B2C fiskalni račun" }],
-      };
-    }
-  }
-
-  // Storno (Faza 4.3, N6): original istog tenanta, fiskalni, sa ZKI-jem, ne
-  // storniran; iznos se provjerava niže (nakon izračuna). Trigger 0009 čuva
-  // istu granicu i kod utrke dva storna.
-  let original: RacunRow | null = null;
-  if (model.stornoZaId) {
-    if (model.tip !== 'FISKALNI_B2C') {
-      return { status: 400, greska: "stornoZaId je podržan samo za tip 'FISKALNI_B2C'" };
-    }
-    original = await getRacun(db, tenant.id, model.stornoZaId);
-    if (!original) return { status: 404, greska: `Original za storno (id ${model.stornoZaId}) ne postoji` };
-    if (original.tip_dokumenta !== 'fiskalni_b2c') {
-      return { status: 400, greska: `Dokument ${original.broj_racuna_full ?? original.id} nije fiskalni B2C račun — storno je moguć samo za fiskalni račun` };
-    }
-    if (original.storno_racun_id) return { status: 400, greska: 'Original je i sam storno — storno storna nije dopušten' };
-    if (!original.zki) {
-      return { status: 409, greska: `Račun ${original.broj_racuna_full} nema ZKI (fiskalizacija nije ni započela) — prvo ga fiskaliziraj` };
-    }
-    if (original.status === 'storniran') return { status: 409, greska: `Račun ${original.broj_racuna_full} je već u cijelosti storniran` };
-  }
-
-  const nu = await getNaplatniUredajByOznaka(db, pp.id, model.naplatniUredaj);
-  if (!nu) return { status: 404, greska: `Naplatni uređaj s oznakom '${model.naplatniUredaj}' ne postoji u prostoru '${pp.oznaka}'` };
-  if (!nu.aktivan) return { status: 409, greska: `Naplatni uređaj '${nu.oznaka}' je deaktiviran` };
-
-  let operaterId: number | null = null;
-  if (model.operaterOib) {
-    const operater = await getOperaterByOib(db, tenant.id, model.operaterOib);
-    if (!operater) return { status: 404, greska: `Operater s OIB-om '${model.operaterOib}' ne postoji` };
-    if (!operater.aktivan) return { status: 409, greska: `Operater '${model.operaterOib}' je deaktiviran` };
-    operaterId = operater.id;
-  }
-
-  const razrijeseno = await razrijesiStavke(db, tenant.id, model.stavke);
-  if ('greska' in razrijeseno) return { status: 400, greska: 'Validacija nije prošla', detalji: [razrijeseno.greska] };
-
-  // PDV pravila ovisna o tenantu (ne-PDV obveznik, prijenos porezne obveze).
-  const pravila = provjeriPdvPravila(!!tenant.u_sustavu_pdv, razrijeseno.stavke);
-  if (pravila.greske.length) return { status: 400, greska: 'Validacija nije prošla', detalji: pravila.greske };
-  const stavke = pravila.stavke; // normalizirane (ne-PDV → kategorija E, K3)
-
-  let kupacId: number | null = null;
-  if (model.kupac) {
-    kupacId = await findOrCreateKupac(db, tenant.id, {
-      naziv: model.kupac.naziv,
-      oib: model.kupac.oib ?? null,
-      vatNumber: model.kupac.vatNumber ?? null,
-      adrUlica: model.kupac.adresa?.ulica ?? null,
-      adrGrad: model.kupac.adresa?.grad ?? null,
-      adrPostanskiBroj: model.kupac.adresa?.postanskiBroj ?? null,
-      adrDrzava: model.kupac.adresa?.drzava ?? 'HR',
-      email: model.kupac.email ?? null,
-      tip: model.kupac.tip ?? null,
-    });
-  }
-
-  const sada = new Date();
-  const iznosi = izracunajIznose(stavke);
-
-  if (original) {
-    const stornoCenti = uCente(iznosi.iznosSPdv, 'iznosSPdv');
-    if (stornoCenti >= 0) {
-      return { status: 400, greska: 'Storno mora imati negativan ukupni iznos (negativne cijene stavki, pozitivne količine)' };
-    }
-    const vecStornirano = await zbrojStornaCenti(db, original.id);
-    const originalCenti = uCente(original.iznos_s_pdv ?? '0', 'iznosOriginala');
-    if (-(vecStornirano + stornoCenti) > originalCenti) {
-      return {
-        status: 409,
-        greska: `Storno ${izCenti(-stornoCenti)} premašuje preostali iznos računa ${original.broj_racuna_full} (${izCenti(originalCenti + vecStornirano)} od ${izCenti(originalCenti)})`,
-      };
-    }
-  }
-  const stavkeZaUpis: NoviRacunStavka[] = stavke.map((s) => ({
-    naziv: s.naziv,
-    opis: s.opis,
-    kolicina: String(s.kolicina),
-    jedinicaMjere: s.jedinicaMjere,
-    netoCijena: s.netoCijena,
-    popustPosto: s.popustPosto,
-    pdvKategorija: s.pdvKategorija,
-    pdvStopa: s.pdvStopa,
-    kpd: s.kpd,
-    proizvodId: s.proizvodId,
-  }));
-
-  let racun: RacunRow;
-  try {
-    racun = await upisiRacun(db, {
-      tenantId: tenant.id,
-      poslovniProstorId: pp.id,
-      naplatniUredajId: nu.id,
-      operaterId,
-      kupacId,
-      oznakaSlijednosti: tenant.oznaka_slijednosti_def,
-      oznPP: pp.oznaka,
-      oznNU: nu.oznaka,
-      godina: godinaZagreb(sada),
-      datumVrijeme: sada.toISOString(),
-      tipDokumenta: TIP_U_DB[model.tip],
-      sekvencaVrsta: SEKVENCA_ZA_TIP[model.tip],
-      valuta: model.valuta,
-      nacinPlacanja: model.nacinPlacanja.toLowerCase(),
-      datumDospijeca: model.datumDospijeca ?? null,
-      vrijediDo: model.vrijediDo ?? null,
-      datumIsporuke: model.datumIsporuke ?? null,
-      napomena: model.napomena || null,
-      internaBiljeska: model.internaBiljeska || null,
-      uvjeti: model.uvjeti || null,
-      klauzulaPdv: pravila.klauzula,
-      neto: iznosi.neto,
-      iznosBezPdv: iznosi.iznosBezPdv,
-      pdv: iznosi.pdv,
-      iznosSPdv: iznosi.iznosSPdv,
-      dospijevaZaPlacanje: iznosi.dospijevaZaPlacanje,
-      status: model.status,
-      stavke: stavkeZaUpis,
-      pdvRaspodjela: iznosi.raspodjela,
-      stornoRacunId: model.stornoZaId ?? null,
-      vanjskaReferenca: referenca,
-      zahtjevHash,
-    });
-  } catch (e) {
-    // Utrka: istodobni zahtjev s istom referencom upisao je prvi. Batch je
-    // vraćen unatrag u cijelosti (i sekvenca+1) — broj NIJE potrošen.
-    const stornoGreska = stornoGreskaTriggera(e);
-    if (stornoGreska) return { status: 409, greska: `Storno odbijen: ${stornoGreska}` };
-    if (!referenca || !jeSukobReference(e)) throw e;
-    const postojeci = await getRacunPoReferenci(db, tenant.id, referenca);
-    if (!postojeci) throw e;
-    return ishodPostojeceg(postojeci, zahtjevHash);
-  }
-  return { racun, ponovljen: false };
-}
-
-// Izdavanje dokumenta (faza 1: nefiskalni — PONUDA, PREDRACUN, RACUN).
-apiV1.post('/racun', async (c) => {
+// Izdavanje dokumenta (svi tipovi iz TIP_U_DB; FISKALNI_B2C se fiskalizira odmah).
+racuniRute.post('/racun', async (c) => {
   let body: unknown;
   try {
     body = await c.req.json();
@@ -464,8 +46,6 @@ apiV1.post('/racun', async (c) => {
   return izdajIOdgovori(c, model);
 });
 
-type ApiKontekst = Context<{ Bindings: Env; Variables: ApiVarijable }>;
-
 // Idempotency-Key zaglavlje = isto što i polje vanjskaReferenca (Faza 4.1).
 // Vraća grešku (400) ili null; spaja ključ u model.
 function spojiIdempotencijskiKljuc(c: ApiKontekst, model: RacunModel): Response | null {
@@ -483,10 +63,9 @@ function spojiIdempotencijskiKljuc(c: ApiKontekst, model: RacunModel): Response 
 }
 
 // Izdavanje + (za FISKALNI_B2C) sinkroni pokušaj fiskalizacije + JSON odgovor.
-// Zajedničko za POST /racun i POST /racun/:id/storno.
+// Zajedničko za POST /racun i POST /racun/:id/storno; logika je u izdajDokument.
 async function izdajIOdgovori(c: ApiKontekst, model: RacunModel): Promise<Response> {
-  const tenant = c.get('tenant');
-  const rezultat = await kreirajDokument(c.env, tenant, model);
+  const rezultat = await izdajDokument(c.env, c.get('tenant'), model);
   if ('greska' in rezultat) {
     return c.json(
       {
@@ -494,7 +73,7 @@ async function izdajIOdgovori(c: ApiKontekst, model: RacunModel): Promise<Respon
         ...(rezultat.detalji ? { detalji: rezultat.detalji } : {}),
         ...(rezultat.racunId ? { racunId: rezultat.racunId } : {}),
       },
-      rezultat.status,
+      HTTP_ZA_VRSTU[rezultat.vrsta],
     );
   }
   // Ponovljeni zahtjev: postojeći dokument, bez ponovne fiskalizacije (JIR
@@ -503,18 +82,11 @@ async function izdajIOdgovori(c: ApiKontekst, model: RacunModel): Promise<Respon
     c.header('Idempotent-Replay', 'true');
     return c.json(await racunUOdgovor(c.env.DB, rezultat.racun), 200);
   }
-
-  // Fiskalni B2C: ZKI + pokušaj JIR-a odmah (CIS cilja < 2 s). Ako CIS ne
-  // odgovori, račun OSTAJE izdan (ZKI je dovoljan) — JIR stiže naknadnom
-  // dostavom (cron sweep ili POST /racun/:id/fiskaliziraj).
-  if (model.tip === 'FISKALNI_B2C') {
-    const fiskal = await fiskalizirajRacun(c.env, tenant.id, rezultat.racun.id).catch((e) => ({
-      ok: false as const, greska: `Fiskalizacija nije uspjela: ${(e as Error).message}`, retryable: true,
-    }));
-    const svjezi = (await getRacun(c.env.DB, tenant.id, rezultat.racun.id)) ?? rezultat.racun;
+  const fiskal = rezultat.fiskalizacija;
+  if (fiskal) {
     return c.json(
       {
-        ...(await racunUOdgovor(c.env.DB, svjezi)),
+        ...(await racunUOdgovor(c.env.DB, rezultat.racun)),
         fiskalizacija: fiskal.ok
           ? { status: 'fiskaliziran' }
           : { status: 'ceka_jir', greska: fiskal.greska ?? null, automatskiRetry: fiskal.retryable ?? false },
@@ -545,10 +117,10 @@ const stornoTijeloShema = z.object({
     .optional(),
 });
 
-apiV1.post('/racun/:id/storno', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
-  const tijelo = await c.req.json().catch(() => ({}));
+racuniRute.post('/racun/:id/storno', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
+  const tijelo = await jsonTijelo(c);
   const p = stornoTijeloShema.safeParse(tijelo);
   if (!p.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(p.error) }, 400);
 
@@ -621,9 +193,9 @@ apiV1.post('/racun/:id/storno', async (c) => {
 });
 
 // Ručno okidanje (naknadne) fiskalizacije — npr. nakon ispravka certifikata.
-apiV1.post('/racun/:id/fiskaliziraj', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+racuniRute.post('/racun/:id/fiskaliziraj', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const tenant = c.get('tenant');
   const racun = await getRacun(c.env.DB, tenant.id, id);
   if (!racun) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
@@ -644,9 +216,9 @@ apiV1.post('/racun/:id/fiskaliziraj', async (c) => {
 });
 
 // Izdavanje skice: dodijeli broj + status 'izdano'.
-apiV1.post('/racun/:id/izdaj', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+racuniRute.post('/racun/:id/izdaj', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const tenant = c.get('tenant');
   const k = await getRacunKontekst(c.env.DB, tenant.id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
@@ -669,16 +241,16 @@ apiV1.post('/racun/:id/izdaj', async (c) => {
   return c.json(await racunUOdgovor(c.env.DB, izdan));
 });
 
-apiV1.get('/racun/:id', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+racuniRute.get('/racun/:id', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const racun = await getRacun(c.env.DB, c.get('tenant').id, id);
   if (!racun) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
   return c.json(await racunUOdgovor(c.env.DB, racun));
 });
 
 // PDF vizualizacija dokumenta.
-apiV1.get('/racun/:id/pdf', async (c) => {
+racuniRute.get('/racun/:id/pdf', async (c) => {
   const id = Number(c.req.param('id'));
   const k = await getRacunKontekst(c.env.DB, c.get('tenant').id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
@@ -693,7 +265,7 @@ apiV1.get('/racun/:id/pdf', async (c) => {
 });
 
 // Slanje dokumenta e-mailom (PDF privitak). Body: { "na": "adresa" } — default kupčev email.
-apiV1.post('/racun/:id/posalji', async (c) => {
+racuniRute.post('/racun/:id/posalji', async (c) => {
   if (!emailKonfiguriran(c.env)) {
     return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
   }
@@ -703,8 +275,8 @@ apiV1.post('/racun/:id/posalji', async (c) => {
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
   if (k.racun.status === 'nacrt') return c.json({ greska: 'Skica se ne šalje — prvo izdaj dokument (POST /racun/:id/izdaj)' }, 409);
 
-  const body = await c.req.json().catch(() => ({}));
-  const na = String((body as Record<string, unknown>).na ?? '').trim() || k.kupac?.email || '';
+  const body = await jsonTijelo(c);
+  const na = String(body.na ?? '').trim() || k.kupac?.email || '';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(na)) {
     return c.json({ greska: "Nema valjane adrese primatelja — pošalji { \"na\": \"adresa@primjer.hr\" } ili postavi email kupca" }, 400);
   }
@@ -723,9 +295,9 @@ apiV1.post('/racun/:id/posalji', async (c) => {
 
 // Slanje eRačuna (B2B/B2G) preko posrednika doku. Tenant mora imati doku token
 // (admin) i kupca s OIB-om. doku gradi/potpisuje/šalje UBL svojim certom.
-apiV1.post('/racun/:id/posalji-eracun', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+racuniRute.post('/racun/:id/posalji-eracun', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const ishod = await posaljiEracun(c.env, c.get('tenant').id, id);
   if (!ishod.ok) return c.json({ ok: false, greska: ishod.greska }, 502);
   return c.json({
@@ -738,17 +310,17 @@ apiV1.post('/racun/:id/posalji-eracun', async (c) => {
 });
 
 // Osvježi status razmjene/naplate iz doku-a (poll).
-apiV1.get('/racun/:id/eracun-status', async (c) => {
-  const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+racuniRute.get('/racun/:id/eracun-status', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const ishod = await osvjeziEracunStatus(c.env, c.get('tenant').id, id);
   if (!ishod.ok) return c.json({ ok: false, greska: ishod.greska }, 502);
   return c.json({ ok: true, dokuId: ishod.dokuId, eracunStatus: ishod.status });
 });
 
 // Provjera je li primatelj registriran za eDelivery (AMS lookup preko doku-a).
-apiV1.post('/eracun/provjeri-primatelja', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+racuniRute.post('/eracun/provjeri-primatelja', async (c) => {
+  const body = await jsonTijelo(c);
   const oib = String(body.oib ?? '').trim();
   if (!validanOib(oib)) return c.json({ greska: 'Pošalji { "oib": "…" } s valjanim OIB-om (11 znamenki)' }, 400);
   const r = await provjeriPrimatelja(c.env, c.get('tenant').id, oib);
@@ -756,23 +328,9 @@ apiV1.post('/eracun/provjeri-primatelja', async (c) => {
   return c.json({ ok: true, oib, registriran: r.registriran, mpsEndpoint: r.mpsEndpoint });
 });
 
-// Paginacija: neispravan limit/offset je 400 (prije: NaN → 500).
-const cijeliBroj = (naziv: string, min: number, max: number, zadano: number) =>
-  z
-    .string()
-    .optional()
-    .transform((v, ctx) => {
-      if (v === undefined || v.trim() === '') return zadano;
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < min || n > max) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${naziv} mora biti cijeli broj u rasponu [${min}, ${max}]` });
-        return z.NEVER;
-      }
-      return n;
-    });
 const popisUpitShema = z.object({ limit: cijeliBroj('limit', 1, 200, 50), offset: cijeliBroj('offset', 0, 1_000_000, 0) });
 
-apiV1.get('/racun', async (c) => {
+racuniRute.get('/racun', async (c) => {
   // Klijent nakon timeouta provjerava je li račun nastao: točno jedan ili 404.
   const referenca = c.req.query('vanjskaReferenca');
   if (referenca !== undefined) {
@@ -791,208 +349,8 @@ apiV1.get('/racun', async (c) => {
     tip: c.req.query('tip') || undefined,
   });
   return c.json({
-    racuni: racuni.map((r) => ({
-      id: r.id,
-      vanjskaReferenca: r.vanjska_referenca,
-      brojRacuna: r.broj_racuna_full,
-      tip: r.tip_dokumenta,
-      status: r.status,
-      datumVrijeme: r.datum_vrijeme,
-      valuta: r.valuta,
-      iznosSPdv: r.iznos_s_pdv,
-      zki: r.zki,
-      jir: r.jir,
-      ...(r.tip_dokumenta === 'fiskalni_b2c' ? { fiskalizacija: { status: fiskalizacijaIzRetka(r).status } } : {}),
-      stornoZaId: r.storno_racun_id,
-    })),
+    racuni: racuni.map(racunUPopis),
     limit,
     offset,
   });
 });
-
-// ── Proizvodi (katalog) + KPD pretraga ──
-
-apiV1.get('/proizvod', async (c) => {
-  const proizvodi = await listProizvodi(c.env.DB, c.get('tenant').id);
-  return c.json({
-    proizvodi: proizvodi.map((p) => ({
-      id: p.id, naziv: p.naziv, sifra: p.sifra, jedinicaMjere: p.jedinica_mjere,
-      netoCijena: p.neto_cijena, pdvStopa: p.pdv_stopa, pdvKategorija: p.pdv_kategorija,
-      kpd: p.kpd, aktivan: !!p.aktivan,
-    })),
-  });
-});
-
-apiV1.get('/kpd', async (c) => {
-  const q = c.req.query('q') ?? '';
-  if (q.trim().length < 2) return c.json({ greska: "Parametar 'q' mora imati barem 2 znaka" }, 400);
-  const l = cijeliBroj('limit', 1, 100, 20).safeParse(c.req.query('limit'));
-  if (!l.success) return c.json({ greska: 'Validacija nije prošla', detalji: formatirajGreske(l.error).map((g) => ({ ...g, polje: 'limit' })) }, 400);
-  return c.json({ rezultati: await searchKpd(c.env.DB, q, l.data) });
-});
-
-// ── Postavke (prostori / uređaji / operateri) — self-service za dashboard ──
-// Uloge (v1, minimalno): vlasnik/knjigovodja = puni pristup; operater smije
-// izdavati/fiskalizirati, ali NE mijenjati postavke. Mašinski dfk_ ključ
-// (bez korisnika) je tenant-scoped puni pristup — bez dodatnih ograničenja.
-
-function operaterBezPostavki(c: { get: (k: 'korisnik') => ApiVarijable['korisnik'] }): boolean {
-  return c.get('korisnik')?.uloga === 'operater';
-}
-
-apiV1.get('/postavke', async (c) => {
-  const tenant = c.get('tenant');
-  const [prostori, uredjaji, operateri] = await Promise.all([
-    listPoslovniProstori(c.env.DB, tenant.id),
-    listNaplatniUredjaji(c.env.DB, tenant.id),
-    listOperateri(c.env.DB, tenant.id),
-  ]);
-  return c.json({
-    tenant: { id: tenant.id, oib: tenant.oib, naziv: tenant.naziv, uSustavuPdv: !!tenant.u_sustavu_pdv },
-    prostori: prostori.map((p) => ({
-      id: p.id, oznaka: p.oznaka, ulica: p.adr_ulica, naselje: p.adr_naselje,
-      primjenaOd: p.datum_pocetka_primjene, zatvoren: p.datum_zatvaranja, cisStatus: p.cis_status,
-    })),
-    uredjaji: uredjaji.map((u) => ({
-      id: u.id, prostorOznaka: u.pp_oznaka, oznaka: u.oznaka, opis: u.opis, aktivan: !!u.aktivan,
-    })),
-    operateri: operateri.map((o) => ({ id: o.id, oib: o.oib_operatera, ime: o.ime, aktivan: !!o.aktivan })),
-  });
-});
-
-apiV1.post('/postavke/prostor', async (c) => {
-  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const oznaka = normalizirajTekst(String(body.oznaka ?? ''));
-  const primjenaOd = String(body.primjenaOd ?? '').trim();
-  if (!oznaka || !/^\d{4}-\d{2}-\d{2}$/.test(primjenaOd)) {
-    return c.json({ greska: "Obavezno: 'oznaka' i 'primjenaOd' (YYYY-MM-DD)" }, 400);
-  }
-  try {
-    const p = await createPoslovniProstor(c.env.DB, c.get('tenant').id, {
-      oznaka,
-      adrUlica: String(body.ulica ?? '').trim() || null,
-      adrNaselje: String(body.naselje ?? '').trim() || null,
-      datumPocetkaPrimjene: primjenaOd,
-    });
-    return c.json({ id: p.id, oznaka: p.oznaka }, 201);
-  } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Prostor '${oznaka}' već postoji` }, 409);
-    throw e;
-  }
-});
-
-apiV1.post('/postavke/uredjaj', async (c) => {
-  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const prostorOznaka = String(body.prostorOznaka ?? '').trim();
-  const oznaka = normalizirajTekst(String(body.oznaka ?? ''));
-  if (!prostorOznaka || !oznaka) return c.json({ greska: "Obavezno: 'prostorOznaka' i 'oznaka'" }, 400);
-  const pp = await getPoslovniProstorByOznaka(c.env.DB, c.get('tenant').id, prostorOznaka);
-  if (!pp) return c.json({ greska: `Poslovni prostor '${prostorOznaka}' ne postoji` }, 404);
-  try {
-    const u = await createNaplatniUredaj(c.env.DB, pp.id, { oznaka, opis: String(body.opis ?? '').trim() || null });
-    return c.json({ id: u.id, oznaka: u.oznaka }, 201);
-  } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Uređaj '${oznaka}' već postoji u tom prostoru` }, 409);
-    throw e;
-  }
-});
-
-apiV1.post('/postavke/operater', async (c) => {
-  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const oib = String(body.oib ?? '').trim();
-  if (!validanOib(oib)) return c.json({ greska: `OIB operatera '${oib}' nije valjan` }, 400);
-  try {
-    const o = await createOperater(c.env.DB, c.get('tenant').id, {
-      oibOperatera: oib,
-      ime: normalizirajTekst(String(body.ime ?? '')) || null,
-    });
-    return c.json({ id: o.id, oib: o.oib_operatera }, 201);
-  } catch (e) {
-    if (String(e).includes('UNIQUE')) return c.json({ greska: `Operater ${oib} već postoji` }, 409);
-    throw e;
-  }
-});
-
-// Status fiskalizacije iz retka — za GET (poll JIR-a), popis i ponovljeni zahtjev.
-export function fiskalizacijaIzRetka(r: RacunRow): { status: 'fiskaliziran' | 'ceka_jir'; greska?: string | null; automatskiRetry?: boolean } {
-  if (r.jir) return { status: 'fiskaliziran' };
-  return { status: 'ceka_jir', greska: r.fiskal_greska, automatskiRetry: r.fiskal_pokusaja === 0 || r.fiskal_nak_dost === 1 };
-}
-
-// Puni JSON prikaz dokumenta (za 201 i GET po id-u).
-async function racunUOdgovor(db: D1Database, r: RacunRow) {
-  const [stavke, raspodjela] = await Promise.all([getStavke(db, r.id), getPdvRaspodjela(db, r.id)]);
-  return {
-    id: r.id,
-    vanjskaReferenca: r.vanjska_referenca,
-    brojRacuna: r.broj_racuna_full, // null za skicu
-    redniBroj: r.redni_broj,
-    godina: r.godina,
-    tip: r.tip_dokumenta,
-    status: r.status,
-    datumVrijeme: r.datum_vrijeme,
-    datumDospijeca: r.datum_dospijeca,
-    vrijediDo: r.vrijedi_do,
-    datumIsporuke: r.datum_isporuke,
-    valuta: r.valuta,
-    nacinPlacanja: r.nacin_placanja,
-    placanje: r.broj_racuna_full ? { model: r.model_placanja, pozivNaBroj: r.poziv_na_broj } : null,
-    iznosi: {
-      neto: r.neto,
-      iznosBezPdv: r.iznos_bez_pdv,
-      pdv: r.pdv,
-      iznosSPdv: r.iznos_s_pdv,
-      dospijevaZaPlacanje: r.dospijeva_za_placanje,
-    },
-    klauzulaPdv: r.klauzula_pdv,
-    napomena: r.napomena,
-    pdvRaspodjela: raspodjela.map((p) => ({
-      kategorija: p.kategorija_pdv,
-      stopa: p.stopa,
-      oporeziviIznos: p.oporezivi_iznos,
-      iznosPoreza: p.iznos_poreza,
-    })),
-    stavke: stavke.map((s) => ({
-      redniBroj: s.redni_broj,
-      naziv: s.naziv,
-      kolicina: s.kolicina,
-      jedinicaMjere: s.jedinica_mjere,
-      netoCijena: s.neto_cijena,
-      popustPosto: s.popust_posto,
-      pdvKategorija: s.pdv_kategorija,
-      pdvStopa: s.pdv_stopa,
-      kpd: s.kpd,
-      proizvodId: s.proizvod_id,
-    })),
-    pdf: `/api/v1/racun/${r.id}/pdf`,
-    poslanoEmail: r.poslano_email_ts ? { kada: r.poslano_email_ts, na: r.poslano_email_na } : null,
-    // Fiskalizacija (faza 2) — popunjeno samo za tip fiskalni_b2c.
-    zki: r.zki,
-    jir: r.jir,
-    fiskalniQr: r.qr_payload,
-    ...(r.tip_dokumenta === 'fiskalni_b2c'
-      ? {
-          fiskalizacija: fiskalizacijaIzRetka(r),
-          fiskalGreska: r.fiskal_greska,
-          fiskalPokusaja: r.fiskal_pokusaja,
-          naknadnaDostava: !!r.fiskal_nak_dost,
-          stornoZaId: r.storno_racun_id,
-        }
-      : {}),
-    // eRačun 2.0 (doku) — popunjeno samo za eracun_b2b/eracun_b2g.
-    ...(r.tip_dokumenta === 'eracun_b2b' || r.tip_dokumenta === 'eracun_b2g'
-      ? {
-          eracun: {
-            dokuId: r.doku_id,
-            status: r.eracun_status,
-            deliveryBlock: r.eracun_delivery_block,
-            zadnjaProvjera: r.eracun_zadnja_provjera,
-            greska: r.eracun_greska,
-          },
-        }
-      : {}),
-  };
-}

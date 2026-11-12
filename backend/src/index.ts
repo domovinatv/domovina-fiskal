@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { admin } from './admin/app';
-import { apiV1 } from './api/racuni';
+import { apiV1 } from './api';
 import { brojaci, dohvatiStanje, racuniBezJiraStarijiOd } from './db';
 import { obradiAlarme, provjeriCisEcho } from './alarmi';
 import { okolinaIzEnv, sweepNaknadnaDostava } from './fiskal/fiskalizacija';

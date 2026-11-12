@@ -627,4 +627,8 @@ Ukupno ~10 h rada; razumno je podijeliti u dvije sesije (0–4, pa 5–8) s
 | K2 | `142735b` | minimalno: admin ruta zove `fiskalizirajRacun` nakon `kreirajDokument`; zajednički `izdajDokument` ostaje za korak 2. |
 | K4 | `2ebeed2` | `iznosShema` → `izCenti(uCente(v))`, `kolicina` → novi `izTisucinki` (bez repnih nula: `'2'`, `'2.5'`). Stroga validacija decimala nepromijenjena. |
 
-Ostali koraci §6 (0, 1, 2, 4–8) nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+| Korak 0 / K1 | `a179d52`, `fdd2584`, `44a2bbf` | CI (`.github/workflows/ci.yml`, Node 24: npm 10 iz Node 22 odbija lockfile zbog opcionalnog peera `workers-types@^5`). Bez K1 CI pada na `fina-demo-ca-2020.pem` (dokaz). PEM-ovi u gitu, `src/fiskal/ca/README.md` (AIA izvor, otisci; poklapaju se s Fininim URL-ovima 12. 11. 2026.), `test/fina-ca.test.ts`. |
+| Korak 1 | `d2cb347` | `src/db/{tenant,prostor,certifikat,doku,racun,fiskal,nadzor,katalog}.ts` + barrel `index.ts`. Skriptom, provjereno da je svaki redak u točno jednom modulu. `db/greske.ts` nije napravljen (prazan bi bio; nastaje u koraku 7 sa S4). |
+| Korak 2 | refactor(api) | `api/{index,auth,tipovi,pomocno,serializacija,racuni,postavke,katalog}.ts`, `dokumenti/izdavanje.ts` s `izdajDokument` (kreiranje + sinkrona fiskalizacija) koji zovu i API i admin (K2 preseljen). Servis vraća `vrsta: 'validacija' \| 'ne_postoji' \| 'sukob'`; API → 400/404/409, admin → status forme. Proizvodi/KPD su u `api/katalog.ts` (plan ih nije smjestio). `idIzParametra` zamjenjuje samo postojeće provjere; rute bez provjere (`pdf`, `posalji`) ostaju za K13. Jedina vidljiva razlika: admin poruka kad fiskalizacija baci iznimku sada ima prefiks „Fiskalizacija nije uspjela:” kao API. |
+
+Koraci 3 (K21) i 4–8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.

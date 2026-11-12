@@ -46,7 +46,7 @@ import { cisEcho, fiskalizirajRacun, okolinaIzEnv } from '../fiskal/fiskalizacij
 import { parsirajP12 } from '../fiskal/certifikat';
 import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
-import { kreirajDokument } from '../api/racuni';
+import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { ENC_KEY_ID, enkriptirajCertifikat, enkriptirajTajnu } from '../kripto';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
@@ -506,7 +506,10 @@ admin.get('/api/kpd', async (c) => {
   return c.json({ rezultati: await searchKpd(c.env.DB, q, 15) });
 });
 
-// ───────────────────────── Novi dokument (forma → kreirajDokument) ─────────────────────────
+// ───────────────────────── Novi dokument (forma → izdajDokument) ─────────────────────────
+
+// Vrsta greške servisa izdavanja → HTTP status stranice s formom.
+const STATUS_ZA_VRSTU: Record<GreskaVrsta, 400 | 404 | 409> = { validacija: 400, ne_postoji: 404, sukob: 409 };
 
 admin.get('/tenant/:id/dokument/novi', async (c) => {
   const tenantId = Number(c.req.param('id'));
@@ -596,19 +599,16 @@ admin.post('/tenant/:id/dokument/novi', async (c) => {
     const detalji = formatirajGreske(parsed.error).map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
     return ponovnaForma(detalji, 400);
   }
-  const rezultat = await kreirajDokument(c.env, tenant, parsed.data);
+  // izdajDokument fiskalni B2C fiskalizira ODMAH, kao API (K2): ZKI mora biti
+  // na računu u trenutku izdavanja; JIR ako CIS odgovori, inače ga dovršava
+  // sweep naknadne dostave.
+  const rezultat = await izdajDokument(c.env, tenant, parsed.data);
   if ('greska' in rezultat) {
     const detalji = rezultat.detalji?.map((g) => `${g.polje}: ${g.poruka}`).join(' · ');
-    return ponovnaForma(detalji ? `${rezultat.greska} — ${detalji}` : rezultat.greska, rezultat.status);
+    return ponovnaForma(detalji ? `${rezultat.greska} — ${detalji}` : rezultat.greska, STATUS_ZA_VRSTU[rezultat.vrsta]);
   }
-  // K2 (pregled 2026-10-02): fiskalni B2C se fiskalizira ODMAH, kao na API-ju —
-  // ZKI mora biti na računu u trenutku izdavanja; JIR ako CIS odgovori, inače
-  // ga dovršava sweep naknadne dostave. (Refactor korak 2 ovo seli u zajednički
-  // servis izdajDokument.)
-  if (parsed.data.tip === 'FISKALNI_B2C' && !rezultat.ponovljen) {
-    const ishod = await fiskalizirajRacun(c.env, tenant.id, rezultat.racun.id).catch((e) => ({
-      ok: false as const, greska: (e as Error).message, jir: undefined,
-    }));
+  const ishod = rezultat.fiskalizacija;
+  if (ishod) {
     const poruka = ishod.ok ? `Izdano i fiskalizirano — JIR ${ishod.jir}` : `Izdano sa ZKI-jem, JIR čeka naknadnu dostavu: ${ishod.greska}`;
     return c.redirect(`/admin/racun/${rezultat.racun.id}?ok=${encodeURIComponent(poruka)}`, 303);
   }
