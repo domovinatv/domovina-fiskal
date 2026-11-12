@@ -60,16 +60,21 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   s brojčanom oznakom `2`. Storno ne-PDV računa (negativan `IznosOslobPdv`) →
   JIR. Retry s `"10.0"` umjesto `10` → 200 replay. Admin „Novi dokument" → JIR
   odmah (redirect s porukom).
-- ⏭️ PROD deploy ovih popravaka čeka izričito odobrenje vlasnika.
+- ✅ PROD: K2/K3/K4 otišli na PROD 2026-11-12 zajedno s deployem admin prijave (verzija
+  `77f1d48d`, isti `main`).
 - ✅ **Admin prijava Cloudflare Access (OTP) + passkey** umjesto Basic Autha (2026-11-12),
   SPOT [`docs/knowledge/20-admin-prijava.md`](docs/knowledge/20-admin-prijava.md). Migracija
   **`0010_admin_prijava`** je zauzeta → refactor (§6 korak 6) uzima **`0011`**. Access
   aplikacija „Fiskal admin (sso)” + politika „Fiskal admini” na D.O.M. računu (obje
   destinacije, TEST i PROD). **TEST deployan** (migracija, `ADMIN_EMAILS`,
   `ADMIN_SKRIPTA_TOKEN` → `secrets/fiskal-test-admin.env`). **Basic Auth uklonjen
-  2026-11-12** (kod zakomentiran u `zastita.ts`). ⏭️ PROD (migracija `fiskal_domovina`, secreti, `ADMIN_SKRIPTA_TOKEN_PROD` u
-  `backend/.tajne/lozinke.env`, deploy) čeka izričito odobrenje. PROD
-  deploy ukida Basic Auth i na PROD-u — prije toga postaviti `ADMIN_EMAILS` i token.
+  2026-11-12** (kod zakomentiran u `zastita.ts`). TEST: passkey prijava provjerena
+  (`last_used_at` upisan), secreti `ADMIN_USER`/`ADMIN_PASS` obrisani.
+- ✅ **PROD deployan 2026-11-12** (verzija `77f1d48d`): migracija 0010 na `fiskal_domovina`,
+  `ADMIN_EMAILS`, novi `ADMIN_SKRIPTA_TOKEN` (= `ADMIN_SKRIPTA_TOKEN_PROD` u
+  `backend/.tajne/lozinke.env`). Smoke: `/admin` → 302 `/admin/login`, `/admin/sso` → Access,
+  bearer 200, krivi bearer 401, Basic → 302. ⏭️ Vlasnik: prijava kodom + passkey na
+  fiskal.domovina.ai (passkey je po hostu); obrisati PROD `ADMIN_USER`/`ADMIN_PASS`.
   ⚠️ `wrangler d1 migrations apply` je jednom vratio 7403 i uz `CLOUDFLARE_ACCOUNT_ID`;
   ponovljeni poziv je prošao (prolazna greška, ne konfiguracija).
 
