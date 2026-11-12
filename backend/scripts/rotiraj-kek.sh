@@ -32,7 +32,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$OKOLINA" == "test" || "$OKOLINA" == "prod" ]] || { echo "Upotreba: $0 --okolina test|prod [--stari-iz-dev-vars]" >&2; exit 1; }
-[[ -r /dev/tty ]] || { echo "ODBIJENO: rotacija traži interaktivni terminal." >&2; exit 1; }
+# -r /dev/tty nije dovoljno: pod Claude Codeovim `!` datoteka postoji, ali je
+# otvaranje javi „Device not configured” (2026-11-12) — zato stvarno otvori.
+{ : < /dev/tty; } 2>/dev/null || { echo "ODBIJENO: rotacija traži interaktivni terminal (pokreni u Terminalu, ne kroz Claude Code '!')." >&2; exit 1; }
 command -v openssl >/dev/null && command -v jq >/dev/null || { echo "Trebaju openssl i jq." >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
