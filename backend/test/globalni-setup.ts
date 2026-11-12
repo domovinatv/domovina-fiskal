@@ -16,6 +16,10 @@ export interface TestniCertifikat {
   issuerDn: string;
   serialDec: string;
   p12B64: string; // P12 (3DES, kao FINA) s ključem i certifikatom, lozinka P12_LOZINKA
+  // AKD/Certilia oblik: isti RSA ključ, ali leaf „potpisan” ECDSA-om (OID
+  // ecdsa-with-SHA256, nasumični potpis) — forge ne popuni bag.cert, nego bag.asn1.
+  p12AkdB64: string;
+  certAkdPem: string;
   zkiVektor: { ulaz: { oib: string; datVrijIso: string; brOznRac: string; oznPosPr: string; oznNapUr: string; iznosUkupno: string }; medjurezultat: string; zki: string };
 }
 
@@ -52,8 +56,24 @@ export function generirajTestniCertifikat(): TestniCertifikat {
   const p12Asn1 = forge.pkcs12.toPkcs12Asn1(forge.pki.privateKeyFromPem(kljucPem), [cert], P12_LOZINKA, { algorithm: '3des' });
   const p12B64 = forge.util.encode64(forge.asn1.toDer(p12Asn1).getBytes());
 
+  const akd = forge.pki.createCertificate();
+  akd.publicKey = cert.publicKey;
+  akd.serialNumber = '7f0e0d';
+  akd.validity.notBefore = cert.validity.notBefore;
+  akd.validity.notAfter = cert.validity.notAfter;
+  akd.setSubject([{ shortName: 'C', value: 'HR' }, { shortName: 'O', value: `TESTNI OBRT HR${TEST_OIB}` }, { shortName: 'CN', value: 'AKD TEST' }]);
+  akd.setIssuer([{ shortName: 'C', value: 'HR' }, { shortName: 'O', value: 'AKD d.o.o.' }, { shortName: 'CN', value: 'TEST EC CA' }]);
+  akd.sign(forge.pki.privateKeyFromPem(kljucPem), forge.md.sha256.create());
+  const ECDSA_SHA256 = '1.2.840.10045.4.3.2';
+  akd.signatureOid = ECDSA_SHA256;
+  (akd as unknown as { siginfo: { algorithmOid: string } }).siginfo.algorithmOid = ECDSA_SHA256;
+  akd.signature = forge.random.getBytesSync(72);
+  const p12AkdAsn1 = forge.pkcs12.toPkcs12Asn1(forge.pki.privateKeyFromPem(kljucPem), [akd], P12_LOZINKA, { algorithm: '3des' });
+
   return {
     kljucPem,
+    p12AkdB64: forge.util.encode64(forge.asn1.toDer(p12AkdAsn1).getBytes()),
+    certAkdPem: forge.pki.certificateToPem(akd),
     p12B64,
     certPem: forge.pki.certificateToPem(cert),
     issuerDn: `CN=FISKAL TEST 1,O=TESTNI OBVEZNIK D.O.O. HR${TEST_OIB},C=HR`,

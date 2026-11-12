@@ -15,6 +15,16 @@ describe('parsirajP12', () => {
     expect(p.issuerDn).toBe(tc.issuerDn);
   });
 
+  it('AKD-oblik P12 (ECDSA-potpisan leaf: forge popuni bag.asn1, ne bag.cert)', () => {
+    const akd = Uint8Array.from(atob(tc.p12AkdB64), (z) => z.charCodeAt(0)).buffer;
+    const p = parsirajP12(akd, P12_LOZINKA);
+    expect(p.oib).toBe(TEST_OIB);
+    expect(p.serialDec).toBe(BigInt('0x7f0e0d').toString(10));
+    expect(p.issuerDn).toContain('TEST EC CA');
+    expect(p.certPem.replace(/\s+/g, '')).toBe(tc.certAkdPem.replace(/\s+/g, ''));
+    expect(p.privatniKljucPem).toContain('BEGIN PRIVATE KEY');
+  });
+
   it('kriva lozinka → jasna greška', () => {
     expect(() => parsirajP12(p12, 'kriva')).toThrow(/pogrešna lozinka|oštećena/);
   });
