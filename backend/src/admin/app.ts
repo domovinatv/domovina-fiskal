@@ -312,6 +312,7 @@ admin.post(`/tenant/:id${ID}/kljucevi/:kid${ID}/:akcija`, async (c) => {
 
 // Upload certifikata (faza 2): P12 + LOZINKA se parsiraju u memoriji zahtjeva
 // (node-forge) → privatni ključ (PKCS8) enkriptiran at-rest, cert PEM plaintext.
+// Sam P12 se ne sprema (K16, 0011) — ostaje samo SHA-256 otisak.
 // Lozinka se NE sprema; plaintext ključ nikad ne napušta memoriju zahtjeva.
 admin.post(`/tenant/:id${ID}/certifikati`, async (c) => {
   const tenantId = Number(c.req.param('id'));
@@ -343,12 +344,10 @@ admin.post(`/tenant/:id${ID}/certifikati`, async (c) => {
       );
     }
     const otisak = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', p12)));
-    const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, p12, parsirano.privatniKljucPem);
+    const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, parsirano.privatniKljucPem);
     await createCertifikat(c.env.DB, tenantId, {
       okolina,
-      pkcs12Encrypted: enc.pkcs12Encrypted,
       encKeyId: ENC_KEY_ID,
-      encIv: enc.encIv,
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: otisak,

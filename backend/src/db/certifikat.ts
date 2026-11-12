@@ -1,4 +1,4 @@
-// D1 pristupni sloj — Certifikati tenanata (P12 materijal, enkriptiran at-rest).
+// D1 pristupni sloj — Certifikati tenanata (privatni ključ enkriptiran at-rest; P12 se ne čuva, K16).
 // Svi upiti su scoped na tenant_id gdje ima smisla (multi-tenant izolacija je ovdje).
 
 import type {
@@ -12,9 +12,7 @@ export async function createCertifikat(
   tenantId: number,
   c: {
     okolina: 'test' | 'prod';
-    pkcs12Encrypted: ArrayBuffer;
     encKeyId: string;
-    encIv: string;
     dekWrapped: string;
     dekIv: string;
     fingerprintSha256: string;
@@ -39,15 +37,15 @@ export async function createCertifikat(
       .bind(tenantId, c.okolina),
     db
       .prepare(
-        `INSERT INTO certifikat (tenant_id, okolina, pkcs12_encrypted, enc_key_id, enc_iv,
+        `INSERT INTO certifikat (tenant_id, okolina, enc_key_id,
                                  dek_wrapped, dek_iv, fingerprint_sha256,
                                  kljuc_pem_encrypted, kljuc_iv, cert_pem, cert_issuer,
                                  cert_serial_dec, oib_certifikata, subject_dn, serial,
                                  not_before, not_after)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
-        tenantId, c.okolina, c.pkcs12Encrypted, c.encKeyId, c.encIv,
+        tenantId, c.okolina, c.encKeyId,
         c.dekWrapped, c.dekIv, c.fingerprintSha256,
         c.kljucPemEncrypted, c.kljucIv, c.certPem, c.certIssuer,
         c.certSerialDec, c.oibCertifikata, c.subjectDn, c.serialHex,

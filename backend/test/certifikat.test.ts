@@ -19,3 +19,14 @@ describe('parsirajP12', () => {
     expect(() => parsirajP12(p12, 'kriva')).toThrow(/pogrešna lozinka|oštećena/);
   });
 });
+
+describe('K16: P12 se ne čuva', () => {
+  it('tablica certifikat nema pkcs12_encrypted ni enc_iv; potpis radi iz kljuc_pem_encrypted', async () => {
+    const { env } = await import('cloudflare:test');
+    const stupci = await (env as { DB: D1Database }).DB.prepare(`PRAGMA table_info(certifikat)`).all<{ name: string }>();
+    const imena = stupci.results.map((s) => s.name);
+    expect(imena).not.toContain('pkcs12_encrypted');
+    expect(imena).not.toContain('enc_iv');
+    expect(imena).toContain('kljuc_pem_encrypted');
+  });
+});

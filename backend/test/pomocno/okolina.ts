@@ -63,13 +63,11 @@ export async function napraviTenanta(
 
   if (opcije.certifikat ?? true) {
     const tc = inject('testniCertifikat');
-    const enc = await enkriptirajCertifikat(testEnv.ENC_MASTER_KEY!, new Uint8Array([1, 2, 3]).buffer, tc.kljucPem);
+    const enc = await enkriptirajCertifikat(testEnv.ENC_MASTER_KEY!, tc.kljucPem);
     const sada = Date.now();
     await createCertifikat(db, tenant.id, {
       okolina: 'test',
-      pkcs12Encrypted: enc.pkcs12Encrypted,
       encKeyId: ENC_KEY_ID,
-      encIv: enc.encIv,
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: crypto.randomUUID(),

@@ -1,5 +1,6 @@
 // Envelope enkripcija certifikata at-rest (docs/knowledge/04-* §7, 11-* §4):
-//   * per-certifikat DEK (AES-256-GCM) enkriptira P12 sadržaj,
+//   * per-certifikat DEK (AES-256-GCM) enkriptira privatni ključ (PKCS8 PEM;
+//     cijeli P12 se od 0011 ne sprema — K16),
 //   * DEK je omotan (wrapped) KEK-om iz `ENC_MASTER_KEY` Worker Secreta,
 //   * u bazu idu: šifrirani blob + IV, omotani DEK + IV, id KEK-a. Nikad plaintext.
 
@@ -14,9 +15,8 @@ async function uvoziKek(masterHex: string): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', izHexa(masterHex), 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
+// K16 (0011): cijeli P12 se više ne šifrira ni ne sprema — samo izvučeni ključ.
 export interface EnkriptiraniCertifikat {
-  pkcs12Encrypted: ArrayBuffer;
-  encIv: string;      // hex
   dekWrapped: string; // hex
   dekIv: string;      // hex
   // Faza 2: privatni ključ (PKCS8 PEM) izvučen iz P12, enkriptiran ISTIM DEK-om
@@ -25,16 +25,9 @@ export interface EnkriptiraniCertifikat {
   kljucIv: string;    // hex
 }
 
-export async function enkriptirajCertifikat(
-  masterHex: string,
-  p12: ArrayBuffer,
-  kljucPem: string,
-): Promise<EnkriptiraniCertifikat> {
+export async function enkriptirajCertifikat(masterHex: string, kljucPem: string): Promise<EnkriptiraniCertifikat> {
   const kek = await uvoziKek(masterHex);
   const dek = (await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt'])) as CryptoKey;
-
-  const encIv = crypto.getRandomValues(new Uint8Array(12));
-  const pkcs12Encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: encIv }, dek, p12);
 
   const kljucIv = crypto.getRandomValues(new Uint8Array(12));
   const kljucPemEncrypted = await crypto.subtle.encrypt(
@@ -48,8 +41,6 @@ export async function enkriptirajCertifikat(
   const dekWrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: dekIv }, kek, dekRaw);
 
   return {
-    pkcs12Encrypted,
-    encIv: hex(encIv),
     dekWrapped: hex(new Uint8Array(dekWrapped)),
     dekIv: hex(dekIv),
     kljucPemEncrypted,
