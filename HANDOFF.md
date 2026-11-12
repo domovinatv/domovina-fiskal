@@ -78,6 +78,15 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   ⚠️ `wrangler d1 migrations apply` je jednom vratio 7403 i uz `CLOUDFLARE_ACCOUNT_ID`;
   ponovljeni poziv je prošao (prolazna greška, ne konfiguracija).
 
+- ✅ **SUSRET CONSULTING na PROD-u** (2026-11-12): tenant id=2, prostor `2` (id=2), uređaj 1,
+  operater 91020846402, ključ `susret-webshop` → `secrets/91020846402-prod-api-kljuc.txt`
+  (GET /postavke 200). `dodaj-tenant.sh` za PROD čita potvrdu OIB-a s `/dev/tty`; bez terminala
+  (Claude) ide kroz `expect` (`spawn …; expect "upiši OIB"; send "<oib>\r"`), `printf | script` ne radi.
+  ⏭️ Vlasnik: PROD P12 (AKD) na `/admin/tenant/2`, prostor 2 u ePoreznoj + „Označi prijavljen”,
+  dogovor prvog pravog računa (na PROD-u nema probnih).
+- ⏭️ **Sljedeće: refactor** po `docs/handoff/2026-10-02-pregled-koda-i-plan-refactora.md` §6,
+  od koraka 0 (K1: `!backend/src/fiskal/ca/*.pem` + CI), migracija **0011**.
+
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
   deployan (migracije 0007–0009, crons `*/15` + `0 6`) i E2E prošao na CIS TEST-u.
