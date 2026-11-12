@@ -94,7 +94,13 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
     `Connection: close\r\n\r\n`;
 
   const socket = connect({ hostname: e.host, port: e.port }, { secureTransport: 'off', allowHalfOpen: false });
+  // K8: timer bilježi da je istekao (poruka „timeout” umjesto generičkog
+  // „socket closed”), a greška pisanja iz subtls callbacka se hvata i javlja
+  // umjesto lebdećeg (unhandled) promisea.
+  let isteklo = false;
+  let greskaPisanja: unknown;
   const timer = setTimeout(() => {
+    isteklo = true;
     socket.close().catch(() => {});
   }, TIMEOUT_MS);
 
@@ -114,7 +120,9 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
       trustStore,
       red.read.bind(red) as (bytes: number) => Promise<Uint8Array | undefined>,
       (podaci) => {
-        void pisac.write(podaci);
+        pisac.write(podaci).catch((e) => {
+          greskaPisanja ??= e;
+        });
       },
       { useSNI: true },
     );
@@ -132,6 +140,7 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
       ukupno += dio.byteLength;
       if (ukupno > 4 * 1024 * 1024) throw new Error('CIS odgovor prevelik (>4 MB)');
     }
+    if (greskaPisanja) throw greskaPisanja;
     const sirovo = new Uint8Array(ukupno);
     let pomak = 0;
     for (const k of komadi) {
@@ -139,6 +148,9 @@ async function soapPozivTls(okolina: Okolina, operacija: CisOperacija, envelopa:
       pomak += k.byteLength;
     }
     return { ...parsirajHttp(sirovo), posluziteljCertNotAfter: tls.userCert?.validityPeriod?.notAfter?.toISOString() };
+  } catch (e) {
+    if (isteklo) throw new Error(`CIS nije odgovorio u ${TIMEOUT_MS / 1000} s (timeout)`, { cause: e });
+    throw greskaPisanja ?? e; // prva (prava) greška, ne posljedica zatvorenog socketa
   } finally {
     clearTimeout(timer);
     socket.close().catch(() => {});
