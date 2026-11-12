@@ -14,10 +14,17 @@ export async function oznakaKek(masterHex: string): Promise<string> {
   return `ENC_MASTER_KEY:${hex(h).slice(0, 12)}`;
 }
 
-// KEK-ovi kojima se smije ČITATI: tekući, pa (samo tijekom rotacije) stari.
-// Šifrira se uvijek samo tekućim.
-export function kekoviZaCitanje(env: { ENC_MASTER_KEY?: string; ENC_MASTER_KEY_STARI?: string }): string[] {
-  return [env.ENC_MASTER_KEY, env.ENC_MASTER_KEY_STARI].filter((k): k is string => !!k);
+type KekEnv = { ENC_MASTER_KEY?: string; ENC_MASTER_KEY_NOVI?: string };
+
+// KEK-ovi kojima se smije ČITATI: tekući, pa (samo tijekom rotacije) novi.
+export function kekoviZaCitanje(env: KekEnv): string[] {
+  return [env.ENC_MASTER_KEY, env.ENC_MASTER_KEY_NOVI].filter((k): k is string => !!k);
+}
+
+// KEK kojim se ŠIFRIRA: tijekom rotacije novi — inače bi upload u prozoru između
+// premotavanja i zamjene ostao na KEK-u koji se upravo napušta.
+export function kekZaSifriranje(env: KekEnv): string | undefined {
+  return env.ENC_MASTER_KEY_NOVI || env.ENC_MASTER_KEY;
 }
 
 // Odmota DEK prvim KEK-om koji uspije. AES-GCM autentificira, pa pogrešan KEK

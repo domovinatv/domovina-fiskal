@@ -155,12 +155,20 @@ znači upisivati prazan blob `X''` ili prebaciti tablicu migracijom.
 1. **Zaseban PROD `ENC_MASTER_KEY`** (otvoreno od faze 4). Alat postoji od
    2026-11-12: `backend/scripts/rotiraj-kek.sh --okolina test|prod` +
    `POST /admin/kripto/rotacija` (`backend/src/kripto-rotacija.ts`). Ništa se
-   ne dešifrira niti ponovno uploada: svaki `dek_wrapped` se odmota starim i
+   ne dešifrira niti ponovno uploada: svaki `dek_wrapped` se odmota tekućim i
    omota novim KEK-om, `enc_key_id` postaje `ENC_MASTER_KEY:<12 hex SHA-256>`.
-   Tijekom prijelaza Worker čita s oba (`ENC_MASTER_KEY_STARI`), pa nema prekida.
+   Novi KEK dolazi kao `ENC_MASTER_KEY_NOVI`; tijekom prijelaza Worker čita s
+   oba i šifrira novim, pa nema prekida, a **tekući KEK nitko ne mora znati**
+   (2026-11-12: PROD KEK nije postojao nigdje izvan Cloudflarea, pa je prva
+   verzija alata, koja je tražila da se stari KEK upiše kao
+   `ENC_MASTER_KEY_STARI`, na PROD-u bila neupotrebljiva). Skripta svaki korak
+   potvrđuje po oznaci KEK-a koju Worker vrati (propagacija secreta 5–20 s).
    Puni učinak tek kad stari KEK ne postoji **nigdje** (TEST, `.dev.vars`):
    dok postoji, stari dumpovi i 30 dana D1 Time Travela ostaju otključivi.
    PROD traži odobrenje vlasnika.
+   ⚠️ Prije 2026-11-12 tvrdilo se da je `ENC_MASTER_KEY` isti lokalno, na TEST-u
+   i na PROD-u. Netočno za PROD: `.dev.vars` KEK ne otvara nijedan PROD redak
+   (provjereno lokalnim odmotavanjem `dek_wrapped`).
 2. **`.dev.vars` neka ima vlastiti lokalni KEK** (`openssl rand -hex 32`),
    nikad TEST/PROD vrijednost. PROD KEK ne treba biti nigdje osim u
    Cloudflareu i u password manageru (za oporavak).

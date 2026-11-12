@@ -13,9 +13,10 @@ export interface Env {
   ADMIN_SKRIPTA_TOKEN?: string; // secret, Bearer za skripte (dodaj-tenant.sh), ≥ 32 znaka
   // ADMIN_USER / ADMIN_PASS: Basic Auth UKLONJEN 2026-11-12 (vidi admin/auth/zastita.ts).
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
-  // Samo tijekom rotacije KEK-a: prethodni KEK, rezerva za čitanje dok se DEK-ovi
-  // ne premotaju (POST /admin/kripto/rotacija). Nakon rotacije se briše.
-  ENC_MASTER_KEY_STARI?: string;
+  // Samo tijekom rotacije KEK-a: budući KEK. Dok postoji, šifrira se njime, a
+  // čita sa oba; POST /admin/kripto/rotacija premota DEK-ove s tekućeg na njega.
+  // Tekući KEK tako nikad ne napušta Cloudflare. Nakon zamjene se briše.
+  ENC_MASTER_KEY_NOVI?: string;
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
   RESEND_API_KEY?: string; // Resend fallback kanal (wrangler secret)
   // Dashboard SSO (dijeljeni GoTrue) — vidi docs/knowledge/16-dashboard-sso.md.

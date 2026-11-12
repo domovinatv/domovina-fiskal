@@ -48,7 +48,7 @@ import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
-import { enkriptirajCertifikat, enkriptirajTajnu, oznakaKek } from '../kripto';
+import { enkriptirajCertifikat, enkriptirajTajnu, kekZaSifriranje, oznakaKek } from '../kripto';
 import { rotirajKek } from '../kripto-rotacija';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
 import { formatirajGreske, racunModelShema } from '../validacija';
@@ -345,10 +345,11 @@ admin.post(`/tenant/:id${ID}/certifikati`, async (c) => {
       );
     }
     const otisak = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', p12)));
-    const enc = await enkriptirajCertifikat(c.env.ENC_MASTER_KEY, parsirano.privatniKljucPem);
+    const kek = kekZaSifriranje(c.env)!;
+    const enc = await enkriptirajCertifikat(kek, parsirano.privatniKljucPem);
     await createCertifikat(c.env.DB, tenantId, {
       okolina,
-      encKeyId: await oznakaKek(c.env.ENC_MASTER_KEY),
+      encKeyId: await oznakaKek(kek),
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
       fingerprintSha256: otisak,
@@ -385,11 +386,12 @@ admin.post(`/tenant/:id${ID}/doku`, async (c) => {
     return c.html(renderTenantDetaljPage({ ...d, greska: 'Unesi doku API-TOKEN (dobiva se od doku-a, hello@doku.hr).' }), 400);
   }
   try {
-    const enc = await enkriptirajTajnu(c.env.ENC_MASTER_KEY, token);
+    const kek = kekZaSifriranje(c.env)!;
+    const enc = await enkriptirajTajnu(kek, token);
     await upsertDokuKonfig(c.env.DB, tenantId, {
       okolina,
       tokenEncrypted: enc.tokenEncrypted,
-      encKeyId: await oznakaKek(c.env.ENC_MASTER_KEY),
+      encKeyId: await oznakaKek(kek),
       encIv: enc.encIv,
       dekWrapped: enc.dekWrapped,
       dekIv: enc.dekIv,
@@ -418,8 +420,8 @@ admin.post(`/tenant/:id${ID}/prostori/:pid${ID}/cis-status`, async (c) => {
 admin.post('/kripto/rotacija', async (c) => {
   if (!c.env.ENC_MASTER_KEY) return c.json({ greska: 'ENC_MASTER_KEY nije postavljen' }, 503);
   const suho = c.req.query('suho') === '1';
-  if (!suho && !c.env.ENC_MASTER_KEY_STARI) {
-    return c.json({ greska: 'ENC_MASTER_KEY_STARI nije postavljen — rotacija nema što premotati' }, 400);
+  if (!suho && !c.env.ENC_MASTER_KEY_NOVI) {
+    return c.json({ greska: 'ENC_MASTER_KEY_NOVI nije postavljen — nema na što premotati' }, 400);
   }
   const iz = await rotirajKek(c.env, suho);
   return c.json(iz, !suho && iz.nijedan > 0 ? 409 : 200);
