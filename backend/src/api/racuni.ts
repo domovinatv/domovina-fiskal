@@ -251,7 +251,8 @@ racuniRute.get('/racun/:id', async (c) => {
 
 // PDF vizualizacija dokumenta.
 racuniRute.get('/racun/:id/pdf', async (c) => {
-  const id = Number(c.req.param('id'));
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   const k = await getRacunKontekst(c.env.DB, c.get('tenant').id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
   const pdf = await generirajRacunPdf(k);
@@ -266,10 +267,11 @@ racuniRute.get('/racun/:id/pdf', async (c) => {
 
 // Slanje dokumenta e-mailom (PDF privitak). Body: { "na": "adresa" } — default kupčev email.
 racuniRute.post('/racun/:id/posalji', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
   if (!emailKonfiguriran(c.env)) {
     return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
   }
-  const id = Number(c.req.param('id'));
   const tenant = c.get('tenant');
   const k = await getRacunKontekst(c.env.DB, tenant.id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);

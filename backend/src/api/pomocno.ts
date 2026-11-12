@@ -7,10 +7,11 @@ import type { ApiKontekst } from './tipovi';
 // Vrsta greške servisa izdavanja → HTTP status (servis ne zna za HTTP).
 export const HTTP_ZA_VRSTU = { validacija: 400, ne_postoji: 404, sukob: 409 } as const satisfies Record<GreskaVrsta, number>;
 
-// `:id` iz putanje kao pozitivan cijeli broj; inače gotov 400 odgovor.
+// `:id` iz putanje kao pozitivan cijeli broj; inače gotov 400 odgovor (K13:
+// koristi ga SVAKA :id ruta). isSafeInteger: '99999999999999999999' nije id.
 export function idIzParametra(c: ApiKontekst): number | Response {
   const id = Number(c.req.param('id'));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
+  if (!Number.isSafeInteger(id) || id <= 0) return c.json({ greska: 'id mora biti pozitivan cijeli broj' }, 400);
   return id;
 }
 

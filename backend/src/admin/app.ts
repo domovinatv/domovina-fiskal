@@ -61,6 +61,10 @@ import {
 
 export const admin = new Hono<AdminHono>();
 
+// K13: numerički parametri ruta (:id, :kid, :pid, :xid) samo kao pozitivan
+// cijeli broj do 15 znamenki (sigurno za Number/D1 bind); sve ostalo je 404.
+const ID = '{[1-9][0-9]{0,14}}';
+
 // Prijava: Cloudflare Access (OTP) ili passkey → sesija; skripte bearer tokenom.
 // CSRF, CSP i sigurnosna zaglavlja su u adminZastita (docs/knowledge/20-admin-prijava.md).
 admin.use('*', adminZastita);
@@ -121,14 +125,14 @@ async function detaljData(c: { env: Env }, tenantId: number) {
   return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih };
 }
 
-admin.get('/tenant/:id', async (c) => {
+admin.get(`/tenant/:id${ID}`, async (c) => {
   const d = await detaljData(c, Number(c.req.param('id')));
   if (!d) return c.text('Tenant ne postoji', 404);
   return c.html(renderTenantDetaljPage(d));
 });
 
 // Izmjena tenanta (Faza 4.5): PDV status i slijednost samo bez izdanih dokumenata.
-admin.post('/tenant/:id/uredi', async (c) => {
+admin.post(`/tenant/:id${ID}/uredi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -165,7 +169,7 @@ admin.post('/tenant/:id/uredi', async (c) => {
 });
 
 // Zatvaranje/otvaranje prostora, (de)aktivacija uređaja i operatera (Faza 4.5).
-admin.post('/tenant/:id/:vrsta{prostori|uredjaji|operateri}/:xid{[0-9]+}/:akcija{zatvori|otvori|aktiviraj|deaktiviraj}', async (c) => {
+admin.post(`/tenant/:id${ID}/:vrsta{prostori|uredjaji|operateri}/:xid${ID}/:akcija{zatvori|otvori|aktiviraj|deaktiviraj}`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const xid = Number(c.req.param('xid'));
   const vrsta = c.req.param('vrsta');
@@ -183,7 +187,7 @@ admin.post('/tenant/:id/:vrsta{prostori|uredjaji|operateri}/:xid{[0-9]+}/:akcija
   return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
-admin.post('/tenant/:id/prostori', async (c) => {
+admin.post(`/tenant/:id${ID}/prostori`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -207,7 +211,7 @@ admin.post('/tenant/:id/prostori', async (c) => {
   }
 });
 
-admin.post('/tenant/:id/uredjaji', async (c) => {
+admin.post(`/tenant/:id${ID}/uredjaji`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -227,7 +231,7 @@ admin.post('/tenant/:id/uredjaji', async (c) => {
   }
 });
 
-admin.post('/tenant/:id/operateri', async (c) => {
+admin.post(`/tenant/:id${ID}/operateri`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -248,7 +252,7 @@ admin.post('/tenant/:id/operateri', async (c) => {
 // ── Dashboard pristup (korisnik_tenant) — superuser dodaje po EMAILU ──
 // Identitet je u GoTrue-u; user_id (sub) se veže sam na prvoj prijavi korisnika.
 
-admin.post('/tenant/:id/korisnici', async (c) => {
+admin.post(`/tenant/:id${ID}/korisnici`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -269,7 +273,7 @@ admin.post('/tenant/:id/korisnici', async (c) => {
   }
 });
 
-admin.post('/tenant/:id/korisnici/:kid/:akcija', async (c) => {
+admin.post(`/tenant/:id${ID}/korisnici/:kid${ID}/:akcija`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const kid = Number(c.req.param('kid'));
   const akcija = c.req.param('akcija');
@@ -279,7 +283,7 @@ admin.post('/tenant/:id/korisnici/:kid/:akcija', async (c) => {
 });
 
 // Kreiraj API ključ → re-renderaj detalj sa sirovim ključem prikazanim JEDNOM.
-admin.post('/tenant/:id/kljucevi', async (c) => {
+admin.post(`/tenant/:id${ID}/kljucevi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const form = await c.req.parseBody();
   const opis = normalizirajTekst(String(form.opis ?? '')) || null;
@@ -289,7 +293,7 @@ admin.post('/tenant/:id/kljucevi', async (c) => {
   return c.html(renderTenantDetaljPage({ ...d, noviKljuc: { rawKey, opis } }));
 });
 
-admin.post('/tenant/:id/kljucevi/:kid/:akcija', async (c) => {
+admin.post(`/tenant/:id${ID}/kljucevi/:kid${ID}/:akcija`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const kid = Number(c.req.param('kid'));
   const akcija = c.req.param('akcija');
@@ -309,7 +313,7 @@ admin.post('/tenant/:id/kljucevi/:kid/:akcija', async (c) => {
 // Upload certifikata (faza 2): P12 + LOZINKA se parsiraju u memoriji zahtjeva
 // (node-forge) → privatni ključ (PKCS8) enkriptiran at-rest, cert PEM plaintext.
 // Lozinka se NE sprema; plaintext ključ nikad ne napušta memoriju zahtjeva.
-admin.post('/tenant/:id/certifikati', async (c) => {
+admin.post(`/tenant/:id${ID}/certifikati`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -367,7 +371,7 @@ admin.post('/tenant/:id/certifikati', async (c) => {
 
 // doku API-TOKEN (eRačun 2.0 posrednik) — BYO-key po tenantu. Token se enkriptira
 // at-rest (envelope, isti KEK kao certifikati); plaintext nikad ne dolazi u bazu.
-admin.post('/tenant/:id/doku', async (c) => {
+admin.post(`/tenant/:id${ID}/doku`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -399,7 +403,7 @@ admin.post('/tenant/:id/doku', async (c) => {
 
 // Ručno označavanje CIS statusa poslovnog prostora — prijava/odjava prostora od
 // 2017. ide isključivo kroz ePoreznu (SOAP metoda ukinuta), pa je ovo evidencija.
-admin.post('/tenant/:id/prostori/:pid/cis-status', async (c) => {
+admin.post(`/tenant/:id${ID}/prostori/:pid${ID}/cis-status`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const pid = Number(c.req.param('pid'));
   const form = await c.req.parseBody();
@@ -420,7 +424,7 @@ admin.get('/cis/echo', async (c) => {
 
 // ───────────────────────── Proizvodi (katalog s KPD 2025) ─────────────────────────
 
-admin.post('/tenant/:id/proizvodi', async (c) => {
+admin.post(`/tenant/:id${ID}/proizvodi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const d = await detaljData(c, tenantId);
   if (!d) return c.text('Tenant ne postoji', 404);
@@ -511,7 +515,7 @@ admin.get('/api/kpd', async (c) => {
 // Vrsta greške servisa izdavanja → HTTP status stranice s formom.
 const STATUS_ZA_VRSTU: Record<GreskaVrsta, 400 | 404 | 409> = { validacija: 400, ne_postoji: 404, sukob: 409 };
 
-admin.get('/tenant/:id/dokument/novi', async (c) => {
+admin.get(`/tenant/:id${ID}/dokument/novi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return c.text('Tenant ne postoji', 404);
@@ -523,7 +527,7 @@ admin.get('/tenant/:id/dokument/novi', async (c) => {
   return c.html(renderNoviDokumentPage(tenant, uredjaji, operateri, proizvodi));
 });
 
-admin.post('/tenant/:id/dokument/novi', async (c) => {
+admin.post(`/tenant/:id${ID}/dokument/novi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return c.text('Tenant ne postoji', 404);
@@ -624,14 +628,14 @@ async function adminRacunKontekst(c: { env: Env }, racunId: number) {
   return getRacunKontekst(c.env.DB, red.tenant_id, racunId);
 }
 
-admin.get('/racun/:id', async (c) => {
+admin.get(`/racun/:id${ID}`, async (c) => {
   const k = await adminRacunKontekst(c, Number(c.req.param('id')));
   if (!k) return c.text('Dokument ne postoji', 404);
   const ok = c.req.query('ok');
   return c.html(renderRacunDetaljPage(k, ok ? { ok } : undefined));
 });
 
-admin.get('/racun/:id/pdf', async (c) => {
+admin.get(`/racun/:id${ID}/pdf`, async (c) => {
   const k = await adminRacunKontekst(c, Number(c.req.param('id')));
   if (!k) return c.text('Dokument ne postoji', 404);
   const pdf = await generirajRacunPdf(k);
@@ -643,7 +647,7 @@ admin.get('/racun/:id/pdf', async (c) => {
   });
 });
 
-admin.post('/racun/:id/izdaj', async (c) => {
+admin.post(`/racun/:id${ID}/izdaj`, async (c) => {
   const id = Number(c.req.param('id'));
   const k = await adminRacunKontekst(c, id);
   if (!k) return c.text('Dokument ne postoji', 404);
@@ -665,7 +669,7 @@ admin.post('/racun/:id/izdaj', async (c) => {
 });
 
 // Ručno okidanje (naknadne) fiskalizacije iz admin detalja računa.
-admin.post('/racun/:id/fiskaliziraj', async (c) => {
+admin.post(`/racun/:id${ID}/fiskaliziraj`, async (c) => {
   const id = Number(c.req.param('id'));
   const k = await adminRacunKontekst(c, id);
   if (!k) return c.text('Dokument ne postoji', 404);
@@ -679,7 +683,7 @@ admin.post('/racun/:id/fiskaliziraj', async (c) => {
   return c.redirect(`/admin/racun/${id}?ok=${encodeURIComponent(poruka)}`, 303);
 });
 
-admin.post('/racun/:id/posalji', async (c) => {
+admin.post(`/racun/:id${ID}/posalji`, async (c) => {
   const id = Number(c.req.param('id'));
   const k = await adminRacunKontekst(c, id);
   if (!k) return c.text('Dokument ne postoji', 404);
