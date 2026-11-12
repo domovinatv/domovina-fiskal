@@ -706,3 +706,22 @@ Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti.
   manageru); `ENC_MASTER_KEY_STARI` obrisan; smoke ponovljen (6/2/1, 9/PP1/1,
   upload + 10/PP1/1) ✅. Lokalni `.dev.vars` i PROD su i dalje na starom
   `9f7ec2135439`.
+
+**PROD deploy i rotacija, oba okruženja (2026-11-12, popodne):**
+
+- PROD: Time Travel bookmark prije 0011
+  `0000335e-00000012-00005121-3e0df2887b4b148711cb6f2867528cb1`; migracija 0011 +
+  deploy (`8454e80b`, nova verzija u prometu tek nakon ~20 s). Suha provjera: 4/4,
+  nema zaostalih redaka. SUSRET PROD certifikat (`certifikat` id=4, Certilia) uploadan
+  prije deploya.
+- **PROD KEK ≠ `.dev.vars` KEK** (lokalnim odmotavanjem `dek_wrapped`: 0/4).
+  Tvrdnja „isti KEK svugdje” iz §10/handoffa bila je netočna; PROD KEK nije postojao
+  nigdje izvan Cloudflarea. Postupak sa `_STARI` je zato na PROD-u bio neupotrebljiv →
+  `a71e748`: `ENC_MASTER_KEY_NOVI` (Worker premota s tekućeg na novi, tekući nitko ne
+  mora znati; skripta potvrđuje svaki korak po oznaci KEK-a). Testovi 102/102.
+- TEST ponovno rotiran (prethodni TEST KEK je procurio u razgovor) →
+  `ENC_MASTER_KEY:387403b886fe`; smoke 7/2/1, 11/PP1/1 ✅.
+- PROD rotiran (`971a48db`) → `ENC_MASTER_KEY:6f4f54665551`; smoke bez računa:
+  CIS echo, oba tenanta, `/zdravlje/backlog` ✅. Svi PROD retci nose novu oznaku.
+- Lokalni `.dev.vars` ima vlastiti KEK (`b46bfa1a520f`) — lokalni stari certifikati
+  su time nečitljivi (namjerno).
