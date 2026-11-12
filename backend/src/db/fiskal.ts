@@ -159,16 +159,27 @@ export async function racuniBezJiraStarijiOd(
 }
 
 // Računi bez JIR-a s greškom nakon koje se NE radi automatski retry.
-export async function racuniBezRetryja(
-  db: D1Database,
-): Promise<{ id: number; tenant_id: number; broj_racuna_full: string; fiskal_greska: string | null }[]> {
+// K11: agregirano po tenantu (jedan alarm po tenantu, ne po računu).
+// `fiskal_greska` je s najstarijeg računa grupe (SQLite uz MIN() bare stupce
+// uzima iz retka s minimumom). `primjeri` = svi brojevi s id-em, pozivatelj reže.
+export interface BezRetryjaGrupa {
+  tenant_id: number;
+  broj: number;
+  prvi_id: number; // MIN(id) — određuje redak iz kojeg je fiskal_greska
+  primjeri: string;
+  fiskal_greska: string | null;
+}
+
+export async function racuniBezRetryja(db: D1Database): Promise<BezRetryjaGrupa[]> {
   const r = await db
     .prepare(
-      `SELECT id, tenant_id, broj_racuna_full, fiskal_greska FROM racun
+      `SELECT tenant_id, COUNT(*) AS broj, MIN(id) AS prvi_id, fiskal_greska,
+              group_concat(broj_racuna_full || ' (id ' || id || ')', ', ') AS primjeri
+       FROM racun
        WHERE ${BEZ_JIRA} AND fiskal_nak_dost = 0 AND fiskal_pokusaja > 0
-       ORDER BY id LIMIT 100`,
+       GROUP BY tenant_id`,
     )
-    .all<{ id: number; tenant_id: number; broj_racuna_full: string; fiskal_greska: string | null }>();
+    .all<BezRetryjaGrupa>();
   return r.results;
 }
 

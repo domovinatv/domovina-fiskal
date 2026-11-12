@@ -117,14 +117,18 @@ export async function izracunajAlarme(env: Env, opcije: { dnevno?: boolean } = {
     });
   }
 
-  for (const r of await racuniBezRetryja(db)) {
+  // K11: jedan alarm po tenantu (prije: po računu, do 100 mailova dnevno).
+  for (const g of await racuniBezRetryja(db)) {
+    const primjeri = g.primjeri.split(', ');
     alarmi.push({
-      kljuc: `bez-retryja:${r.id}`,
-      tenantId: r.tenant_id,
-      naslov: `Račun ${r.broj_racuna_full} — fiskalizacija neće biti ponovljena automatski`,
+      kljuc: `bez-retryja:${g.tenant_id}`,
+      tenantId: g.tenant_id,
+      naslov: `${g.broj} ${racunaMnozina(g.broj)} — fiskalizacija neće biti ponovljena automatski`,
       tekst:
-        `Račun ${r.broj_racuna_full} (id ${r.id}, tenant ${r.tenant_id}) nema JIR, a zadnja greška ne dopušta automatski retry:\n` +
-        `${r.fiskal_greska ?? '—'}\n\nNakon ispravka (certifikat, podaci) pokreni ručno: POST /api/v1/racun/${r.id}/fiskaliziraj ili gumb u adminu.`,
+        `Tenant ${g.tenant_id}: ${g.broj} ${racunaMnozina(g.broj)} bez JIR-a, a zadnja greška ne dopušta automatski retry.\n` +
+        `Računi: ${primjeri.slice(0, 20).join(', ')}${primjeri.length > 20 ? ` … (+${primjeri.length - 20})` : ''}\n` +
+        `Greška (najstariji račun): ${g.fiskal_greska ?? '—'}\n\n` +
+        `Nakon ispravka (certifikat, podaci) pokreni ručno: POST /api/v1/racun/:id/fiskaliziraj ili gumb u adminu.`,
       intervalSekundi: DAN,
     });
   }

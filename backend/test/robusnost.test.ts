@@ -93,8 +93,27 @@ describe('Svaka greška ostavlja trag', () => {
     expect(r).toMatchObject({ fiskal_nak_dost: 0, fiskal_pokusaja: 2 });
     const { env, send } = lazniEmail();
     const poslani = await obradiAlarme(env);
-    expect(poslani).toContain(`bez-retryja:${id}`);
+    expect(poslani).toContain(`bez-retryja:${t.tenant.id}`);
     expect(send.mock.calls.some(([p]) => p.to === 'alarmi@primjer.hr' && p.subject.includes('neće biti ponovljena'))).toBe(true);
+  });
+
+  it('K11: više računa bez retryja istog tenanta → jedan agregirani alarm', async () => {
+    const t = await napraviTenanta();
+    const ids = [await izdajBezJira(t), await izdajBezJira(t), await izdajBezJira(t)];
+    for (const id of ids) {
+      await db.prepare(`UPDATE racun SET fiskal_nak_dost = 0, fiskal_pokusaja = 1, fiskal_greska = 'mapiranje: nepoznat način plaćanja' WHERE id = ?`).bind(id).run();
+    }
+    const { env, send } = lazniEmail();
+    const poslani = await obradiAlarme(env);
+    expect(poslani).toContain(`bez-retryja:${t.tenant.id}`);
+    for (const id of ids) expect(poslani).not.toContain(`bez-retryja:${id}`);
+    const mailovi = send.mock.calls.filter(([p]) => p.subject.includes('neće biti ponovljena') && p.text.includes(`Tenant ${t.tenant.id}:`));
+    expect(mailovi.length).toBeGreaterThanOrEqual(1);
+    expect(mailovi.every(([p]) => p.subject.includes('] 3 '))).toBe(true);
+    const tekst = mailovi[0][0].text;
+    const broj = (await getRacun(db, t.tenant.id, ids[2]))!.broj_racuna_full!;
+    expect(tekst).toContain(broj);
+    expect(tekst).toContain('nepoznat način plaćanja');
   });
 });
 
@@ -188,7 +207,7 @@ describe('Sweep', () => {
     const { env } = lazniEmail();
     const poslani = await obradiAlarme(env);
     expect(poslani).toContain(`bez-jira-24h:${t.tenant.id}`);
-    expect(poslani).toContain(`bez-retryja:${id}`);
+    expect(poslani).toContain(`bez-retryja:${t.tenant.id}`);
   });
 
   it('K12: stari račun s pokusaja = 0 zaustavlja se jednom, poruka se ne omata u sebe', async () => {
