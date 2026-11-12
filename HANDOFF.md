@@ -84,8 +84,15 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   (Claude) ide kroz `expect` (`spawn …; expect "upiši OIB"; send "<oib>\r"`), `printf | script` ne radi.
   ⏭️ Vlasnik: PROD P12 (AKD) na `/admin/tenant/2`, prostor 2 u ePoreznoj + „Označi prijavljen”,
   dogovor prvog pravog računa (na PROD-u nema probnih).
-- ⏭️ **Sljedeće: refactor** po `docs/handoff/2026-10-02-pregled-koda-i-plan-refactora.md` §6,
-  od koraka 0 (K1: `!backend/src/fiskal/ca/*.pem` + CI), migracija **0011**.
+- ✅ **Refactor koraci 0–3 gotovi** (2026-11-12, Opus 5.5, samo kod; **ništa nije deployano**):
+  CI (`.github/workflows/ci.yml`, **Node 24**: npm 10 iz Node 22 odbija lockfile zbog
+  opcionalnog peera `workers-types@^5`), K1 (CA PEM-ovi u gitu + `ca/README.md` s
+  otiscima + `test/fina-ca.test.ts`), `src/db/*` (barrel), `src/api/*` +
+  `src/dokumenti/izdavanje.ts` (`izdajDokument` za API i admin), K21. 80/80.
+  Hashevi i odstupanja od plana: pregled §10.
+- ⏭️ **Sljedeće: refactor korak 4** (K5, K6, K7, K8, K9, K12, K13) po
+  `docs/handoff/2026-10-02-pregled-koda-i-plan-refactora.md` §6, migracija **0011**.
+  Prije deploya refactora na TEST: smoke izdavanja kroz API i admin (B2C → JIR).
 
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
