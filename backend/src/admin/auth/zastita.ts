@@ -114,10 +114,13 @@ async function zastiti(c: Context<AdminHono>, next: () => Promise<void>): Promis
   const tijelo = html ? (await odgovor.text()).replace(/<script(?![^>]*\bsrc=)/g, `<script nonce="${nonce}"`) : odgovor.body;
   const h = new Headers(odgovor.headers);
   // CSP samo na HTML: PDF-ovi računa (/admin/.../pdf) idu u ugrađeni preglednik PDF-a.
+  // form-action vrijedi i za preusmjeravanja nakon POST-a: odjava ide /admin/logout →
+  // /cdn-cgi/access/logout → <tim>/cdn-cgi/access/logout, pa domena tima mora biti dopuštena.
+  const timAccess = c.env.ACCESS_TEAM_DOMAIN ? ` https://${c.env.ACCESS_TEAM_DOMAIN}` : '';
   if (html) h.set(
     'content-security-policy',
     `default-src 'none'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; ` +
-      `font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`,
+      `font-src 'self'; connect-src 'self'; form-action 'self'${timAccess}; frame-ancestors 'none'; base-uri 'none'`,
   );
   h.set('x-content-type-options', 'nosniff');
   // Ne "no-referrer": uz nju preglednik na <form> POST šalje `Origin: null` (zamka iz logomeda).

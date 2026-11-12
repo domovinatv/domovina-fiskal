@@ -15,7 +15,8 @@ prijava.get('/login', async (c) => {
   const next = safeNext(c.req.query('next'));
   if (await getSession(c.env, c.req.header('Cookie'))) return c.redirect(next, 302);
   const greska = c.req.query('error') === 'access' ? 'Access prijava nije prihvaćena za ovaj admin.' : null;
-  return c.html(renderLoginPage({ next, greska, access: accessConfigured(c.env), klijentJs: KLIJENT_JS }));
+  const poruka = c.req.query('odjava') ? 'Odjavljen si iz admina i iz Cloudflare Accessa.' : null;
+  return c.html(renderLoginPage({ next, greska, poruka, access: accessConfigured(c.env), klijentJs: KLIJENT_JS }));
 });
 
 /** Access na rubu štiti samo ovu putanju. Ovdje se JWT pretvara u našu sesiju. */
@@ -85,5 +86,21 @@ prijava.post('/passkeys', async (c) => {
 
 prijava.post('/logout', async (c) => {
   await deleteSession(c.env, c.req.header('Cookie'));
-  return new Response(null, { status: 303, headers: { location: '/admin/login', 'set-cookie': sessionCookie('', 0) } });
+  const origin = new URL(c.req.url).origin;
+  return new Response(null, { status: 303, headers: { location: accessLogoutUrl(c.env, origin), 'set-cookie': sessionCookie('', 0) } });
 });
+
+/**
+ * Odjava briše i Cloudflare Access sesiju (želja vlasnika 2026-11-12: odjava na tuđem
+ * računalu mora obrisati sve). Lanac: `<host>/cdn-cgi/access/logout` briše kolačić
+ * `CF_Authorization` na ovom hostu → `<tim>/cdn-cgi/access/logout` briše globalnu sesiju
+ * tima → `/admin/login?odjava=1`. Oba URL-a opozivaju tokene za SVE aplikacije tima
+ * (omm, logomedo…), a `returnTo` smije samo na domenu tima ili aplikacije istog računa.
+ * https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/
+ */
+export function accessLogoutUrl(env: Parameters<typeof accessConfigured>[0], origin: string): string {
+  if (!accessConfigured(env)) return '/admin/login';
+  const kraj = `${origin}/admin/login?odjava=1`;
+  const tim = `https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(kraj)}`;
+  return `${origin}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(tim)}`;
+}

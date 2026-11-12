@@ -73,3 +73,22 @@ echo "__Host-fiskal_admin=$T"   # kolačić za localhost:8787
 `backend/test/admin-prijava.test.ts`: preusmjeravanje bez sesije, istek, neaktivnost,
 micanje iz `ADMIN_EMAILS`, CSRF, odjava, passkey opcije i svježina, brisanje samo vlastitog
 ključa, Access JWT (krivi AUD/issuer → odbijen), `safeNext`, bearer skripta, host.
+
+## Odjava i izgled Access stranice (2026-11-12)
+
+- **Odjava briše i Access.** `POST /admin/logout` briše našu sesiju pa preusmjerava lancem
+  `<host>/cdn-cgi/access/logout` → `<tim>/cdn-cgi/access/logout` → `/admin/login?odjava=1`.
+  Oba URL-a opozivaju sesiju za **sve** aplikacije tima (omm, logomedo…); stari tokeni prestaju
+  vrijediti za 20–30 s. `returnTo` smije samo na domenu tima ili aplikacije istog računa.
+  Izvor: https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/
+  (pristup 2026-11-12). Zadano trajanje globalne i aplikacijske sesije je 24 h.
+- **Zamka:** CSP `form-action` vrijedi i za preusmjeravanja nakon POST-a. S `form-action 'self'`
+  Chrome je pustio prvi skok (isti host, Access sesija opozvana) i tiho stao na domeni tima,
+  pa je klik na Odjava izgledao kao da ne radi. Zato `form-action` dopušta i `https://<ACCESS_TEAM_DOMAIN>`.
+- **Brand login stranice** (Zero Trust → Reusable components → Custom pages → Access login page,
+  vrijedi za cijeli tim `domovina.cloudflareaccess.com`): ime „DOMOVINA”, logo
+  `raw.githubusercontent.com/domovinatv/mediakit.domovina.tv/main/domovina_logo_square.png`,
+  hrvatski tekst zaglavlja i poruke, pozadina `#002F6C`. Polja su samo ta; vlastiti HTML login
+  stranice nije ponuđen. Natpis „Cloudflare Access”, gumbi („Send login code”) i OTP mail ostaju
+  Cloudflareovi. Naslov kartice je ime Access aplikacije.
+

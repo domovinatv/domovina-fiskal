@@ -672,11 +672,12 @@ export function renderRacuniPage(racuni: (RacunRow & { tenant_naziv?: string })[
 
 const kad = (iso: string | null) => (iso ? escapeHtml(iso.slice(0, 16).replace('T', ' ')) + ' UTC' : '—');
 
-export function renderLoginPage(o: { next: string; greska: string | null; access: boolean; klijentJs: string }): string {
+export function renderLoginPage(o: { next: string; greska: string | null; poruka?: string | null; access: boolean; klijentJs: string }): string {
   return layout(
     'Prijava — DOMOVINA Fiskal admin',
     `<div class="box" style="max-width:26rem;margin:3rem auto;display:flex;flex-direction:column;gap:.8rem">
   <h1>Prijava</h1>
+  ${o.poruka ? `<div class="flash">${escapeHtml(o.poruka)}</div>` : ''}
   <button id="passkey-login" type="button" data-next="${escapeHtml(o.next)}">Prijava passkeyem</button>
   ${o.access ? `<a href="/admin/sso?next=${encodeURIComponent(o.next)}" style="text-align:center">Kod na e-mail (Cloudflare Access)</a>` : ''}
   <p id="msg" class="greska"${o.greska ? '' : ' hidden'}>${o.greska ? escapeHtml(o.greska) : ''}</p>
