@@ -37,7 +37,8 @@ function ascii(s: string, max: number): string {
     .replace(/[^\x20-\x7E]/g, '') // ostale ne-ASCII znakove (emoji itd.) ukloni
     .replace(/\s{2,}/g, ' ')
     .trim()
-    .slice(0, max);
+    .slice(0, max)
+    .trimEnd(); // rez na limitu može ostaviti razmak na kraju
 }
 
 export function hub3Payload(p: Hub3Podaci): string {
