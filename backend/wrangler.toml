@@ -63,6 +63,7 @@ DASHBOARD_ORIGIN = "https://fiskal-app.domovina.ai,https://domovina-fiskal-app.p
 # Admin prijava (docs/knowledge/20-admin-prijava.md): Access aplikacija „Fiskal admin (sso)”
 # na D.O.M. računu štiti samo /admin/sso; ista aplikacija (isti AUD) za TEST i PROD.
 ACCESS_TEAM_DOMAIN = "domovina.cloudflareaccess.com"
+ACCESS_AUD = "49d6fdad0c14863f084036fba398973311a46fa32b794ebab67a8736358d080c"
 ADMIN_HOST = "fiskal.domovina.ai"
 
 # Secrets — postavi s `wrangler secret put` (lokalno u .dev.vars):
@@ -112,4 +113,5 @@ SUPABASE_URL = "https://api.domovina.ai"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc3OTExMTcxMywiZXhwIjo0OTMyNzExNzEzLCJyb2xlIjoiYW5vbiJ9.Q4Ef7xMc2dmjMyfJebPDyqNirnARZzMxTWe7i0dASPI"
 DASHBOARD_ORIGIN = "https://fiskal-app-test.domovina.ai,https://domovina-fiskal-app-test.pages.dev,http://localhost:3000"
 ACCESS_TEAM_DOMAIN = "domovina.cloudflareaccess.com"
+ACCESS_AUD = "49d6fdad0c14863f084036fba398973311a46fa32b794ebab67a8736358d080c"
 ADMIN_HOST = "fiskal-test.domovina.ai"

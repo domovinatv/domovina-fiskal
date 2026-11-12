@@ -50,7 +50,7 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   Kritično prije svega: **K1** — `backend/src/fiskal/ca/*.pem` nisu u gitu
   (ignorira ih `*.pem`), svježi clone se ne builda; nema CI-ja.
 
-## Stanje 2026-11-11 — K2/K3/K4 + ne-PDV E2E, admin prijava u planu
+## Stanje 2026-11-12 — K2/K3/K4 + ne-PDV E2E, admin prijava Access + passkey (TEST)
 - ✅ **K3** (`b38199b`), **K2** (`142735b`), **K4** (`2ebeed2`) iz pregleda izvedeni
   izvan redoslijeda §6 (na postojećoj strukturi, test koji prvo pada; 56/56),
   jer ih treba prvi **ne-PDV** tenant koji izdaje i kroz API i kroz admin.
@@ -61,9 +61,17 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   JIR. Retry s `"10.0"` umjesto `10` → 200 replay. Admin „Novi dokument" → JIR
   odmah (redirect s porukom).
 - ⏭️ PROD deploy ovih popravaka čeka izričito odobrenje vlasnika.
-- 📋 Admin prijava Cloudflare Access (OTP) + passkey umjesto Basic Autha, po
-  uzoru na logomedo: [`docs/handoff/2026-11-11-admin-access-passkey.md`](docs/handoff/2026-11-11-admin-access-passkey.md).
-  ⚠️ Migracija `0010` je planirana i u refactoru (§6 korak 6) — tko prvi, uzima 0010.
+- ✅ **Admin prijava Cloudflare Access (OTP) + passkey** umjesto Basic Autha (2026-11-12),
+  SPOT [`docs/knowledge/20-admin-prijava.md`](docs/knowledge/20-admin-prijava.md). Migracija
+  **`0010_admin_prijava`** je zauzeta → refactor (§6 korak 6) uzima **`0011`**. Access
+  aplikacija „Fiskal admin (sso)” + politika „Fiskal admini” na D.O.M. računu (obje
+  destinacije, TEST i PROD). **TEST deployan** (migracija, `ADMIN_EMAILS`,
+  `ADMIN_SKRIPTA_TOKEN` → `secrets/fiskal-test-admin.env`). Basic Auth ostaje prijelazno
+  za curl. ⏭️ PROD (migracija `fiskal_domovina`, secreti, `ADMIN_SKRIPTA_TOKEN_PROD` u
+  `backend/.tajne/lozinke.env`, deploy) čeka izričito odobrenje; tek nakon provjerene
+  PROD prijave obrisati `ADMIN_USER/ADMIN_PASS` i Basic granu u `zastita.ts`.
+  ⚠️ `wrangler d1 migrations apply` je jednom vratio 7403 i uz `CLOUDFLARE_ACCOUNT_ID`;
+  ponovljeni poziv je prošao (prolazna greška, ne konfiguracija).
 
 ## Stanje Faze 4 (ažurirano 2026-10-01)
 - 🟡 **Faza 4 (produkcijska B2C za webshopove)**: kod gotov (4.1–4.7), TEST
