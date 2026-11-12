@@ -664,5 +664,9 @@ teorijska. `anonymous_users: true` ne smeta: anonimni korisnik nema `email` → 
 K16: vlasnik je umjesto odluke tražio objašnjenje pohrane →
 `docs/knowledge/21-pohrana-certifikata.md` (`0b5f1fb`). Zaključak tamo: brisanje
 `pkcs12_encrypted` ne mijenja izloženost (isti DEK kao ključ PEM); veći rizik je
-isti `ENC_MASTER_KEY` lokalno/TEST/PROD. Odluka o K16 za migraciju 0011 još otvorena.
-Testovi 95/95. Koraci 6–8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
+isti `ENC_MASTER_KEY` lokalno/TEST/PROD.
+
+| K16 | `d7d76ba` | Vlasnik: ukloniti i za postojeće. Migracija `0011_k16_bez_p12.sql` (DROP `pkcs12_encrypted`, `enc_iv`). **Deploy: kod i migracija zajedno.** K15/K19 idu u `0012`. |
+| Rotacija KEK-a | `ad5baa0` | `scripts/rotiraj-kek.sh` + `POST /admin/kripto/rotacija`; nije pokrenuta nigdje. Redoslijed: deploy koda na okolinu → skripta. PROD uz odobrenje. |
+
+Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti. Testovi: `test/ne-pdv.test.ts` (novo), dopune u `admin.test.ts` i `idempotencija.test.ts`.
