@@ -90,7 +90,12 @@ ključa, Access JWT (krivi AUD/issuer → odbijen), `safeNext`, bearer skripta, 
 - **Brand login stranice** (Zero Trust → Reusable components → Custom pages → Access login page,
   vrijedi za cijeli tim `domovina.cloudflareaccess.com`): ime „DOMOVINA”, logo
   `raw.githubusercontent.com/domovinatv/mediakit.domovina.tv/main/domovina_logo_square.png`,
-  hrvatski tekst zaglavlja i poruke, pozadina `#002F6C`. Polja su samo ta; vlastiti HTML login
-  stranice nije ponuđen. Natpis „Cloudflare Access”, gumbi („Send login code”) i OTP mail ostaju
-  Cloudflareovi. Naslov kartice je ime Access aplikacije.
-
+  pozadina `#002F6C` (navy iz logotipa). Važan tekst je u **zaglavlju** (tamna slova, oklch 0.21);
+  podnožje je sivo 12 px (oklch 0.556), pa u njemu samo sporedna napomena.
+- Boja teksta se ne može mijenjati. API `login_design.text_color` postoji (dashboard ga ne
+  prikazuje), ali se primijeni samo na `body`, a elementi kartice ga pregaze svojim klasama.
+  Postavljen je na `#002F6C` bez vidljivog učinka. Vlastiti HTML login stranice nije ponuđen.
+  Natpis „Cloudflare Access”, gumbi („Send login code”) i OTP mail ostaju Cloudflareovi.
+  Naslov kartice je ime Access aplikacije.
+- **Zamka:** `PUT /accounts/{id}/access/organizations` vrati 200, ali login stranica ostane stara.
+  Dashboard sprema `PATCH`-om (samo `login_design`) i to se vidi odmah.
