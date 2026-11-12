@@ -5,8 +5,8 @@
 // Tri načina ulaska:
 //   1. sesija (kolačić __Host-fiskal_admin) — preglednik; CSRF: Origin == origin na svakom ne-GET;
 //   2. `Authorization: Bearer <ADMIN_SKRIPTA_TOKEN>` — skripte (dodaj-tenant.sh); bez kolačića, bez CSRF-a;
-//   3. Basic Auth (ADMIN_USER/ADMIN_PASS) — PRIJELAZNO, samo dok PROD prijava Accessom nije
-//      provjerena. Preglednik ga više ne dobiva (nema WWW-Authenticate izazova), ostaje za curl.
+//   3. (UKLONJENO 2026-11-12) Basic Auth (ADMIN_USER/ADMIN_PASS). Kod je ispod zakomentiran
+//      radi traga; `Authorization: Basic …` se ignorira (preglednik ga zna slati sam od prije).
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../../types';
 import { getSession, skriptaTokenOk, type Session } from './sesija';
@@ -24,33 +24,35 @@ const JAVNO = new Set([
 
 const lokalno = (h: string) => h === 'localhost' || h === '127.0.0.1';
 
-async function jednako(a: string, b: string): Promise<boolean> {
-  const enc = new TextEncoder();
-  const [x, y] = await Promise.all([crypto.subtle.digest('SHA-256', enc.encode(a)), crypto.subtle.digest('SHA-256', enc.encode(b))]);
-  return crypto.subtle.timingSafeEqual(x, y);
-}
-
-async function basicOk(env: Env, authorization: string): Promise<boolean> {
-  if (!env.ADMIN_USER || !env.ADMIN_PASS || !authorization.startsWith('Basic ')) return false;
-  let dekodirano: string;
-  try {
-    dekodirano = atob(authorization.slice(6).trim());
-  } catch {
-    return false;
-  }
-  const i = dekodirano.indexOf(':');
-  if (i < 0) return false;
-  const [u, p] = await Promise.all([jednako(dekodirano.slice(0, i), env.ADMIN_USER), jednako(dekodirano.slice(i + 1), env.ADMIN_PASS)]);
-  return u && p;
-}
-
-/** Stara (blaga) CSRF provjera za Basic Auth: klijenti bez Origina i Sec-Fetch-Site (curl) prolaze. */
-function basicCsrfOk(c: Context, origin: string): boolean {
-  const o = c.req.header('Origin');
-  if (o !== undefined) return o === origin;
-  const site = c.req.header('Sec-Fetch-Site');
-  return site === undefined || site === 'same-origin' || site === 'none';
-}
+// ── Basic Auth: UKLONJENO 2026-11-12 (zamijenjeno Accessom + passkeyem, skripte bearerom).
+// Ostavljeno zakomentirano radi traga; secreti ADMIN_USER/ADMIN_PASS se više ne čitaju.
+// async function jednako(a: string, b: string): Promise<boolean> {
+//   const enc = new TextEncoder();
+//   const [x, y] = await Promise.all([crypto.subtle.digest('SHA-256', enc.encode(a)), crypto.subtle.digest('SHA-256', enc.encode(b))]);
+//   return crypto.subtle.timingSafeEqual(x, y);
+// }
+//
+// async function basicOk(env: Env, authorization: string): Promise<boolean> {
+//   if (!env.ADMIN_USER || !env.ADMIN_PASS || !authorization.startsWith('Basic ')) return false;
+//   let dekodirano: string;
+//   try {
+//     dekodirano = atob(authorization.slice(6).trim());
+//   } catch {
+//     return false;
+//   }
+//   const i = dekodirano.indexOf(':');
+//   if (i < 0) return false;
+//   const [u, p] = await Promise.all([jednako(dekodirano.slice(0, i), env.ADMIN_USER), jednako(dekodirano.slice(i + 1), env.ADMIN_PASS)]);
+//   return u && p;
+// }
+//
+// /** Stara (blaga) CSRF provjera za Basic Auth: klijenti bez Origina i Sec-Fetch-Site (curl) prolaze. */
+// function basicCsrfOk(c: Context, origin: string): boolean {
+//   const o = c.req.header('Origin');
+//   if (o !== undefined) return o === origin;
+//   const site = c.req.header('Sec-Fetch-Site');
+//   return site === undefined || site === 'same-origin' || site === 'none';
+// }
 
 const json = (data: unknown, status: number) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -67,31 +69,38 @@ export const adminZastita: MiddlewareHandler<AdminHono> = async (c, next) => {
     return c.redirect(`https://${host}${url.pathname}${url.search}`, 301);
   }
 
-  // 2. Skripte: Authorization zaglavlje. Pogrešno → 401 odmah (ne pada na sesiju).
+  // 2. Skripta: bearer token (bez kolačića, bez CSRF-a).
   const authorization = c.req.header('Authorization');
-  if (authorization) {
-    if (await skriptaTokenOk(c.env, authorization)) return zastiti(c, next);
-    if (await basicOk(c.env, authorization)) {
-      if (izmjena && !basicCsrfOk(c, url.origin)) return c.text('Odbijeno (CSRF).', 403);
-      return zastiti(c, next);
-    }
-    return json({ error: 'unauthorized' }, 401);
+  if (authorization && (await skriptaTokenOk(c.env, authorization))) return zastiti(c, next);
+
+  // 3. Sesija iz kolačića ima prednost pred Basic Authom: preglednik koji je ranije
+  //    ušao Basic Authom šalje ga i dalje sam od sebe, pa bi inače stranice koje trebaju
+  //    sesiju (ključevi) vrtjele login ↔ stranica (regresija 2026-11-12).
+  const s = await getSession(c.env, c.req.header('Cookie'));
+  if (s) {
+    // CSRF: svaka promjena mora doći s istog origina (kolačić je SameSite=Lax).
+    if (izmjena && c.req.header('Origin') !== url.origin) return json({ error: 'bad_origin' }, 403);
+    c.set('sesija', s);
+    return zastiti(c, next);
   }
 
-  // 3. CSRF: svaka promjena mora doći s istog origina (kolačić je SameSite=Lax).
+  // 4. Basic Auth UKLONJEN 2026-11-12 — `Authorization: Basic …` se ignorira (ide na login).
+  //    Pogrešan Bearer i dalje → 401 (skripta mora znati da token ne valja).
+  // if (authorization) {
+  //   if (!(await basicOk(c.env, authorization))) return json({ error: 'unauthorized' }, 401);
+  //   if (izmjena && !basicCsrfOk(c, url.origin)) return c.text('Odbijeno (CSRF).', 403);
+  //   return zastiti(c, next);
+  // }
+  if (authorization?.startsWith('Bearer ')) return json({ error: 'unauthorized' }, 401);
+
+  // 5. Bez prijave: CSRF i dalje vrijedi za javne POST-ove (passkey prijava, odjava).
   if (izmjena) {
     const origin = c.req.header('Origin');
     if (!origin || origin !== url.origin) return json({ error: 'bad_origin' }, 403);
   }
-
-  // 4. Sesija za sve osim javnih putanja.
   if (!JAVNO.has(c.req.path)) {
-    const s = await getSession(c.env, c.req.header('Cookie'));
-    if (!s) {
-      if (izmjena || c.req.path.startsWith('/admin/api/')) return json({ error: 'unauthorized' }, 401);
-      return c.redirect(`/admin/login?next=${encodeURIComponent(url.pathname + url.search)}`, 302);
-    }
-    c.set('sesija', s);
+    if (izmjena || c.req.path.startsWith('/admin/api/')) return json({ error: 'unauthorized' }, 401);
+    return c.redirect(`/admin/login?next=${encodeURIComponent(url.pathname + url.search)}`, 302);
   }
   return zastiti(c, next);
 };

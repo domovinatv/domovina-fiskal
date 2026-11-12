@@ -35,9 +35,12 @@
   (secret, ≥ 32 znaka; lokalno u `secrets/fiskal-test-admin.env` → `ADMIN_SKRIPTA_TOKEN`,
   PROD u `backend/.tajne/lozinke.env` → `ADMIN_SKRIPTA_TOKEN_PROD`). Bez kolačića pa bez
   CSRF provjere; pogrešan token → 401. Po uzoru na logomedo `RUNNER_TOKEN`.
-- **Prijelazno**: Basic Auth (`ADMIN_USER`/`ADMIN_PASS`) i dalje vrijedi kad je poslan u
-  zaglavlju (curl), ali preglednik ga više ne dobiva (nema `WWW-Authenticate`). Ukloniti
-  secrete i granu u `zastita.ts` tek kad PROD prijava Accessom i passkeyem provjereno radi.
+- **Basic Auth je UKLONJEN 2026-11-12** (kod ostavljen zakomentiran u `zastita.ts`).
+  `Authorization: Basic …` se ignorira, tj. bez sesije ide na login. Zamka koja je to
+  ubrzala: Brave je uz kolačić sesije sam slao Basic Auth koji je zapamtio od prije, Basic je
+  prolazio bez sesije, pa je `/admin/passkeys` vrtio login ↔ stranica („too many redirects”).
+  Zato sesija iz kolačića ima prednost pred bilo kojim drugim načinom, a stranice koje traže
+  sesiju bez nje vraćaju 403, nikad preusmjeravanje na login.
 
 ## Postavljanje okoline
 

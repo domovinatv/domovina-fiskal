@@ -69,7 +69,7 @@ ADMIN_HOST = "fiskal.domovina.ai"
 # Secrets — postavi s `wrangler secret put` (lokalno u .dev.vars):
 #   ADMIN_EMAILS    # „a@x,b@y” bez razmaka — tko smije u /admin (isti popis u Access politici)
 #   ADMIN_SKRIPTA_TOKEN  # Bearer za skripte (dodaj-tenant.sh), `openssl rand -hex 32`
-#   ADMIN_USER / ADMIN_PASS  # PRIJELAZNO (Basic Auth za curl) — obrisati kad PROD Access prijava radi
+#   (ADMIN_USER / ADMIN_PASS — Basic Auth UKLONJEN 2026-11-12; secrete obrisati po okolini)
 #   ENC_MASTER_KEY  # 64 hex znaka (32 bajta) — KEK za envelope enkripciju certifikata
 #   RESEND_API_KEY  # Resend fallback za slanje emailova (dok CF Email Sending nije aktiviran)
 #   DOKU_SOFTWARE_API_TOKEN  # GUID naše integracije za doku eRačun API (isti za sve tenante;

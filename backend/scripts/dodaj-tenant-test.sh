@@ -78,7 +78,9 @@ SKRIPTA_TOKEN="$(grep '^ADMIN_SKRIPTA_TOKEN=' "$DEV_VARS" | head -1 | cut -d= -f
 if [[ -n "$SKRIPTA_TOKEN" ]]; then
   acurl() { printf 'header = "Authorization: Bearer %s"\n' "$SKRIPTA_TOKEN" | curl -sS -K - "$@"; }
 else
-  acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+  # Basic Auth UKLONJEN 2026-11-12 — bez tokena nema pristupa.
+  # acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+  echo "GREŠKA: nema ADMIN_SKRIPTA_TOKEN u $DEV_VARS (Basic Auth uklonjen 2026-11-12)." >&2; exit 1
 fi
 
 echo "── Lion Base tenant na TEST okruženju ($BASE) ──"

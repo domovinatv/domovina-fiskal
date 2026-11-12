@@ -21,8 +21,7 @@
 #   test → secrets/fiskal-test-admin.env (ADMIN_SKRIPTA_TOKEN)
 #   prod → backend/.tajne/lozinke.env (ADMIN_SKRIPTA_TOKEN_PROD)
 #   Token = wrangler secret ADMIN_SKRIPTA_TOKEN (docs/knowledge/20-admin-prijava.md).
-#   Prijelazno, dok PROD Access prijava nije provjerena: ako tokena nema, Basic Auth
-#   (ADMIN_USER/ADMIN_PASS, odnosno ADMIN_USER_PROD/ADMIN_PASS_PROD).
+#   Basic Auth (ADMIN_USER/ADMIN_PASS) je UKLONJEN 2026-11-12 — bez tokena skripta staje.
 # Sirovi API ključ (dfk_…) → secrets/<oib>-<okolina>-api-kljuc.txt (gitignored).
 #
 # Skripta NE radi (zasebni ručni koraci, vidi sažetak na kraju):
@@ -112,8 +111,9 @@ fi
 if [[ -n "$SKRIPTA_TOKEN" ]]; then
   acurl() { printf 'header = "Authorization: Bearer %s"\n' "$SKRIPTA_TOKEN" | curl -sS -K - "$@"; }
 else
-  echo "⚠️  Nema ADMIN_SKRIPTA_TOKEN u $KRED — prijelazni Basic Auth." >&2
-  acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+  # Basic Auth UKLONJEN 2026-11-12 — bez tokena nema pristupa.
+  # acurl() { curl -sS -u "$ADMIN_USER:$ADMIN_PASS" "$@"; }
+  echo "GREŠKA: nema ADMIN_SKRIPTA_TOKEN u $KRED (Basic Auth uklonjen 2026-11-12)." >&2; exit 1
 fi
 
 echo "── Tenant $NAZIV na $OKOLINA ($BASE) ──"

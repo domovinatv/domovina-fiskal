@@ -38,9 +38,9 @@ describe('Bez prijave', () => {
     expect(r.headers.get('x-frame-options')).toBe('DENY');
   });
 
-  it('pogrešan bearer ili Basic → 401 (ne pada na sesiju)', async () => {
+  it('pogrešan bearer → 401 (ne pada na sesiju); Basic se ignorira → login', async () => {
     expect((await poziv('/admin', { headers: { Authorization: 'Bearer krivo-krivo-krivo-krivo-krivo-krivo' } })).status).toBe(401);
-    expect((await poziv('/admin', { headers: { Authorization: `Basic ${btoa('admin:krivo')}` } })).status).toBe(401);
+    expect((await poziv('/admin', { headers: { Authorization: `Basic ${btoa('admin:krivo')}` } })).status).toBe(302);
   });
 
   it('drugi host → 301 na ADMIN_HOST', async () => {
@@ -88,6 +88,17 @@ describe('Sesija', () => {
     expect(r.status).toBe(303);
     expect(r.headers.get('set-cookie')).toContain('Max-Age=0');
     expect((await poziv('/admin', { headers: { Cookie: kolacic } })).status).toBe(302);
+  });
+
+  // Regresija 2026-11-12 (TEST): Brave je uz kolačić sesije slao i zapamćeni Basic Auth
+  // od prije; Basic je prošao bez sesije, /admin/passkeys → login → /admin/passkeys → petlja.
+  it('sesija + zapamćeni Basic u pregledniku → sesija ima prednost (nema petlje)', async () => {
+    const basic = `Basic ${btoa('admin:test-lozinka')}`;
+    const r = await poziv('/admin/passkeys', { headers: { Cookie: await adminSesija(), Authorization: basic } });
+    expect(r.status).toBe(200);
+    // Basic bez sesije → login (jednom); skripta bez sesije → 403, ne preusmjeravanje.
+    expect((await poziv('/admin/passkeys', { headers: { Authorization: basic } })).status).toBe(302);
+    expect((await poziv('/admin/passkeys', { headers: { Authorization: adminSkripta() } })).status).toBe(403);
   });
 
   it('login sa sesijom → preusmjeri na next', async () => {

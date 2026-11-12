@@ -66,7 +66,8 @@ prijava.post('/passkey/register/verify', async (c) => {
 
 prijava.get('/passkeys', async (c) => {
   const s = c.get('sesija');
-  if (!s) return c.redirect('/admin/login?next=/admin/passkeys', 302);
+  // Bez sesije (skripta ili prijelazni Basic Auth) — ne preusmjeravati na login (petlja).
+  if (!s) return c.text('Ključevi traže prijavu Accessom ili passkeyem (ne Basic Auth ni skriptu).', 403);
   const { results } = await c.env.DB.prepare(
     'SELECT id, label, created_at, last_used_at FROM admin_passkeys WHERE email = ? ORDER BY created_at',
   ).bind(s.email).all<PasskeyPrikaz>();

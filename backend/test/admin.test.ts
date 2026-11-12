@@ -98,19 +98,16 @@ describe('Deaktivacije (4.5)', () => {
 
 describe('CSRF (4.5)', () => {
   // Skripta (bearer) ne nosi kolačić pa nema CSRF rizika — prolazi bez Origina.
-  // Preglednička sesija: tests u admin-prijava.test.ts. Prijelazni Basic Auth: stara blaga provjera.
-  it('Basic Auth (prijelazno): tuđi origin / cross-site → 403; isti origin i curl → prolazi', async () => {
+  // Preglednička sesija: admin-prijava.test.ts. Basic Auth uklonjen 2026-11-12.
+  it('Basic Auth (uklonjen 2026-11-12) više ne otvara admin', async () => {
     const t = await napraviTenanta();
-    const putanja = `/admin/tenant/${t.tenant.id}/uredi`;
-    const podaci = podaciTenanta(t);
-    const basic = { Authorization: `Basic ${btoa(`${testEnv.ADMIN_USER}:${testEnv.ADMIN_PASS}`)}` };
-    const post = (z: Record<string, string>) =>
-      poziv(putanja, { method: 'POST', headers: { ...basic, 'Content-Type': 'application/x-www-form-urlencoded', ...z }, body: new URLSearchParams(podaci).toString() });
-    expect((await post({ Origin: 'https://zlo.example' })).status).toBe(403);
-    expect((await post({ 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
-    expect((await post({ Origin: ORIGIN })).status).toBe(303);
-    expect((await post({ 'Sec-Fetch-Site': 'same-origin' })).status).toBe(303);
-    expect((await post({})).status).toBe(303); // curl
+    const r = await poziv(`/admin/tenant/${t.tenant.id}/uredi`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${btoa('admin:test-lozinka')}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(podaciTenanta(t)).toString(),
+    });
+    expect(r.status).toBe(403); // bez Origina i bez sesije
+    expect((await poziv('/admin', { headers: { Authorization: `Basic ${btoa('admin:test-lozinka')}` } })).status).toBe(302);
   });
 
   it('skripta (bearer) prolazi bez Origina', async () => {

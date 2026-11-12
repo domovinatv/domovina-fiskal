@@ -23,9 +23,6 @@ export default defineConfig(async () => {
             ADMIN_SKRIPTA_TOKEN: 'testni-skripta-token-0123456789abcdef',
             ACCESS_TEAM_DOMAIN: 'test.cloudflareaccess.com',
             ACCESS_AUD: 'testni-aud',
-            // Prijelazni Basic Auth fallback (do PROD provjere Accessa).
-            ADMIN_USER: 'admin',
-            ADMIN_PASS: 'test-lozinka',
             ALARM_EMAIL: 'alarmi@primjer.hr',
           },
         },

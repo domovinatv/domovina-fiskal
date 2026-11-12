@@ -16,7 +16,7 @@ Open-source multi-tenant SaaS za **izdavanje hrvatskih računa** (alternativa fi
 - Nefiskalne **ponude/računi** (PDF/email/QR) — vidi `09-*`.
 
 ## Fiksirane arhitektonske odluke (NE re-litigirati bez razloga)
-1. **Stack:** Cloudflare Worker + **Hono** + **D1**, server-rendered admin (Basic Auth),
+1. **Stack:** Cloudflare Worker + **Hono** + **D1**, server-rendered admin (Cloudflare Access + passkey od 2026-11-12),
    Bearer API, **hrvatski jezik svugdje**. Uzor: `../pipeline.domovina.ai`. (`CLAUDE.md`)
 2. **Multi-tenant lanac** (potvrđen na Firi): `Webshop(apiKey/tajni ključ)` → `Slijed računa`
    → `Poslovni prostor` + `Naplatni uređaj` + `Operater(OIB)` → `Račun`. Payload = kupac +
@@ -66,10 +66,10 @@ Izvedi fazu po fazu. Svaki prompt je samostalan; pokreni ga u novoj sesiji.
   **`0010_admin_prijava`** je zauzeta → refactor (§6 korak 6) uzima **`0011`**. Access
   aplikacija „Fiskal admin (sso)” + politika „Fiskal admini” na D.O.M. računu (obje
   destinacije, TEST i PROD). **TEST deployan** (migracija, `ADMIN_EMAILS`,
-  `ADMIN_SKRIPTA_TOKEN` → `secrets/fiskal-test-admin.env`). Basic Auth ostaje prijelazno
-  za curl. ⏭️ PROD (migracija `fiskal_domovina`, secreti, `ADMIN_SKRIPTA_TOKEN_PROD` u
-  `backend/.tajne/lozinke.env`, deploy) čeka izričito odobrenje; tek nakon provjerene
-  PROD prijave obrisati `ADMIN_USER/ADMIN_PASS` i Basic granu u `zastita.ts`.
+  `ADMIN_SKRIPTA_TOKEN` → `secrets/fiskal-test-admin.env`). **Basic Auth uklonjen
+  2026-11-12** (kod zakomentiran u `zastita.ts`). ⏭️ PROD (migracija `fiskal_domovina`, secreti, `ADMIN_SKRIPTA_TOKEN_PROD` u
+  `backend/.tajne/lozinke.env`, deploy) čeka izričito odobrenje. PROD
+  deploy ukida Basic Auth i na PROD-u — prije toga postaviti `ADMIN_EMAILS` i token.
   ⚠️ `wrangler d1 migrations apply` je jednom vratio 7403 i uz `CLOUDFLARE_ACCOUNT_ID`;
   ponovljeni poziv je prošao (prolazna greška, ne konfiguracija).
 

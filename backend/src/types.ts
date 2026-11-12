@@ -11,8 +11,7 @@ export interface Env {
   ACCESS_AUD?: string; // var, AUD tag Access aplikacije „Fiskal admin (sso)”
   ADMIN_HOST?: string; // var, jedini host admina (rpID passkeya)
   ADMIN_SKRIPTA_TOKEN?: string; // secret, Bearer za skripte (dodaj-tenant.sh), ≥ 32 znaka
-  ADMIN_USER?: string; // PRIJELAZNO: Basic Auth za curl dok PROD Access prijava nije provjerena
-  ADMIN_PASS?: string;
+  // ADMIN_USER / ADMIN_PASS: Basic Auth UKLONJEN 2026-11-12 (vidi admin/auth/zastita.ts).
   ENC_MASTER_KEY?: string; // KEK, 64 hex znaka (wrangler secret)
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
   RESEND_API_KEY?: string; // Resend fallback kanal (wrangler secret)
