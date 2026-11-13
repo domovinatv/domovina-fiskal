@@ -755,7 +755,14 @@ IS NULL` = 0 (39 redaka), eRačuna `fiskaliziran` 0, stari indeksi nema. Smoke
 (ITalk): API 12/PP1/1 i 13/PP1/1 (**500 stavki**, 1,2 s, PDF 128 kB s JIR-om →
 K23 na udaljenom D1 dokazan), admin 14/PP1/1. Svi su dobili JIR na CIS TEST-u, a
 zbroj `stavka.iznos` = `iznos_bez_pdv`. `GET /` je bez `brojaci`. Verzija `v0.5.0`
-je samo u footeru admina, u `GET /` je nikad nije bilo. **PROD čeka odobrenje.**
+je samo u footeru admina, u `GET /` je nikad nije bilo.
+
+**Deploy 0012 na PROD (2026-11-13, vlasnik odobrio):** ✅ bookmark prije
+migracije `000033b2-00000000-00005122-9aa506d6fdec17004c381175e5dd45bb`; 0012
+primijenjena, kod `6f8be99a-75ac-4f99-935e-4201ae17ab6a` (100 %). Poslije:
+`stavka.iznos IS NULL` = 0 (2 retka, iznosi = `iznos_bez_pdv`), stari indeksi
+nema, `/zdravlje` ok, admin `v0.5.0`, `GET /` bez `brojaci` (~20 s nakon deploya
+još je služila stara verzija). Računi nisu izdavani.
 
 **Deploy 0012 — postupak:** migracija prvo, pa kod. Stari kod u prozoru
 između upisuje `stavka.iznos = NULL` (prikaz radi preko pričuve); nakon deploya
