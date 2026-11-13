@@ -748,7 +748,16 @@ Testovi 99/99. Koraci 6 (K15, K19 → migracija 0012), 7 i 8 nisu započeti.
 | K22 | `45d91ce` | touch API ključa najviše jednom u 60 s (svježina u istom SELECT-u). |
 | K14 | `61ace97` | Vlasnik odobrio. eRačun ostaje `poslan`, napredak u `eracun_status`; 0012 vraća postojeće (TEST 1 redak, PROD 0). Promjena API polja `status` za eRačune; docs `eracun-*` ažurirani. |
 
-**Deploy 0012 (nije napravljen):** migracija prvo, pa kod. Stari kod u prozoru
+**Deploy 0012 na TEST (2026-11-13, Opus 5.5):** ✅ Time Travel bookmark prije
+migracije `00002e2b-00000000-00005122-370c1030812c1cded40b70faf3fe2440`; 0012
+primijenjena, kod `9eaccd36-e326-42d4-9dbd-5c95671066eb`. Poslije: `stavka.iznos
+IS NULL` = 0 (39 redaka), eRačuna `fiskaliziran` 0, stari indeksi nema. Smoke
+(ITalk): API 12/PP1/1 i 13/PP1/1 (**500 stavki**, 1,2 s, PDF 128 kB s JIR-om →
+K23 na udaljenom D1 dokazan), admin 14/PP1/1. Svi su dobili JIR na CIS TEST-u, a
+zbroj `stavka.iznos` = `iznos_bez_pdv`. `GET /` je bez `brojaci`. Verzija `v0.5.0`
+je samo u footeru admina, u `GET /` je nikad nije bilo. **PROD čeka odobrenje.**
+
+**Deploy 0012 — postupak:** migracija prvo, pa kod. Stari kod u prozoru
 između upisuje `stavka.iznos = NULL` (prikaz radi preko pričuve); nakon deploya
 ponoviti backfill UPDATE iz 0012 (ili samo provjeriti `SELECT COUNT(*) FROM stavka
 WHERE iznos IS NULL` = 0). K14 UPDATE je također ponovljiv. Na PROD-u prije toga
