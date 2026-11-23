@@ -144,3 +144,39 @@ pala). Provjere sad idu kroz `webauthn.verify*`, a `test/pomocno/webauthn-mock.t
 
 **207. `X-Tenant-Id` kroz `Number.isSafeInteger`** u obje korisničke grane (prije `isInteger`).
 Sitno; ponašanje za ispravne vrijednosti isto. *Revizija:* nema.
+
+## S3 (23. 11. 2026.)
+
+**300. Trag radnji: nova tablica `korisnik_aktivnost` (migracija 0015).** Fiskal nije imao tablicu
+aktivnosti/audita (`poruka_log` je samo CIS). Zapis: `tko` (e-mail admina ili vlasnika; `skripta` za
+bearer), `tko_tip`, `radnja` (`poziv.izdan`, `poziv.opozvan`, `korisnik.deaktiviran`, `korisnik.aktiviran`,
+`clanstvo.deaktivirano`, `clanstvo.aktivirano`), `email`, `korisnik_id`, `tenant_id`, `pozivnica_id`,
+`detalji` (JSON). Bez stranih ključeva (zapis preživi brisanje tenanta) i bez prije/poslije i poništavanja
+(za razliku od logomedo `aktivnost`). Bilježe se i vlasnikove radnje iz `/api/v1/clanovi`. Iskorištenje
+pozivnice nije zaseban zapis: vidi se u `pozivnice.iskoristena_at`/`passkey_id`. Gdje radnja već ide
+batchem (deaktivacija, članstvo), zapis je u istom batchu; kod izdavanja i opoziva ide odmah iza. Prikaz:
+zadnjih 50 na `/admin/korisnici`. *Revizija:* nema.
+
+**301. Gdje je UI.** Nova stranica `/admin/korisnici` (`src/admin/korisnici.ts`, `views-korisnici.ts`,
+link „Korisnici” u navigaciji) za cijeli račun: nova pozivnica (e-mail, ime, tenant, uloga), otvorene
+pozivnice, korisnici s tenantima i ulogama, „Novi passkey”, deaktiviraj/aktiviraj, trag. Detalj tenanta
+dobiva sekciju „Korisnici dashboarda”: isti obrazac s tim tenantom, otvorene pozivnice tenanta s
+opozivom (vraća na tenant, `povratak` samo `/admin/tenant/<id>`), članovi sa stanjem passkey računa i
+(de)aktivacijom članstva. Link pozivnice prikazuje se samo u odgovoru na izdavanje (uvijek na
+`/admin/korisnici`). *Revizija:* nema.
+
+**302. Admin deaktivacija korisnika** = `korisnik.aktivan = 0` + brisanje svih sesija + opoziv svih
+otvorenih pozivnica tog e-maila (svi tenanti) + zapis s brojem obrisanih sesija i opozvanih pozivnica.
+Passkeyi i retci `korisnik_tenant` ostaju; „Aktiviraj” vraća pristup bez pozivnice. Ponovljena radnja
+(već deaktiviran / već aktivan) ne radi ništa i ne ostavlja zapis. „Novi passkey” deaktiviranom → 409.
+*Revizija:* nema.
+
+**303. Članstvo u tenantu iz admina (potvrditi).** Postojeća ruta `/admin/tenant/:id/korisnici/:kid/
+(de)aktiviraj` ostaje (admin smije i vlasnika i vraćanje bez pozivnice, odluka 205); deaktivacija
+članstva sada opoziva i otvorene pozivnice tog e-maila u tenantu (isto kao vlasnik) i ostavlja zapis.
+Uklonjen je samo `POST /admin/tenant/:id/korisnici` (dodavanje e-maila bez pozivnice); `createKorisnikTenant`
+u `src/db` ostaje zbog GoTrue testova do S5. *Revizija:* S5 (GoTrue van).
+
+**304. Statusi admin ruta.** Odbijena pozivnica re-renderira stranicu s porukom: 400 (e-mail, bez tenanta),
+404 (nema tenanta/korisnika, opoziv nepostojeće ili zatvorene), 409 (`vec_clan`, `neaktivan`). Uspjeh
+izdavanja i „Novi passkey” → 200 sa stranicom i linkom; ostalo → 303. *Revizija:* nema.

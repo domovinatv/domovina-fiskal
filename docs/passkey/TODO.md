@@ -22,8 +22,8 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 - [x] Rute prijave pod `/api/v1/prijava/*` i `/api/v1/poziv/*` (opcije + potvrda), `/api/v1/odjava`, `GET /api/v1/ja`, `/api/v1/passkeyi` → S2 (fec47e2)
 - [x] `/api/v1` grana za kolačić sesije + `X-Tenant-Id` → `korisnik_tenant`; Origin provjera za mutacije s kolačićem → S2 (fec47e2)
 - [x] Vlasnik: `GET/POST /api/v1/clanovi` (popis, pozovi knjigovođu/operatera, opozovi pozivnicu, deaktiviraj člana svog tenanta) → S2 (fec47e2)
-- [ ] `/admin`: pozivnice za bilo koji tenant i ulogu, popis otvorenih, opoziv, „Novi passkey”, deaktivacija/aktivacija korisnika → S3
-- [ ] Aktivnost/trag za radnje nad pozivnicama i korisnicima → S3
+- [x] `/admin`: pozivnice za bilo koji tenant i ulogu, popis otvorenih, opoziv, „Novi passkey”, deaktivacija/aktivacija korisnika → S3 (d0d0323)
+- [x] Aktivnost/trag za radnje nad pozivnicama i korisnicima (migracija 0015 `korisnik_aktivnost`) → S3 (d0d0323)
 
 ## F2 — dashboard na istom Workeru
 
