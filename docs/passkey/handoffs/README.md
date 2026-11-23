@@ -16,7 +16,7 @@
 | Sesija | Paket | Stanje | Commit | Testovi | Napomena |
 |---|---|---|---|---|---|
 | S0 | Plan | gotovo | 075c3ce | — | plan bez koda |
-| S1 | Migracija + app-auth moduli | otvoreno | | | |
+| S1 | Migracija + app-auth moduli | gotovo | a5aad75 | 235 → 255, skipped 0 | 0014; odluke 100–107 |
 | S2 | API rute, grana za kolačić, članovi | otvoreno | | | |
 | S3 | `/admin` pozivnice i korisnici | otvoreno | | | |
 | S4 | App na `/app`, passkey UI | otvoreno | | | |

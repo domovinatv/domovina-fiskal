@@ -50,3 +50,48 @@ postojećem korisniku nosi `korisnik_id` bez tenanta. Link se prikaže jednom, �
 
 **9. Testovi.** Vitest u `@cloudflare/vitest-pool-workers` kao postojeći `test/admin-prijava.test.ts`;
 bez mreže, `skipped 0`. WebAuthn verify u testovima mockan kao u logomedo `passkey.test.ts`.
+
+## S1 (23. 11. 2026.)
+
+**100. Migracija `0014_dashboard_passkey.sql`.** Prvi slobodan broj (0013 je u međuvremenu commitan).
+`korisnik.email` i `pozivnice.email` imaju `CHECK (email = lower(trim(email)))`, pa je `UNIQUE` na
+stupcu ujedno jedinstvenost „u lower” i `ON CONFLICT (email)` radi bez izraznog indeksa.
+*Revizija:* nema.
+
+**101. Pravila pozivnice u shemi.** `pozivnice` ima dva CHECK-a: ili `tenant_id + uloga` bez
+`korisnik_id` (za tenant), ili `korisnik_id` bez tenanta i uloge („novi passkey”); i
+`stvorio_tip = 'admin' OR uloga IN ('knjigovodja','operater')`. Vlasnik tako ni izravnim upisom
+ne izda pozivnicu za vlasnika ni za novi passkey. *Revizija:* ako vlasnik smije pozivati vlasnika (odluka 4).
+
+**102. Izazovi vezani uz subjekt.** `korisnik_izazovi` ima `korisnik_id` (namjena `register`,
+prijavljeni dodaje ključ) i `poziv_id` (namjena `poziv`), ne e-mail kao admin: izazov iz jedne
+pozivnice ne vrijedi za drugu pozivnicu istog e-maila u drugom tenantu. *Revizija:* nema.
+
+**103. Uvjeti iskorištenja u samom UPDATE-u (potvrditi).** Potrošnja pozivnice (`pozivnice.ts`
+`SMIJE`) uspije samo ako: pozivnica je otvorena; korisnik s tim e-mailom nije deaktiviran, osim
+kad je pozivnicu za tenant izdao admin (tada ga iskorištenje reaktivira, kao logomedo 105);
+„novi passkey” traži da korisnik postoji, da je e-mail njegov i da je aktivan; korisnik nema već
+5 ključeva. Ista provjera je u `provjeri`, pa S2 može odbiti prije WebAuthn ceremonije.
+*Razlog:* vlasnik ne smije poništiti adminovu deaktivaciju; granica od 5 ključeva vrijedi i za pozivnice.
+*Revizija:* S3 ako admin treba eksplicitnu reaktivaciju bez pozivnice.
+
+**104. Postojeći korisnik i nova pozivnica za tenant (potvrditi).** Aktivni korisnik koji je već
+aktivan član tog tenanta ne dobiva pozivnicu (`vec_clan`; promjena uloge ide izravno, S2/S3).
+Aktivni korisnik pozvan u **drugi** tenant iskorištava pozivnicu kao i novi: registrira još jedan
+passkey (do 5). *Razlog:* jedan tok za sve pozivnice u S1. *Revizija:* S2 smije dodati
+„prihvati pozivnicu prijavljen” (bez novog passkeya) ako se pokaže potrebnim.
+
+**105. Članstvo pri iskorištenju.** Postojeći redak `korisnik_tenant` (isti tenant,
+`lower(user_email)` = e-mail pozivnice, i stari GoTrue s velikim slovima) dobiva ulogu iz pozivnice
+i `aktivan = 1`; inače se upisuje novi redak s e-mailom malim slovima. Join po e-mailu (odluka 6)
+je izvediv, `src/db/tenant.ts` se u S1 ne dira. *Revizija:* nema.
+
+**106. Sesija.** Metode `passkey` i `poziv` (prijava odmah nakon iskorištene pozivnice).
+`getSession` vraća null i za deaktiviranog korisnika (uz `obrisiSveSesije` pri deaktivaciji);
+sve funkcije primaju `sada` radi testova vremena. *Revizija:* nema.
+
+**107. `test/backup.test.ts` briše tablice u krugovima.** DROP po redoslijedu `sqlite_master` pada
+s „no such table: main.tenant” jer `korisnik` ima dijete `pozivnice` s FK na već obrisani `tenant`
+(ni obrnuti `rowid` ne pomaže: migracije prepisuju tablice). Test sada ponavlja neuspjele DROP-ove
+dok ne nestane sve. Produkcijski restore ide u praznu bazu i ne briše ništa, pa ga ovo ne dira.
+*Revizija:* nema.

@@ -10,12 +10,12 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 
 ## F0 — temelj u backendu (ništa javno)
 
-- [ ] Izmjeriti polazno stanje: broj testova, `skipped`, prvi slobodan broj migracije → S1
-- [ ] Migracija: `korisnik`, `korisnik_passkeys`, `korisnik_sesije`, `korisnik_izazovi`, `pozivnice` → S1
-- [ ] `backend/src/app-auth/passkey.ts` (iz logomedo `src/lib/admin/passkey.ts`, hints `client-device`/`hybrid`) → S1
-- [ ] `backend/src/app-auth/sesija.ts`: kolačić `__Host-fiskal_app`, sha-256 u D1, 12 h / 2 h neaktivnosti → S1
-- [ ] `backend/src/app-auth/pozivnice.ts`: 72 h, jednokratna, troši se tek nakon verify, nova poništava staru, opoziv → S1
-- [ ] Testovi za sva tri modula (bez mreže, `skipped 0`) → S1
+- [x] Izmjeriti polazno stanje: broj testova, `skipped`, prvi slobodan broj migracije → S1 (a5aad75)
+- [x] Migracija: `korisnik`, `korisnik_passkeys`, `korisnik_sesije`, `korisnik_izazovi`, `pozivnice` → S1 (a5aad75)
+- [x] `backend/src/app-auth/passkey.ts` (iz logomedo `src/lib/admin/passkey.ts`, hints `client-device`/`hybrid`) → S1 (a5aad75)
+- [x] `backend/src/app-auth/sesija.ts`: kolačić `__Host-fiskal_app`, sha-256 u D1, 12 h / 2 h neaktivnosti → S1 (a5aad75)
+- [x] `backend/src/app-auth/pozivnice.ts`: 72 h, jednokratna, troši se tek nakon verify, nova poništava staru, opoziv → S1 (a5aad75)
+- [x] Testovi za sva tri modula (bez mreže, `skipped 0`) → S1 (a5aad75)
 
 ## F1 — API i administracija
 
