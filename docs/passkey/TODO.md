@@ -19,9 +19,9 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 
 ## F1 — API i administracija
 
-- [ ] Rute prijave pod `/api/v1/prijava/*` i `/api/v1/poziv/*` (opcije + potvrda), `/api/v1/odjava`, `GET /api/v1/ja` → S2
-- [ ] `/api/v1` grana za kolačić sesije + `X-Tenant-Id` → `korisnik_tenant`; Origin provjera za mutacije s kolačićem → S2
-- [ ] Vlasnik: `GET/POST /api/v1/clanovi` (popis, pozovi knjigovođu/operatera, opozovi pozivnicu, deaktiviraj člana svog tenanta) → S2
+- [x] Rute prijave pod `/api/v1/prijava/*` i `/api/v1/poziv/*` (opcije + potvrda), `/api/v1/odjava`, `GET /api/v1/ja`, `/api/v1/passkeyi` → S2 (fec47e2)
+- [x] `/api/v1` grana za kolačić sesije + `X-Tenant-Id` → `korisnik_tenant`; Origin provjera za mutacije s kolačićem → S2 (fec47e2)
+- [x] Vlasnik: `GET/POST /api/v1/clanovi` (popis, pozovi knjigovođu/operatera, opozovi pozivnicu, deaktiviraj člana svog tenanta) → S2 (fec47e2)
 - [ ] `/admin`: pozivnice za bilo koji tenant i ulogu, popis otvorenih, opoziv, „Novi passkey”, deaktivacija/aktivacija korisnika → S3
 - [ ] Aktivnost/trag za radnje nad pozivnicama i korisnicima → S3
 

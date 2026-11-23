@@ -95,3 +95,52 @@ s „no such table: main.tenant” jer `korisnik` ima dijete `pozivnice` s FK na
 (ni obrnuti `rowid` ne pomaže: migracije prepisuju tablice). Test sada ponavlja neuspjele DROP-ove
 dok ne nestane sve. Produkcijski restore ide u praznu bazu i ne briše ništa, pa ga ovo ne dira.
 *Revizija:* nema.
+
+## S2 (23. 11. 2026.)
+
+**200. Gdje žive rute.** Prijava, pozivnica i odjava (`src/api/app-auth.ts`, `appAuthJavno`) ne
+traže sesiju, pa su montirane na `/api/v1` u `src/index.ts` **prije** `apiV1` (kao `/zdravlje`).
+Moji passkeyi (`passkeyRute`) i članovi (`src/api/clanovi.ts`) idu kroz `apiAuth`. Origin
+provjera u javnom sub-appu stoji samo na njegovim putanjama: `use('*')` bi, montiran uz `apiV1`,
+hvatao i `dfk_` mutacije webshopova (test to pokriva). *Revizija:* nema.
+
+**201. Kolačić samo bez `Authorization`.** `apiAuth` gleda kolačić `__Host-fiskal_app` tek kad
+zaglavlja `Authorization` nema; `dfk_` i GoTrue grana ostaju prve i nepromijenjene. `dfk_` uz
+kolačić ne traži `Origin`: stranica s tuđeg origina ne može poslati `Authorization` bez CORS
+preflighta. *Revizija:* S5 (GoTrue grana van).
+
+**202. Origin.** Za svaku ne-GET/HEAD s kolačićem i za sve javne rute prijave (i login CSRF)
+`Origin` mora biti točno `new URL(req.url).origin` (shema + host + port). Nedostaje ili je drugi
+→ 403. Preglednik ga šalje sam na same-origin `fetch` POST/DELETE, pa app (S4) ne radi ništa
+posebno. *Revizija:* nema.
+
+**203. `ApiKorisnik` je unija s `izvor`** (`'gotrue'` | `'passkey'`). Passkey grana veže članstvo
+`lower(user_email) = korisnik.email` (`findClanstvoPoEmailu`, `listMojiTenantiPoEmailu`), bez obzira
+na GoTrue `user_id` u retku. `/ja` za passkey vraća `{email, ime, korisnikId, prijava: {metoda, od, do},
+tenanti}`; za GoTrue je oblik isti kao prije. *Revizija:* S5 (unija postaje jedan oblik).
+
+**204. Statusi i oblici.** Pozivnica koja ne vrijedi (istekla, iskorištena, opozvana, kriv token)
+→ 410 s jednom porukom; neuspjela prijava → 401 bez razloga; `poziv/potvrdi` → 201 + kolačić.
+Moji passkeyi: `GET /passkeyi` (uz `dodavanje`: razlog odbijanja ili null), `POST /passkeyi/opcije`
+i `/potvrdi` (svježa prijava < 10 min, bilo kojom metodom), `DELETE /passkeyi/:id` (zadnji → 409;
+uvjet je u samom DELETE-u, `obrisiKljucOsimZadnjeg`). Tijela: `{token}`, `{token, odgovor, oznaka}`,
+`{odgovor}`. *Revizija:* S4 ako app treba drukčiji oblik.
+
+**205. Članovi (potvrditi).** Samo `uloga = 'vlasnik'` u tom tenantu (do S5 i uz GoTrue prijavu).
+Vlasnik poziva knjigovođu/operatera (`vlasnik` → 403, `vec_clan`/`neaktivan` → 409, ostalo 400),
+opoziva pozivnice svog tenanta (tuđa → 404) i deaktivira **samo knjigovođu ili operatera**, nikad
+sebe (409) ni drugog vlasnika (403: to radi admin, S3). Deaktivacija = `korisnik_tenant.aktivan = 0`
+i opoziv otvorenih pozivnica tog e-maila u tenantu; sesije ostaju (korisnik može biti u drugim
+tenantima), a pristup tenantu prestaje sljedećim zahtjevom jer se članstvo provjerava svaki put.
+Ponovni ulazak je nova pozivnica (novi passkey, odluka 104). Popis pozivnica pokazuje samo
+`stvorioTip`, ne e-mail administratora. Link pozivnice vraća samo `POST /clanovi/pozivnica`.
+*Revizija:* ako korisnik želi da vlasnik deaktivira suvlasnika.
+
+**206. WebAuthn u testovima kroz objekt `webauthn`.** `vi.mock('@simplewebauthn/server')` prestaje
+djelovati čim je `src/app-auth/passkey.ts` u grafu `src/index.ts`: vitest-pool-workers učita main
+modul prije testne datoteke, pa je modul već evaluiran s pravim funkcijama (izmjereno: 4 S1 testa
+pala). Provjere sad idu kroz `webauthn.verify*`, a `test/pomocno/webauthn-mock.ts` ih zamijeni
+`vi.spyOn` (obrazac `postaviCisTransport`). *Revizija:* nema.
+
+**207. `X-Tenant-Id` kroz `Number.isSafeInteger`** u obje korisničke grane (prije `isInteger`).
+Sitno; ponašanje za ispravne vrijednosti isto. *Revizija:* nema.
