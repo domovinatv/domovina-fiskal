@@ -50,3 +50,30 @@ npx wrangler d1 execute fiskal_domovina_restore --remote --file dump.sql
 
 Za vraćanje na trenutak unutar zadnjih 30 dana prvo razmotri D1 Time Travel
 (`wrangler d1 time-travel restore`), on ne treba dump.
+
+## Razina 2 — BYO backup u tenantov Cloudflare R2 (od 2026-11-23, migracija 0013)
+
+Opcionalno, po tenantu. Tenant u svom Cloudflare računu napravi R2 bucket i API token
+(„Workers R2 Storage: Edit”, po mogućnosti samo na taj bucket), pa ga unese:
+- admin: `/admin/tenant/:id` → „Backup u tenantov Cloudflare R2”;
+- API/dashboard: `GET|PUT|DELETE /api/v1/postavke/backup`
+  (`{cfAccountId, bucket, jurisdikcija?: 'eu'|'fedramp', prefiks?, token}`; operater ne smije).
+
+Spremanje odmah probno upisuje `<prefiks>provjera.txt`; ako upis ne uspije, ništa se ne sprema.
+Token je šifriran envelopeom (kao doku token) i ide kroz KEK rotaciju; API ga nikad ne vraća.
+
+Što stiže u tenantov bucket (upis kroz `PUT /client/v4/accounts/{acc}/r2/buckets/{b}/objects/{key}`,
+isti endpoint kao `wrangler r2 object put`, provjeren 2026-11-23 na stvarnom bucketu s `cf-r2-jurisdiction: eu`):
+
+| Ključ | Kada |
+|---|---|
+| `<prefiks>racuni/<godina>/<broj>_<id>.json` (račun, stavke, PDV, naplata, CIS XML) | nakon svake promjene računa |
+| `<prefiks>racuni/<godina>/<broj>_<id>.pdf` | isto, ako račun ima broj |
+| `<prefiks>racuni/skice/<id>.json` | dokument bez broja |
+| `<prefiks>snapshots/YYYY/MM/YYYY-MM-DD.json.gz` (sve tablice tenanta, bez certifikata, ključeva, tokena) | dnevno 01:30 UTC |
+
+„Realtime”: `waitUntil` nakon uspješnog ne-GET API zahtjeva i admin POST-a, plus cron `*/15` kao
+mreža (JIR iz sweepa naknadne dostave ne prolazi kroz API). Odabir: vodeni žig
+`tenant_backup.sinkronizirano_do` nad `racun.updated_at`, preklop 60 s, najviše 100 računa po pozivu.
+Greška se pamti u `zadnja_greska`; dnevni alarm (06:00) šalje je tenantu i platformi. Izdavanje i
+fiskalizacija nikad ne čekaju backup.
