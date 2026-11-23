@@ -216,18 +216,32 @@ export interface KorisnikTenantRow {
   created_at: string;
 }
 
-// Prijavljeni dashboard korisnik (JWT put) — postavlja auth middleware.
+// Prijavljeni dashboard korisnik — postavlja auth middleware. Dva izvora:
+//   * 'gotrue': Bearer GoTrue JWT (ide van u S5, docs/passkey/);
+//   * 'passkey': kolačić __Host-fiskal_app (sesija iz src/app-auth/sesija.ts).
 // `uloga` postoji samo na tenant-scoped rutama (dolazi iz membershipa);
-// na rutama bez X-Tenant-Id (/moji-tenanti, /ja) je undefined.
-export interface ApiKorisnik {
-  sub: string; // GoTrue user id (uuid)
-  email: string;
-  emailPotvrdjen: boolean;
-  uloga?: KorisnikTenantRow['uloga'];
-}
+// na rutama bez X-Tenant-Id (/moji-tenanti, /ja, /passkeyi) je undefined.
+export type ApiKorisnik =
+  | {
+      izvor: 'gotrue';
+      sub: string; // GoTrue user id (uuid)
+      email: string;
+      emailPotvrdjen: boolean;
+      uloga?: KorisnikTenantRow['uloga'];
+    }
+  | {
+      izvor: 'passkey';
+      korisnikId: number; // korisnik.id
+      email: string; // uvijek malim slovima (CHECK u tablici korisnik)
+      ime: string | null;
+      metoda: 'passkey' | 'poziv';
+      sesijaOd: string; // created_at sesije (svježina za dodavanje passkeya)
+      sesijaDo: string;
+      uloga?: KorisnikTenantRow['uloga'];
+    };
 
-// Hono varijable postavljene u Bearer auth middlewareu. Točno jedan od
-// apiKljucId (mašinski dfk_ put) / korisnik (dashboard JWT put) je postavljen.
+// Hono varijable postavljene u auth middlewareu. Točno jedan od
+// apiKljucId (mašinski dfk_ put) / korisnik (dashboard: JWT ili kolačić) je postavljen.
 export interface ApiVarijable {
   tenant: TenantRow;
   apiKljucId?: number;

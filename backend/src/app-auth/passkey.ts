@@ -18,6 +18,13 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import { consumeChallenge, storeChallenge, type AppAuthEnv } from './sesija';
 
 const RP_NAME = 'DOMOVINA Fiskal';
+
+/**
+ * WebAuthn provjere kroz objekt koji testovi zamjenjuju (`vi.spyOn(webauthn, …)`), kao
+ * `postaviCisTransport` za CIS. `vi.mock('@simplewebauthn/server')` tu ne djeluje: od S2 je
+ * ovaj modul u grafu src/index.ts, a vitest-pool-workers učita main modul prije testne datoteke.
+ */
+export const webauthn = { verifyRegistrationResponse, verifyAuthenticationResponse };
 export const MAX_PASSKEYS_PO_KORISNIKU = 5;
 /** Ukradeni kolačić ne smije postati trajni passkey: dodavanje traži svježu prijavu. */
 export const PASSKEY_REAUTH_SECONDS = 10 * 60;
@@ -74,7 +81,7 @@ export async function provjeriRegistraciju(
   response: RegistrationResponseJSON,
 ): Promise<NoviPasskey | null> {
   const { rpID, origin } = ctx(url);
-  const result = await verifyRegistrationResponse({
+  const result = await webauthn.verifyRegistrationResponse({
     response,
     expectedChallenge: async (c) => {
       const v = await consumeChallenge(env, c, upis.purpose);
@@ -164,7 +171,7 @@ export async function verifyLogin(
   if (!key) return null;
 
   const { rpID, origin } = ctx(url);
-  const result = await verifyAuthenticationResponse({
+  const result = await webauthn.verifyAuthenticationResponse({
     response,
     expectedChallenge: async (c) => (await consumeChallenge(env, c, 'login')) !== null,
     expectedOrigin: origin,
@@ -195,4 +202,19 @@ export async function mojiKljucevi(env: AppAuthEnv, korisnikId: number) {
 export async function obrisiKljuc(env: AppAuthEnv, id: string, korisnikId: number): Promise<boolean> {
   const r = await env.DB.prepare('DELETE FROM korisnik_passkeys WHERE id = ? AND korisnik_id = ?').bind(id, korisnikId).run();
   return (r.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Kao `obrisiKljuc`, ali nikad zadnji ključ korisnika (bez njega se više ne može prijaviti).
+ * Uvjet je u istoj naredbi, pa ni dva istodobna brisanja ne obrišu oba zadnja ključa.
+ * 'zadnji': ključ postoji, ali je jedini; 'nema': nije njegov ili ne postoji.
+ */
+export async function obrisiKljucOsimZadnjeg(env: AppAuthEnv, id: string, korisnikId: number): Promise<'obrisan' | 'zadnji' | 'nema'> {
+  const r = await env.DB.prepare(
+    `DELETE FROM korisnik_passkeys WHERE id = ? AND korisnik_id = ?
+       AND (SELECT COUNT(*) FROM korisnik_passkeys WHERE korisnik_id = ?) > 1`,
+  ).bind(id, korisnikId, korisnikId).run();
+  if ((r.meta.changes ?? 0) > 0) return 'obrisan';
+  const postoji = await env.DB.prepare('SELECT 1 FROM korisnik_passkeys WHERE id = ? AND korisnik_id = ?').bind(id, korisnikId).first();
+  return postoji ? 'zadnji' : 'nema';
 }

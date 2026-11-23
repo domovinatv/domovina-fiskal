@@ -1,30 +1,11 @@
 // Prijava u customer dashboard (docs/passkey/): sesija, passkey i pozivnice (S1).
 // Po uzoru na logomedo.com src/lib/admin/{passkey,pozivi,sesija}.test.ts i test/admin-prijava.test.ts.
-// WebAuthn se ne radi pravi (odluka 9): verify funkcije @simplewebauthn/server su mockane tako da
+// WebAuthn se ne radi pravi (odluka 9): verify funkcije su zamijenjene (test/pomocno/webauthn-mock.ts) tako da
 // pozovu `expectedChallenge` s izazovom iz lažnog odgovora, pa se vezivanje i jednokratnost
 // izazova ipak provjeravaju. D1 se dijeli unutar datoteke: svaki test ima svoje e-mailove.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 
-vi.mock('@simplewebauthn/server', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('@simplewebauthn/server')>();
-  return {
-    ...orig,
-    verifyRegistrationResponse: vi.fn(async (o: { response: { id: string; izazov: string; ok?: boolean }; expectedChallenge: (c: string) => Promise<boolean> }) => {
-      if (!(await o.expectedChallenge(o.response.izazov)) || o.response.ok === false) return { verified: false };
-      return {
-        verified: true,
-        registrationInfo: { credential: { id: o.response.id, publicKey: new Uint8Array([1, 2, 3]), counter: 0, transports: ['internal'] } },
-      };
-    }),
-    verifyAuthenticationResponse: vi.fn(async (o: { response: { izazov: string }; expectedChallenge: (c: string) => Promise<boolean> }) => {
-      if (!(await o.expectedChallenge(o.response.izazov))) return { verified: false };
-      return { verified: true, authenticationInfo: { newCounter: 7 } };
-    }),
-  };
-});
-
-import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import {
   consumeChallenge, createSession, deleteSession, getSession, obrisiSveSesije, SESSION_COOKIE, sessionCookie, storeChallenge,
 } from '../src/app-auth/sesija';
@@ -37,6 +18,9 @@ import {
 } from '../src/app-auth/pozivnice';
 import { sha256Hex } from '../src/util';
 import { napraviTenanta, testEnv } from './pomocno/okolina';
+import { lazniWebauthn } from './pomocno/webauthn-mock';
+
+const { prijava: verifyAuthenticationResponse } = lazniWebauthn();
 
 const db = testEnv.DB;
 const URL_APP = new URL('https://fiskal-test.domovina.ai/api/v1/prijava');
@@ -69,7 +53,7 @@ const regOdgovor = (id: string, izazov: string, ok = true) => ({ id, izazov, ok 
 const authOdgovor = (id: string, izazov: string) => ({ id, izazov }) as unknown as AuthenticationResponseJSON;
 
 beforeEach(() => {
-  vi.mocked(verifyAuthenticationResponse).mockClear();
+  verifyAuthenticationResponse.mockClear();
 });
 
 // ───────────────────────── sesija ─────────────────────────
@@ -169,7 +153,7 @@ describe('app-auth passkey', () => {
     expect(await verifyLogin(testEnv, URL_APP, authOdgovor(kid, o.challenge))).toBeNull(); // izazov potrošen
 
     await db.prepare('UPDATE korisnik SET aktivan = 0 WHERE id = ?').bind(id).run();
-    vi.mocked(verifyAuthenticationResponse).mockClear();
+    verifyAuthenticationResponse.mockClear();
     const o2 = await loginOptions(testEnv, URL_APP);
     expect(await verifyLogin(testEnv, URL_APP, authOdgovor(kid, o2.challenge))).toBeNull();
     expect(verifyAuthenticationResponse).not.toHaveBeenCalled();

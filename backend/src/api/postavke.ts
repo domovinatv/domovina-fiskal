@@ -8,6 +8,7 @@ import {
   createPoslovniProstor,
   getPoslovniProstorByOznaka,
   listMojiTenanti,
+  listMojiTenantiPoEmailu,
   listNaplatniUredjaji,
   listOperateri,
   listPoslovniProstori,
@@ -23,23 +24,31 @@ export const postavkeRute = new Hono<ApiHono>();
 // ── Korisnički endpointi (dashboard) ──
 
 // Membershipi prijavljenog korisnika — puni dropdown za tenant-switch.
+// GoTrue: po user_id ili potvrđenom e-mailu (K5); passkey: po e-mailu korisnika (odluka 6).
+async function mojiTenanti(c: ApiKontekst) {
+  const k = c.get('korisnik')!;
+  return k.izvor === 'passkey'
+    ? listMojiTenantiPoEmailu(c.env.DB, k.email)
+    : listMojiTenanti(c.env.DB, k.sub, k.emailPotvrdjen ? k.email : null);
+}
+const SAMO_KORISNIK = { greska: 'Endpoint je dostupan samo uz korisničku prijavu (passkey ili GoTrue JWT), ne uz API ključ' } as const;
+
 postavkeRute.get('/moji-tenanti', async (c) => {
-  const korisnik = c.get('korisnik');
-  if (!korisnik) {
-    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
-  }
-  return c.json({ tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.emailPotvrdjen ? korisnik.email : null) });
+  if (!c.get('korisnik')) return c.json(SAMO_KORISNIK, 400);
+  return c.json({ tenanti: await mojiTenanti(c) });
 });
 
-// Profil + membershipi (opcionalni pogodniji oblik za frontend bootstrap).
+// Profil + membershipi (bootstrap frontenda).
 postavkeRute.get('/ja', async (c) => {
-  const korisnik = c.get('korisnik');
-  if (!korisnik) {
-    return c.json({ greska: 'Endpoint je dostupan samo uz korisničku prijavu (GoTrue JWT), ne uz API ključ' }, 400);
-  }
+  const k = c.get('korisnik');
+  if (!k) return c.json(SAMO_KORISNIK, 400);
+  if (k.izvor === 'gotrue') return c.json({ email: k.email, tenanti: await mojiTenanti(c) });
   return c.json({
-    email: korisnik.email,
-    tenanti: await listMojiTenanti(c.env.DB, korisnik.sub, korisnik.emailPotvrdjen ? korisnik.email : null),
+    email: k.email,
+    ime: k.ime,
+    korisnikId: k.korisnikId,
+    prijava: { metoda: k.metoda, od: k.sesijaOd, do: k.sesijaDo },
+    tenanti: await mojiTenanti(c),
   });
 });
 

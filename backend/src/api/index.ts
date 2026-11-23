@@ -4,7 +4,9 @@
 
 import { Hono } from 'hono';
 import { sinkronizirajTenanta } from '../backup/tenant';
+import { passkeyRute } from './app-auth';
 import { apiAuth, apiCors } from './auth';
+import { clanoviRute } from './clanovi';
 import { katalogRute } from './katalog';
 import { postavkeRute } from './postavke';
 import { racuniRute } from './racuni';
@@ -29,3 +31,5 @@ apiV1.use('*', async (c, next) => {
 apiV1.route('/', postavkeRute);
 apiV1.route('/', racuniRute);
 apiV1.route('/', katalogRute);
+apiV1.route('/', passkeyRute);
+apiV1.route('/', clanoviRute);

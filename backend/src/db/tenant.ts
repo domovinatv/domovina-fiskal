@@ -221,6 +221,33 @@ export async function listMojiTenanti(
   return r.results;
 }
 
+// ── Passkey sesija (docs/passkey/, odluka 6): članstvo po e-mailu korisnika ──
+// korisnik.email je uvijek malim slovima i potvrđen pozivnicom, pa se veže
+// lower(user_email) bez obzira na (GoTrue) user_id u retku.
+
+export async function findClanstvoPoEmailu(db: D1Database, tenantId: number, email: string): Promise<KorisnikTenantRow | null> {
+  return db
+    .prepare(`SELECT * FROM korisnik_tenant WHERE tenant_id = ? AND aktivan = 1 AND lower(user_email) = ?`)
+    .bind(tenantId, email)
+    .first<KorisnikTenantRow>();
+}
+
+export async function listMojiTenantiPoEmailu(
+  db: D1Database,
+  email: string,
+): Promise<{ tenantId: number; oib: string; naziv: string; uloga: string }[]> {
+  const r = await db
+    .prepare(
+      `SELECT t.id AS tenantId, t.oib, t.naziv, kt.uloga
+       FROM korisnik_tenant kt JOIN tenant t ON t.id = kt.tenant_id
+       WHERE kt.aktivan = 1 AND t.status = 'active' AND lower(kt.user_email) = ?
+       ORDER BY t.naziv`,
+    )
+    .bind(email)
+    .all<{ tenantId: number; oib: string; naziv: string; uloga: string }>();
+  return r.results;
+}
+
 export async function listKorisniciTenanta(db: D1Database, tenantId: number): Promise<KorisnikTenantRow[]> {
   const r = await db
     .prepare(`SELECT * FROM korisnik_tenant WHERE tenant_id = ? ORDER BY id`)

@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
 import { admin } from './admin/app';
 import { apiV1 } from './api';
+import { appAuthJavno } from './api/app-auth';
 import { dohvatiStanje, racuniBezJiraStarijiOd } from './db';
 import { obradiAlarme, provjeriCisEcho } from './alarmi';
 import { sweepNaknadnaDostava } from './fiskal/fiskalizacija';
@@ -64,7 +65,9 @@ app.get('/', (c) => {
       kpd: 'GET /api/v1/kpd?q=…',
       mojiTenanti: 'GET /api/v1/moji-tenanti (samo korisnički JWT)',
       postavke: 'GET /api/v1/postavke · POST /api/v1/postavke/{prostor|uredjaj|operater}',
-      auth: "Bearer <dfk_ API ključ> ILI Bearer <GoTrue JWT> + 'X-Tenant-Id' (dashboard)",
+      prijava: 'POST /api/v1/prijava/{opcije|potvrdi} · POST /api/v1/poziv/{opcije|potvrdi} · POST /api/v1/odjava (dashboard, passkey)',
+      clanovi: 'GET /api/v1/clanovi · POST /api/v1/clanovi/pozivnica · POST /api/v1/clanovi/pozivnica/:id/opozovi · POST /api/v1/clanovi/:id/deaktiviraj (vlasnik)',
+      auth: "Bearer <dfk_ API ključ> ILI kolačić sesije dashboarda + 'X-Tenant-Id' ILI Bearer <GoTrue JWT> + 'X-Tenant-Id'",
     },
   });
 });
@@ -109,6 +112,8 @@ app.get('/api/v1/zdravlje/backlog', async (c) => {
 });
 
 app.route('/admin', admin);
+// Prijava dashboarda (passkey, pozivnica, odjava) — bez sesije, pa prije auth middlewarea /api/v1.
+app.route('/api/v1', appAuthJavno);
 app.route('/api/v1', apiV1);
 
 export default {
