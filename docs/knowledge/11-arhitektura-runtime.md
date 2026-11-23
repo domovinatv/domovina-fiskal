@@ -187,6 +187,18 @@ Načelo: **least exposure**. (Vidi i `04-*` i `05-*` §2.2.)
     račun; Browser Rendering samo ako treba puna HTML/CSS vjernost. Vidi `09-*`.
 - **E-mail:** Cloudflare Email Sending / vanjski provider (Resend/SMTP) — vidi skill
   `cloudflare-email-service`. Deliverability (SPF/DKIM/DMARC) obavezno za račune.
+  - **Stanje 23. 11. 2026. (izmjereno):** Cloudflare Email Sending za `domovina.ai` **nije
+    uključen** (`wrangler email sending list` → „No sending subdomains found”). Binding
+    `send_email` (`EMAIL` u `wrangler.toml`) zato radi u starom Email Routing načinu i
+    isporučuje **samo na verificirane destination adrese** (jedina: Matijin glavni gmail,
+    `wrangler email routing addresses list`). Svaka druga adresa baci grešku → `email.ts`
+    pada na Resend. **Stvarni kanal na obje okoline je Resend** (`RESEND_API_KEY`: PROD od
+    ranije, TEST od 23. 11.). Izvor: https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/
+    (pristupljeno 23. 11. 2026.). ⚠️ Mail računa 33 na TEST-u (16:01, binding, glavni gmail)
+    baza vodi kao poslan, ali u Gmailu ga nema — binding „uspjeh” nije dokaz isporuke.
+  - **Zamka:** server pri `POST /api/v1/racun` **nikad ne šalje mail sam**; klijent (webshop,
+    GAS bridge) mora zvati `POST /racun/:id/posalji`. Fiskalni račun bez JIR-a → 409
+    `NEMA_JIR`, osim uz `{ "bezJir": true }` (commit 4646d6a, TEST + PROD 23. 11. 2026.).
 - **QR kod** (`09-*`, `02-*` §10): generiranje QR-a je čisti JS → **na Workers** bez problema.
 
 ---
