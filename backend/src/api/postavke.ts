@@ -7,7 +7,6 @@ import {
   createOperater,
   createPoslovniProstor,
   getPoslovniProstorByOznaka,
-  listMojiTenanti,
   listMojiTenantiPoEmailu,
   listNaplatniUredjaji,
   listOperateri,
@@ -24,14 +23,11 @@ export const postavkeRute = new Hono<ApiHono>();
 // ── Korisnički endpointi (dashboard) ──
 
 // Membershipi prijavljenog korisnika — puni dropdown za tenant-switch.
-// GoTrue: po user_id ili potvrđenom e-mailu (K5); passkey: po e-mailu korisnika (odluka 6).
+// Članstvo po e-mailu korisnika (odluka 6).
 async function mojiTenanti(c: ApiKontekst) {
-  const k = c.get('korisnik')!;
-  return k.izvor === 'passkey'
-    ? listMojiTenantiPoEmailu(c.env.DB, k.email)
-    : listMojiTenanti(c.env.DB, k.sub, k.emailPotvrdjen ? k.email : null);
+  return listMojiTenantiPoEmailu(c.env.DB, c.get('korisnik')!.email);
 }
-const SAMO_KORISNIK = { greska: 'Endpoint je dostupan samo uz korisničku prijavu (passkey ili GoTrue JWT), ne uz API ključ' } as const;
+const SAMO_KORISNIK = { greska: 'Endpoint je dostupan samo uz prijavu u dashboard (passkey), ne uz API ključ' } as const;
 
 postavkeRute.get('/moji-tenanti', async (c) => {
   if (!c.get('korisnik')) return c.json(SAMO_KORISNIK, 400);
@@ -42,7 +38,6 @@ postavkeRute.get('/moji-tenanti', async (c) => {
 postavkeRute.get('/ja', async (c) => {
   const k = c.get('korisnik');
   if (!k) return c.json(SAMO_KORISNIK, 400);
-  if (k.izvor === 'gotrue') return c.json({ email: k.email, tenanti: await mojiTenanti(c) });
   return c.json({
     email: k.email,
     ime: k.ime,

@@ -19,10 +19,6 @@ export interface Env {
   ENC_MASTER_KEY_NOVI?: string;
   EMAIL?: SendEmailBinding; // Cloudflare Email Service (send_email binding)
   RESEND_API_KEY?: string; // Resend fallback kanal (wrangler secret)
-  // Dashboard SSO (dijeljeni GoTrue) — vidi docs/knowledge/16-dashboard-sso.md.
-  SUPABASE_URL?: string; // https://api.domovina.ai (var)
-  SUPABASE_ANON_KEY?: string; // anon key je public-safe (var)
-  DASHBOARD_ORIGIN?: string; // CSV origina za CORS (dashboard domena + localhost)
   // eRačun 2.0 preko posrednika doku (docs/knowledge/13-*). GUID koji doku-u
   // identificira NAŠU integraciju (isti za sve tenante); per-tenant API-TOKEN
   // živi enkriptiran u doku_konfig (BYO-key). Wrangler secret.
@@ -204,32 +200,23 @@ export interface PdvRaspodjelaRow {
   iznos_poreza: string;
 }
 
-// Pristup krajnjih korisnika (dashboard) tenantima — autorizacija uz GoTrue identitet.
+// Pristup krajnjih korisnika (dashboard) tenantima: članstvo po e-mailu korisnika (passkey).
 export interface KorisnikTenantRow {
   id: number;
   tenant_id: number;
   user_email: string;
-  user_id: string | null; // GoTrue sub (uuid); NULL dok se ne veže na prvoj prijavi
+  user_id: string | null; // povijesno (stari identitet prije passkeya); više se ne koristi
   uloga: 'vlasnik' | 'knjigovodja' | 'operater';
   aktivan: number;
   bound_at: string | null;
   created_at: string;
 }
 
-// Prijavljeni dashboard korisnik — postavlja auth middleware. Dva izvora:
-//   * 'gotrue': Bearer GoTrue JWT (ide van u S5, docs/passkey/);
-//   * 'passkey': kolačić __Host-fiskal_app (sesija iz src/app-auth/sesija.ts).
+// Prijavljeni dashboard korisnik — postavlja auth middleware iz kolačića
+// __Host-fiskal_app (sesija iz src/app-auth/sesija.ts).
 // `uloga` postoji samo na tenant-scoped rutama (dolazi iz membershipa);
 // na rutama bez X-Tenant-Id (/moji-tenanti, /ja, /passkeyi) je undefined.
-export type ApiKorisnik =
-  | {
-      izvor: 'gotrue';
-      sub: string; // GoTrue user id (uuid)
-      email: string;
-      emailPotvrdjen: boolean;
-      uloga?: KorisnikTenantRow['uloga'];
-    }
-  | {
+export type ApiKorisnik = {
       izvor: 'passkey';
       korisnikId: number; // korisnik.id
       email: string; // uvijek malim slovima (CHECK u tablici korisnik)

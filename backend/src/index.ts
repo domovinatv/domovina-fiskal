@@ -63,11 +63,11 @@ app.get('/', (c) => {
       popis: 'GET /api/v1/racun',
       proizvodi: 'GET /api/v1/proizvod',
       kpd: 'GET /api/v1/kpd?q=…',
-      mojiTenanti: 'GET /api/v1/moji-tenanti (samo korisnički JWT)',
+      mojiTenanti: 'GET /api/v1/moji-tenanti (samo prijava u dashboard)',
       postavke: 'GET /api/v1/postavke · POST /api/v1/postavke/{prostor|uredjaj|operater}',
       prijava: 'POST /api/v1/prijava/{opcije|potvrdi} · POST /api/v1/poziv/{opcije|potvrdi} · POST /api/v1/odjava (dashboard, passkey)',
       clanovi: 'GET /api/v1/clanovi · POST /api/v1/clanovi/pozivnica · POST /api/v1/clanovi/pozivnica/:id/opozovi · POST /api/v1/clanovi/:id/deaktiviraj (vlasnik)',
-      auth: "Bearer <dfk_ API ključ> ILI kolačić sesije dashboarda + 'X-Tenant-Id' ILI Bearer <GoTrue JWT> + 'X-Tenant-Id'",
+      auth: "Bearer <dfk_ API ključ> ILI kolačić sesije dashboarda + 'X-Tenant-Id'",
     },
   });
 });

@@ -343,7 +343,7 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
     )
     .join('');
 
-  // Članstvo u tenantu + stanje passkey računa (korisnik). Bez računa = stari GoTrue redak
+  // Članstvo u tenantu + stanje passkey računa (korisnik). Bez računa = stari redak (prije passkeya)
   // koji još nije prošao pozivnicu (S6 izdaje pozivnice za sve takve).
   const korisniciRedovi = d.korisnici
     .map(

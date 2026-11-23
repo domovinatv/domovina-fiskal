@@ -150,7 +150,6 @@ export function godinaZagreb(d: Date): number {
 // Bez timeouta zaglavljen upstream drži Worker zahtjev do platformskog limita.
 // Vrijednosti po servisu; firecrawl scrape s LLM ekstrakcijom traje ~60 s.
 export const TIMEOUT_MS = {
-  gotrue: 5_000, // na putu svakog dashboard zahtjeva
   doku: 20_000,
   resend: 15_000,
   registar: 10_000, // sudreg, VIES

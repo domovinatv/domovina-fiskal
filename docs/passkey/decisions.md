@@ -218,3 +218,22 @@ daje host rute (`fiskal.domovina.ai`), pa rpID i linkovi pozivnica ne odgovaraju
 `deploy`, `deploy:test` (Pages) i sve varijable okoline; README appa prepisan sada jer uvjet
 „`grep -ri supabase` prazan” uključuje README (S7 ga samo dopunjuje mirovinom Pagesa).
 *Revizija:* S7.
+
+## S5 (23. 11. 2026.)
+
+**500. GoTrue i CORS van iz `/api/v1`.** Obrisani `src/auth/gotrue.ts`, GoTrue grana `apiAuth`,
+`apiCors`, `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`DASHBOARD_ORIGIN` (env i `wrangler.toml` obje
+okoline), `TIMEOUT_MS.gotrue`, `test/gotrue.test.ts` (7 testova). Bearer koji nije `dfk_` → 401.
+CORS za `dfk_` nije trebao: `DASHBOARD_ORIGIN` je sadržavao samo dashboard domene i localhost, pa
+browser webshop ni prije nije dobivao `Access-Control-Allow-Origin` (webshopovi zovu server-side).
+Novi testovi: JWT → 401, `/ja` bez prijave → 401, preflight/GET sa starog origina bez ACAO.
+*Revizija:* nema.
+
+**501. Stupci `korisnik_tenant.user_id` i `bound_at` ostaju (potvrditi).** Ništa ih više ne čita ni
+ne piše; brisanje stupca u D1/SQLite znači rebuild tablice uz FK-ove, a dobitak je nula. Bez
+migracije u S5. *Revizija:* ako se ikad radi rebuild `korisnik_tenant` iz drugog razloga.
+
+**502. Uklonjene DB funkcije GoTrue puta:** `findKorisnikTenant`, `bindKorisnikTenant`,
+`listMojiTenanti`, `createKorisnikTenant` (zatvara reviziju odluke 303). Članstvo ide samo kroz
+`findClanstvoPoEmailu` / `listMojiTenantiPoEmailu`. `ApiKorisnik` ostaje objekt s `izvor: 'passkey'`
+(postojeće provjere `izvor === 'passkey'` ostaju valjane). *Revizija:* nema.

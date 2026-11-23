@@ -1,11 +1,11 @@
-// Javni Bearer API — /api/v1/*. CORS i autentikacija (auth.ts) idu prije
+// Javni API — /api/v1/*. Autentikacija (auth.ts) ide prije
 // svih ruta; rute su po domeni: dokumenti, katalog, korisnik + postavke.
-// Vidi docs/knowledge/16-dashboard-sso.md.
+// Vidi docs/knowledge/24-dashboard-passkey.md.
 
 import { Hono } from 'hono';
 import { sinkronizirajTenanta } from '../backup/tenant';
 import { passkeyRute } from './app-auth';
-import { apiAuth, apiCors } from './auth';
+import { apiAuth } from './auth';
 import { clanoviRute } from './clanovi';
 import { katalogRute } from './katalog';
 import { postavkeRute } from './postavke';
@@ -14,8 +14,6 @@ import type { ApiHono } from './tipovi';
 
 export const apiV1 = new Hono<ApiHono>();
 
-// CORS MORA prije autha da preflight (OPTIONS bez Authorization) prođe.
-apiV1.use('*', apiCors);
 apiV1.use('*', apiAuth);
 
 // BYO backup (src/backup/tenant.ts): nakon uspješne izmjene pošalji promijenjene

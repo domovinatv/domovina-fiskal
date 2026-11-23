@@ -317,3 +317,33 @@ describe('članovi tenanta (samo vlasnik)', () => {
     expect((await api('/racun', { kolacic: novi.kolacic, tenant: tid })).status).toBe(200);
   });
 });
+
+// S5 (odluka 500): GoTrue i CORS su van. JWT nije ulaz, a /api/v1 ne šalje CORS zaglavlja
+// ni starom dashboard originu; dfk_ i kolačić rade kao prije.
+describe('bez GoTrue i CORS-a', () => {
+  const STARI_ORIGIN = 'https://fiskal-app.domovina.ai';
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abc';
+
+  it('Bearer JWT (stari dashboard) → 401, bez poziva prema van', async () => {
+    const t = await napraviTenanta();
+    const r = await poziv('/api/v1/ja', { headers: { Authorization: `Bearer ${jwt}`, 'X-Tenant-Id': String(t.tenant.id) } });
+    expect(r.status).toBe(401);
+    expect((await json(r)).greska).toMatch(/dfk_/);
+  });
+
+  it('/ja bez kolačića i ključa → 401', async () => {
+    expect((await poziv('/api/v1/ja')).status).toBe(401);
+  });
+
+  it('preflight i GET sa starog origina nemaju Access-Control-Allow-Origin', async () => {
+    const t = await napraviTenanta();
+    const pre = await poziv('/api/v1/racun', {
+      method: 'OPTIONS',
+      headers: { Origin: STARI_ORIGIN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization,x-tenant-id' },
+    });
+    expect(pre.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    const r = await poziv('/api/v1/racun', { kljuc: t.kljuc, headers: { Origin: STARI_ORIGIN } });
+    expect(r.status).toBe(200);
+    expect(r.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
