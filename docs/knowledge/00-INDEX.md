@@ -34,6 +34,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 20 | [`20-admin-prijava.md`](./20-admin-prijava.md) | **Admin prijava** `/admin`: Cloudflare Access (OTP) + passkey → sesija u D1, bearer `ADMIN_SKRIPTA_TOKEN` za skripte; model iz logomeda/omm/pay. Prompt: `../handoff/2026-11-11-admin-access-passkey.md` |
 | 21 | [`21-pohrana-certifikata.md`](./21-pohrana-certifikata.md) | **Pohrana certifikata i lozinki**: envelope enkripcija (DEK po certifikatu, KEK `ENC_MASTER_KEY`), lozinka P12 se ne sprema; scenariji curenja baze/KEK-a, isti KEK lokalno/TEST/PROD, K16; mermaid dijagrami |
 | 22 | [`22-astro-vs-hono.md`](./22-astro-vs-hono.md) | **Astro ili Hono na Workers**: isti runtime, različit sloj; fiskal ostaje na Honu; admin views → `hono/jsx` kao kandidat; pravilo za ekosustav (API → Hono, stranice → Astro, hibrid) |
+| 23 | [`23-backup.md`](./23-backup.md) | **Backup i vraćanje**: dnevni SQL dump D1 u R2 `fiskal-backup-secured` (EU, Bucket Lock 11 g.), postupak vraćanja, BYO backup po tenantu |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)

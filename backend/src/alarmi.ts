@@ -149,6 +149,20 @@ export async function izracunajAlarme(env: Env, opcije: { dnevno?: boolean } = {
   }
 
   if (opcije.dnevno) {
+    // Platformski backup (cron 01:30 UTC): alarm ako zadnji uspješni nije
+    // mlađi od 30 h. Bez BACKUP bindinga (lokalno) nema alarma.
+    if (env.BACKUP) {
+      const b = stanje.backup_zadnji?.vrijednost ? (JSON.parse(stanje.backup_zadnji.vrijednost) as { kada?: string }) : null;
+      if (!b?.kada || Date.now() - Date.parse(b.kada) > 30 * SAT * 1000) {
+        alarmi.push({
+          kljuc: `backup:${okolina}`,
+          tenantId: null,
+          naslov: `Backup D1 (${okolina}) nije napravljen dulje od 30 h`,
+          tekst: `Zadnji uspješni backup: ${b?.kada ?? 'nikad'}.\nZadnja greška: ${stanje.backup_zadnja_greska?.vrijednost ?? '—'}\nProvjeri logove Workera (cron 30 1 * * *) i R2 bucket.`,
+          intervalSekundi: DAN,
+        });
+      }
+    }
     // Certifikati tenanata: ≤ 30 dana, pa ponovno ≤ 7 dana. not_after je u
     // ključu — novi (obnovljeni) cert ne nasljeđuje stari alarm.
     const za7 = await certifikatiKojiIsticu(db, 7);

@@ -1,3 +1,4 @@
+import { dnevniBackup } from './backup';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
@@ -114,13 +115,18 @@ export default {
   // Cron (Faza 4.2):
   //   */15 — CIS echo, sweep naknadne dostave (NakDost=true, rok 2 RADNA dana,
   //          čl. 21.), pa alarmi koji ovise o sweepu;
-  //   0 6  — dnevni alarmi (istek certifikata tenanata i poslužitelja CIS-a).
+  //   0 6  — dnevni alarmi (istek certifikata tenanata i poslužitelja CIS-a);
+  //   30 1 — dnevni backup D1 u R2 (src/backup/).
   async scheduled(ctrl: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(izvediCron(ctrl.cron, env));
   },
 };
 
 export async function izvediCron(cron: string, env: Env): Promise<void> {
+  if (cron === '30 1 * * *') {
+    await dnevniBackup(env);
+    return;
+  }
   if (cron === '0 6 * * *') {
     const poslani = await obradiAlarme(env, { dnevno: true });
     if (poslani.length) console.log(`dnevni alarmi: ${poslani.join(', ')}`);

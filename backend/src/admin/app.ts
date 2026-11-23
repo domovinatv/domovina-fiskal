@@ -1,6 +1,7 @@
 // Server-rendered admin (/admin) — prijava Cloudflare Accessom ili passkeyem (auth/).
 // Upravljanje tenantima i njihovim fiskalnim kontekstom (prostori, uređaji, operateri, API ključevi, certifikati).
 
+import { napraviPlatformskiBackup } from '../backup';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { adminZastita, type AdminHono } from './auth/zastita';
@@ -427,6 +428,13 @@ admin.post('/kripto/rotacija', async (c) => {
   }
   const iz = await rotirajKek(c.env, suho);
   return c.json(iz, !suho && iz.nijedan > 0 ? 409 : 200);
+});
+
+// Ručni platformski backup D1 → R2 (inače cron 30 1 * * *). JSON, za skripte
+// (bearer ADMIN_SKRIPTA_TOKEN) i provjeru nakon deploya.
+admin.post('/backup', async (c) => {
+  if (!c.env.BACKUP) return c.json({ greska: 'R2 binding BACKUP nije konfiguriran' }, 503);
+  return c.json(await napraviPlatformskiBackup(c.env));
 });
 
 admin.get('/cis/echo', async (c) => {

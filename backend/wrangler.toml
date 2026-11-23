@@ -18,8 +18,9 @@ enabled = true
 # Cron: sweep naknadne dostave (fiskalni računi bez JIR-a → retry s NakDost=true).
 # Rok po čl. 21. st. 2. NN 89/2025 je dva RADNA dana — 15-minutni sweep je unutar toga.
 # Dnevno u 06:00 UTC: alarmi za istek certifikata (tenanti + CIS poslužitelj).
+# Dnevno u 01:30 UTC: backup D1 u R2 (platformski + snapshotovi tenanata s BYO backupom).
 [triggers]
-crons = ["*/15 * * * *", "0 6 * * *"]
+crons = ["*/15 * * * *", "0 6 * * *", "30 1 * * *"]
 
 # Fontovi za PDF (DejaVu subset s HR dijakriticima) bundlaju se kao binarni podaci.
 [[rules]]
@@ -45,6 +46,13 @@ binding = "DB"
 database_name = "fiskal_domovina"
 database_id = "65077e4a-440e-4cfe-8ea3-fddcf421a237"
 migrations_dir = "migrations"
+
+# Dnevni backup D1 (src/backup/platforma.ts). Privatan bucket, EU jurisdikcija,
+# Bucket Lock 4018 dana (11 g.) — objekti se ne mogu obrisati ni prepisati.
+[[r2_buckets]]
+binding = "BACKUP"
+bucket_name = "fiskal-backup-secured"
+jurisdiction = "eu"
 
 [vars]
 # Zadana okolina fiskalizacije za nove certifikate/poruke ('test' | 'prod').
@@ -97,7 +105,7 @@ custom_domain = true
 enabled = true
 
 [env.test.triggers]
-crons = ["*/15 * * * *", "0 6 * * *"]
+crons = ["*/15 * * * *", "0 6 * * *", "30 1 * * *"]
 
 [[env.test.send_email]]
 name = "EMAIL"
@@ -107,6 +115,11 @@ binding = "DB"
 database_name = "fiskal_domovina_test"
 database_id = "a5f88aa8-2725-49af-8e55-c97a7820f25a"
 migrations_dir = "migrations"
+
+[[env.test.r2_buckets]]
+binding = "BACKUP"
+bucket_name = "fiskal-backup-secured-test" # lifecycle: brisanje nakon 30 dana
+jurisdiction = "eu"
 
 [env.test.vars]
 OKOLINA = "test"

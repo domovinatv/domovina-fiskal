@@ -35,6 +35,9 @@ export interface Env {
   FIRECRAWL_API_KEY?: string;
   // Primatelj alarmnih mailova platforme (Faza 4.2) — wrangler secret, nije u repou.
   ALARM_EMAIL?: string;
+  // Dnevni platformski backup D1 (src/backup/platforma.ts): privatni R2 bucket
+  // fiskal-backup-secured (TEST: fiskal-backup-secured-test), EU jurisdikcija.
+  BACKUP?: R2Bucket;
 }
 
 export interface TenantRow {
