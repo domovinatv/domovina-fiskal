@@ -4,6 +4,7 @@
 // to ide kroz administratora (/admin, S3). Mašinski dfk_ ključ nema korisnika, pa ovdje 403.
 
 import { Hono } from 'hono';
+import { naredba, zabiljezi, type Tko } from '../app-auth/aktivnost';
 import { izdaj, opozovi, otvorenePozivnice, PORUKE_ODBIJANJA, PozivOdbijen, type RazlogOdbijanja } from '../app-auth/pozivnice';
 import { idIzParametra, jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
@@ -17,6 +18,8 @@ async function samoVlasnik(c: ApiKontekst, next: () => Promise<void>) {
   if (c.get('korisnik')?.uloga !== 'vlasnik') return c.json({ greska: 'Članovima upravlja samo vlasnik tenanta' }, 403);
   return next();
 }
+
+const vlasnik = (c: ApiKontekst): Tko => ({ email: c.get('korisnik')!.email, tip: 'vlasnik' });
 
 const STATUS_ODBIJANJA: Partial<Record<RazlogOdbijanja, 403 | 409>> = { uloga: 403, vec_clan: 409, neaktivan: 409 };
 
@@ -55,8 +58,9 @@ clanoviRute.post('/clanovi/pozivnica', async (c) => {
     const p = await izdaj(
       c.env,
       { email: String(body.email ?? ''), ime: typeof body.ime === 'string' ? body.ime : null, tenantId: c.get('tenant').id, uloga },
-      { email: c.get('korisnik')!.email, tip: 'vlasnik' },
+      vlasnik(c),
     );
+    await zabiljezi(c.env, vlasnik(c), { radnja: 'poziv.izdan', email: p.email, tenantId: c.get('tenant').id, pozivnicaId: p.id, detalji: { uloga, vrsta: 'tenant' } });
     return c.json({ id: p.id, email: p.email, istjece: p.istjece, link: `${new URL(c.req.url).origin}/app/poziv#${p.token}` }, 201);
   } catch (e) {
     if (e instanceof PozivOdbijen) return c.json({ greska: PORUKE_ODBIJANJA[e.razlog], razlog: e.razlog }, STATUS_ODBIJANJA[e.razlog] ?? 400);
@@ -67,9 +71,12 @@ clanoviRute.post('/clanovi/pozivnica', async (c) => {
 clanoviRute.post('/clanovi/pozivnica/:id/opozovi', async (c) => {
   const id = idIzParametra(c);
   if (id instanceof Response) return id;
-  if (!(await opozovi(c.env, id, { tenantId: c.get('tenant').id }))) {
+  const tenantId = c.get('tenant').id;
+  if (!(await opozovi(c.env, id, { tenantId }))) {
     return c.json({ greska: 'Nema te otvorene pozivnice u ovom tenantu' }, 404);
   }
+  const p = await c.env.DB.prepare('SELECT email FROM pozivnice WHERE id = ?').bind(id).first<{ email: string }>();
+  await zabiljezi(c.env, vlasnik(c), { radnja: 'poziv.opozvan', email: p?.email ?? null, tenantId, pozivnicaId: id });
   return c.json({ ok: true });
 });
 
@@ -92,6 +99,9 @@ clanoviRute.post('/clanovi/:id/deaktiviraj', async (c) => {
     c.env.DB.prepare(
       `UPDATE pozivnice SET opozvana_at = ? WHERE tenant_id = ? AND email = ? AND iskoristena_at IS NULL AND opozvana_at IS NULL`,
     ).bind(sada, tenantId, clan.email),
+    ...(clan.aktivan
+      ? [naredba(c.env.DB, vlasnik(c), { radnja: 'clanstvo.deaktivirano', email: clan.email, tenantId, detalji: { uloga: clan.uloga, clanstvoId: clan.id } })]
+      : []),
   ]);
   return c.json({ ok: true, vecNeaktivan: !clan.aktivan });
 });

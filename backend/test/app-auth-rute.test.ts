@@ -278,6 +278,11 @@ describe('članovi tenanta (samo vlasnik)', () => {
     expect((await api(`/clanovi/pozivnica/${r.id}/opozovi`, { kolacic: v.kolacic, tenant: v.t.tenant.id, tijelo: {} })).status).toBe(200);
     expect((await api('/poziv/opcije', { tijelo: { token: r.link.split('#')[1] } })).status).toBe(410);
     expect((await api(`/clanovi/pozivnica/${r.id}/opozovi`, { kolacic: v.kolacic, tenant: v.t.tenant.id, tijelo: {} })).status).toBe(404);
+    // Trag (S3, odluka 300): vlasnikove radnje, bez neuspjelih pokušaja.
+    const trag = (await db.prepare('SELECT tko, tko_tip, radnja FROM korisnik_aktivnost WHERE pozivnica_id = ? ORDER BY id').bind(r.id).all()).results;
+    expect(trag).toEqual([
+      { tko: v.email, tko_tip: 'vlasnik', radnja: 'poziv.izdan' }, { tko: v.email, tko_tip: 'vlasnik', radnja: 'poziv.opozvan' },
+    ]);
   });
 
   it('deaktivacija člana: pristup tenantu prestaje odmah; sebe 409; tuđi član 404; vlasnika 403', async () => {
@@ -293,6 +298,8 @@ describe('članovi tenanta (samo vlasnik)', () => {
     expect((await api(`/clanovi/${idJa}/deaktiviraj`, { kolacic: v.kolacic, tenant: tid, tijelo: {} })).status).toBe(409);
 
     expect((await api(`/clanovi/${idK}/deaktiviraj`, { kolacic: v.kolacic, tenant: tid, tijelo: {} })).status).toBe(200);
+    expect((await db.prepare("SELECT tko_tip FROM korisnik_aktivnost WHERE radnja = 'clanstvo.deaktivirano' AND email = ? AND tenant_id = ?")
+      .bind(k.email, tid).all()).results).toEqual([{ tko_tip: 'vlasnik' }]);
     expect((await api('/racun', { kolacic: k.kolacic, tenant: tid })).status).toBe(403);
     expect((await json(await api('/moji-tenanti', { kolacic: k.kolacic }))).tenanti).toEqual([]);
 

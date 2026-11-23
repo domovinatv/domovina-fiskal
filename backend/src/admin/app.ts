@@ -7,11 +7,12 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { adminZastita, type AdminHono } from './auth/zastita';
 import { prijava } from './auth/rute';
+import { korisniciAdmin, listClanoviTenanta, postaviClanstvo } from './korisnici';
+import { otvorenePozivnice } from '../app-auth/pozivnice';
 import {
   createApiKljuc,
   createCertifikat,
   createNaplatniUredaj,
-  createKorisnikTenant,
   createOperater,
   createPoslovniProstor,
   createProizvod,
@@ -25,7 +26,6 @@ import {
   listApiKljucevi,
   listCertifikati,
   listDokuKonfig,
-  listKorisniciTenanta,
   listNaplatniUredjaji,
   listOperateri,
   listPoslovniProstori,
@@ -34,7 +34,6 @@ import {
   listTenants,
   searchKpd,
   setApiKljucAktivan,
-  setKorisnikTenantAktivan,
   setOperaterAktivan,
   setProstorZatvoren,
   setUredajAktivan,
@@ -83,6 +82,7 @@ admin.use('*', async (c, next) => {
   }
 });
 admin.route('/', prijava);
+admin.route('/', korisniciAdmin);
 
 admin.get('/', async (c) => {
   const [tenanti, alarmi] = await Promise.all([listTenants(c.env.DB), listAlarmi(c.env.DB)]);
@@ -124,7 +124,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih, backup] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -133,11 +133,12 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     listDokuKonfig(c.env.DB, tenantId),
     listProizvodi(c.env.DB, tenantId),
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
-    listKorisniciTenanta(c.env.DB, tenantId),
+    listClanoviTenanta(c.env, tenantId),
+    otvorenePozivnice(c.env, { tenantId }),
     tenantImaIzdanihDokumenata(c.env.DB, tenantId),
     getTenantBackup(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih, backup };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup };
 }
 
 admin.get(`/tenant/:id${ID}`, async (c) => {
@@ -264,36 +265,13 @@ admin.post(`/tenant/:id${ID}/operateri`, async (c) => {
   }
 });
 
-// ── Dashboard pristup (korisnik_tenant) — superuser dodaje po EMAILU ──
-// Identitet je u GoTrue-u; user_id (sub) se veže sam na prvoj prijavi korisnika.
-
-admin.post(`/tenant/:id${ID}/korisnici`, async (c) => {
+// ── Korisnici dashboarda: članstvo u tenantu (S3) ──
+// Novi pristup samo pozivnicom (/admin/korisnici, src/admin/korisnici.ts); izravno dodavanje
+// e-maila u korisnik_tenant je uklonjeno (bez pozivnice nema passkeya). Ovdje ostaje samo
+// (de)aktivacija članstva, uz zapis u trag.
+admin.post(`/tenant/:id${ID}/korisnici/:kid${ID}/:akcija{aktiviraj|deaktiviraj}`, async (c) => {
   const tenantId = Number(c.req.param('id'));
-  const d = await detaljData(c, tenantId);
-  if (!d) return c.text('Tenant ne postoji', 404);
-  const form = await c.req.parseBody();
-  const email = String(form.email ?? '').trim().toLowerCase();
-  const uloga = ['vlasnik', 'knjigovodja', 'operater'].includes(String(form.uloga))
-    ? (String(form.uloga) as 'vlasnik' | 'knjigovodja' | 'operater')
-    : 'vlasnik';
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return c.html(renderTenantDetaljPage({ ...d, greska: `E-mail '${email}' nije valjan.` }), 400);
-  }
-  try {
-    await createKorisnikTenant(c.env.DB, tenantId, { userEmail: email, uloga });
-    return c.redirect(`/admin/tenant/${tenantId}`, 303);
-  } catch (e) {
-    const poruka = jeUniqueGreska(e) ? `Korisnik ${email} već ima pristup ovom tenantu.` : `Greška: ${e}`;
-    return c.html(renderTenantDetaljPage({ ...d, greska: poruka }), 400);
-  }
-});
-
-admin.post(`/tenant/:id${ID}/korisnici/:kid${ID}/:akcija`, async (c) => {
-  const tenantId = Number(c.req.param('id'));
-  const kid = Number(c.req.param('kid'));
-  const akcija = c.req.param('akcija');
-  if (akcija !== 'aktiviraj' && akcija !== 'deaktiviraj') return c.text(`Nepoznata akcija: ${akcija}`, 400);
-  await setKorisnikTenantAktivan(c.env.DB, tenantId, kid, akcija === 'aktiviraj');
+  await postaviClanstvo(c, tenantId, Number(c.req.param('kid')), c.req.param('akcija') === 'aktiviraj');
   return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 

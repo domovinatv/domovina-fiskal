@@ -11,7 +11,6 @@ import type {
   ApiKljucRow,
   CertifikatRow,
   DokuKonfigRow,
-  KorisnikTenantRow,
   NaplatniUredajRow,
   OperaterRow,
   PoslovniProstorRow,
@@ -23,6 +22,9 @@ import { iznosHr } from '../pdf/racun-pdf';
 import type { TenantBackupRow } from '../backup/tenant';
 import pkg from '../../package.json';
 import { escapeHtml, iznosRetka } from '../util';
+import type { ClanTenanta } from './korisnici';
+import type { OtvorenaPozivnica } from '../app-auth/pozivnice';
+import { obrazacPozivnice, tablicaPozivnica } from './views-korisnici';
 
 // Verzija aplikacije — BUMPAJ prije svakog redeploya; podudaraj s package.json.
 export const APP_VERSION = `v${pkg.version}`; // K18: jedino mjesto je package.json
@@ -104,7 +106,7 @@ ${BASE_STYLE}
 <div class="tricolor"><span class="red"></span><span></span><span class="navy"></span></div>
 <header>
   <div class="brand">${HEADER_LOGO_SVG}<span class="word">DOMOVINA<span class="accent">.FISKAL</span></span></div>
-  ${opcije.javno ? '' : `<nav><a href="/admin">Tenanti</a><a href="/admin/racuni">Računi</a><a href="/admin/passkeys">Ključevi</a>
+  ${opcije.javno ? '' : `<nav><a href="/admin">Tenanti</a><a href="/admin/racuni">Računi</a><a href="/admin/korisnici">Korisnici</a><a href="/admin/passkeys">Ključevi</a>
     <form method="post" action="/admin/logout" class="odjava"><button type="submit">Odjava</button></form></nav>`}
 </header>
 <main>
@@ -255,7 +257,8 @@ export interface TenantDetaljData {
   dokuKonfig: DokuKonfigRow[];
   proizvodi: ProizvodRow[];
   racuni: RacunRow[];
-  korisnici: KorisnikTenantRow[];
+  korisnici: ClanTenanta[];
+  pozivnice: OtvorenaPozivnica[];
   imaIzdanih: boolean; // PDV status i slijednost zaključani nakon prvog izdanog dokumenta
   backup: TenantBackupRow | null;
   noviKljuc?: { rawKey: string; opis: string | null };
@@ -340,10 +343,13 @@ export function renderTenantDetaljPage(d: TenantDetaljData): string {
     )
     .join('');
 
+  // Članstvo u tenantu + stanje passkey računa (korisnik). Bez računa = stari GoTrue redak
+  // koji još nije prošao pozivnicu (S6 izdaje pozivnice za sve takve).
   const korisniciRedovi = d.korisnici
     .map(
-      (k) => `<tr><td>${escapeHtml(k.user_email)}</td><td>${pillStatus(k.uloga)}</td>
-<td>${k.user_id ? `<span class="pill p-ok">vezan</span> <span class="mono" style="font-size:.72rem">${escapeHtml(k.user_id.slice(0, 8))}…</span>` : '<span class="pill p-info">čeka prvu prijavu</span>'}</td>
+      (k) => `<tr><td>${escapeHtml(k.email)}</td><td>${pillStatus(k.uloga)}</td>
+<td>${k.korisnik_id == null ? '<span class="pill p-info">bez passkeya (čeka pozivnicu)</span>'
+  : `${k.korisnik_aktivan ? '<span class="pill p-ok">passkey račun</span>' : '<span class="pill p-off">račun deaktiviran</span>'} ${k.passkeyi} ključ(a)`}</td>
 <td>${k.aktivan ? pillStatus('aktivan') : pillStatus('deaktiviran')}</td>
 <td class="mono">${escapeHtml(k.created_at)}</td>
 <td><form method="post" action="${baza}/korisnici/${k.id}/${k.aktivan ? 'deaktiviraj' : 'aktiviraj'}" style="display:inline">
@@ -428,16 +434,14 @@ ${d.imaIzdanih ? '<p style="font-size:.8rem;color:var(--muted)">🔒 PDV status 
 <table><thead><tr><th>Prefiks</th><th>Opis</th><th>Status</th><th>Zadnje korišten</th><th></th></tr></thead>
 <tbody>${kljuceviRedovi || '<tr><td colspan="5" class="prazno">Nema ključeva.</td></tr>'}</tbody></table>
 
-<h2>Dashboard pristup (SSO korisnici)</h2>
-<div class="box"><form method="post" action="${baza}/korisnici">
-  <div class="field"><label>E-mail *</label><input name="email" type="email" required placeholder="korisnik@primjer.hr"></div>
-  <div class="field"><label>Uloga</label>
-    <select name="uloga"><option value="vlasnik">vlasnik</option><option value="knjigovodja">knjigovođa</option><option value="operater">operater (bez postavki)</option></select></div>
-  <button type="submit">Dodaj pristup</button>
-</form>
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Korisnik se prijavljuje na customer dashboard dijeljenim Domovina računom (GoTrue SSO, api.domovina.ai). Identitet (user_id) se veže automatski na prvoj prijavi s ovim e-mailom.</p></div>
-<table><thead><tr><th>E-mail</th><th>Uloga</th><th>Identitet</th><th>Status</th><th>Dodan</th><th></th></tr></thead>
-<tbody>${korisniciRedovi || '<tr><td colspan="6" class="prazno">Nema dashboard korisnika.</td></tr>'}</tbody></table>
+<h2>Korisnici dashboarda</h2>
+<div class="box">${obrazacPozivnice([t], t.id)}</div>
+<h3>Otvorene pozivnice</h3>
+${tablicaPozivnica(d.pozivnice, () => t.naziv, baza)}
+<h3>Članovi</h3>
+<table><thead><tr><th>E-mail</th><th>Uloga</th><th>Račun</th><th>Članstvo</th><th>Dodan</th><th></th></tr></thead>
+<tbody>${korisniciRedovi || '<tr><td colspan="6" class="prazno">Nema korisnika dashboarda.</td></tr>'}</tbody></table>
+<p style="font-size:.8rem;color:var(--muted)">Deaktivacija članstva opoziva i otvorene pozivnice tog e-maila u ovom tenantu. Cijeli račun (sve tenante, sesije, novi passkey) vodiš na <a href="/admin/korisnici">Korisnici dashboarda</a>.</p>
 
 <h2>Certifikati (fiskalizacija)</h2>
 <div class="box"><form method="post" action="${baza}/certifikati" enctype="multipart/form-data">
