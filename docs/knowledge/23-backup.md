@@ -80,3 +80,12 @@ mreža (JIR iz sweepa naknadne dostave ne prolazi kroz API). Odabir: vodeni žig
 `tenant_backup.sinkronizirano_do` nad `racun.updated_at`, preklop 60 s, najviše 100 računa po pozivu.
 Greška se pamti u `zadnja_greska`; dnevni alarm (06:00) šalje je tenantu i platformi. Izdavanje i
 fiskalizacija nikad ne čekaju backup.
+
+### E2E potvrđeno 2026-11-23 (SUSRET, tenant TEST 6 / PROD 2)
+
+Unesen samo token (Account API Token, R2 Edit). Account ID otkriven iz tokena (`GET /accounts`
+vraća račun i za token koji ima samo R2 dozvolu ✅), bucket `domovina-fiskal-91020846402` kreiran
+u EU. TEST prefiks `domovina-fiskal-test/`: `provjera.txt`, 7 računa (JSON ~12 KB + PDF ~37 KB),
+snapshot. PROD prefiks `domovina-fiskal-prod/`: `provjera.txt` + snapshot (računa još nema).
+Isti bucket za obje okoline, razdvojeno prefiksom. Bucket tenanta NEMA Bucket Lock namjerno:
+realtime prepisuje isti ključ kad se račun promijeni (lock bi to odbio).
