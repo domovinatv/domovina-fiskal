@@ -19,7 +19,7 @@
 | S1 | Migracija + app-auth moduli | gotovo | a5aad75 | 235 → 255, skipped 0 | 0014; odluke 100–107 |
 | S2 | API rute, grana za kolačić, članovi | gotovo | fec47e2 | 255 → 277, skipped 0 | odluke 200–207 |
 | S3 | `/admin` pozivnice i korisnici | gotovo | d0d0323 | 277 → 284, skipped 0 | 0015; odluke 300–304 |
-| S4 | App na `/app`, passkey UI | otvoreno | | | |
+| S4 | App na `/app`, passkey UI | gotovo | de3873b | 284 → 284, skipped 0 | app `6eb1c2f`; odluke 400–405; lokalni e2e prošao |
 | S5 | GoTrue van, SPOT, TEST | otvoreno | | | vrata: korisnik testira na TEST-u |
 | S6 | PROD | otvoreno | | | vrata prije: termin |
 | S7 | Mirovina Pagesa i domene | otvoreno | | | vrata: brisanje |

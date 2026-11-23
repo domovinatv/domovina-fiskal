@@ -27,10 +27,10 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 
 ## F2 — dashboard na istom Workeru
 
-- [ ] App: `basePath: "/app"`, build u assets fiskal Workera (`[assets]` u `wrangler.toml`, obje okoline) → S4
-- [ ] App: `lib/auth.tsx` na passkey (`@simplewebauthn/browser`), stranice prijava, poziv (`#token`), moji passkeyi, članovi (vlasnik) → S4
-- [ ] App: `lib/fiskal.ts` same-origin `/api/v1` s kolačićem, bez Bearer JWT; `@supabase/supabase-js` i `lib/supabase.ts` obrisani → S4
-- [ ] Lokalni e2e kroz `wrangler dev`: pozivnica → passkey (virtualni autentifikator) → popis računa → S4
+- [x] App: `basePath: "/app"`, build u assets fiskal Workera (`[assets]` u `wrangler.toml`, obje okoline) → S4
+- [x] App: `lib/auth.tsx` na passkey (`@simplewebauthn/browser`), stranice prijava, poziv (`#token`), moji passkeyi, članovi (vlasnik) → S4
+- [x] App: `lib/fiskal.ts` same-origin `/api/v1` s kolačićem, bez Bearer JWT; `@supabase/supabase-js` i `lib/supabase.ts` obrisani → S4
+- [x] Lokalni e2e kroz `wrangler dev`: pozivnica → passkey (virtualni autentifikator) → popis računa → S4
 
 ## F3 — GoTrue van, TEST
 

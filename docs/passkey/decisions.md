@@ -180,3 +180,41 @@ u `src/db` ostaje zbog GoTrue testova do S5. *Revizija:* S5 (GoTrue van).
 **304. Statusi admin ruta.** Odbijena pozivnica re-renderira stranicu s porukom: 400 (e-mail, bez tenanta),
 404 (nema tenanta/korisnika, opoziv nepostojeće ili zatvorene), 409 (`vec_clan`, `neaktivan`). Uspjeh
 izdavanja i „Novi passkey” → 200 sa stranicom i linkom; ostalo → 303. *Revizija:* nema.
+
+## S4 (23. 11. 2026.)
+
+**400. Serviranje.** App je Next static export s `basePath: "/app"`, `trailingSlash: false`;
+`backend/scripts/build-app.sh` builda app (putanja `FISKAL_APP_DIR`, zadano repo na DOMOVINA2TB)
+i kopira `out/` u `backend/app-dist/app/` (gitignored). `[assets]` i `[env.test.assets]`:
+`directory = "./app-dist"`, `run_worker_first = ["/api/*", "/admin/*"]`, `not_found_handling`
+ostaje `none` (nema dinamičkih ruta). `deploy` i `deploy:test` zovu `build:app`; skripta upozori
+ako app ima necommitane promjene, ali ne staje. Ista app ide na TEST i PROD (relativni API).
+Nalaz: `../research/2026-11-23-workers-assets-next-basepath.md`. *Revizija:* nema.
+
+**401. Zaglavlja za `/app/*` (potvrditi).** `build-app.sh` piše `app-dist/_headers`:
+`X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`.
+Bez CSP-a (Next inline skripte traže hash/nonce). *Revizija:* ako se želi CSP.
+
+**402. Pozivnica u appu.** Token se čita iz `location.hash` i odmah briše iz adrese
+(`history.replaceState`), šalje se samo u tijelu POST-a. Posljedica: reload stranice nakon
+čitanja daje „Link nije potpun”, pa korisnik ponovno otvara link iz poruke (neuspjeli pokušaj
+u istoj stranici dohvaća nove opcije sam). Nakon uspjeha `router.replace("/dashboard")`.
+*Revizija:* nema.
+
+**403. Stanje prijave iz `/api/v1/ja`.** `AuthProvider` drži `ja` (200 = prijavljen, inače null);
+svaki API 401 šalje događaj `fiskal:odjavljen` pa se vraća prijava. Odjava = `POST /odjava`
+pa `ja = null`. Prijava nema registraciju (ulaz je samo pozivnica). *Revizija:* nema.
+
+**404. Nove stranice:** `/app/dashboard/passkeyi` (svi) i `/app/dashboard/clanovi` (link u
+navigaciji samo kad je odabrani tenant `vlasnik`; backend ionako vraća 403). Brisanje zadnjeg
+passkeya je onemogućeno i u UI-ju (server 409). Poruka za Windows bez Hello PIN-a / Chrome bez
+sinkronizacije je sklopivi tekst „Windows traži USB sigurnosni ključ?” na prijavi i pozivnici.
+*Revizija:* nema.
+
+**405. Lokalni razvoj samo kroz Worker.** `npm run dev:app` u backendu
+(`wrangler dev --local-upstream localhost:8787`). Bez `--local-upstream` wrangler dev Workeru
+daje host rute (`fiskal.domovina.ai`), pa rpID i linkovi pozivnica ne odgovaraju localhostu.
+`next dev` na :3000 ostaje samo za izgled (nema `/api/v1`). Iz appa su maknuti `build:test`,
+`deploy`, `deploy:test` (Pages) i sve varijable okoline; README appa prepisan sada jer uvjet
+„`grep -ri supabase` prazan” uključuje README (S7 ga samo dopunjuje mirovinom Pagesa).
+*Revizija:* S7.
