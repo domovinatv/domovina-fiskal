@@ -1,0 +1,14 @@
+# Mali Worker koji 301 preusmjerava stare Pages domene dashboarda na /app fiskal Workera
+# (lanac passkey, S7, odluka 700). Deploy: npm run deploy:preusmjeravanje
+# Rute rade jer DNS zapisi starih domena (CNAME na Pages, proxied) ostaju; Worker ruta
+# na zoni presreće zahtjev prije Pagesa. Pages projekti zasad ostaju (odluka korisnika).
+name = "fiskal-app-preusmjeravanje"
+main = "src/preusmjeravanje/stara-app-domena.ts"
+compatibility_date = "2026-06-01"
+account_id = "7dc7167b7e2e00923bfa7cd697df14e4"
+workers_dev = false
+
+routes = [
+  { pattern = "fiskal-app.domovina.ai/*", zone_name = "domovina.ai" },
+  { pattern = "fiskal-app-test.domovina.ai/*", zone_name = "domovina.ai" },
+]

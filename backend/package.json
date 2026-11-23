@@ -13,7 +13,8 @@
     "predeploy": "npm run typecheck && npm test",
     "deploy:test": "npm run typecheck && npm test && npm run build:app && wrangler deploy --env test",
     "build:app": "bash scripts/build-app.sh",
-    "dev:app": "npm run build:app && wrangler dev --local-upstream localhost:8787"
+    "dev:app": "npm run build:app && wrangler dev --local-upstream localhost:8787",
+    "deploy:preusmjeravanje": "npm run typecheck && npx vitest run test/preusmjeravanje.test.ts && wrangler deploy -c wrangler.preusmjeravanje.toml"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
