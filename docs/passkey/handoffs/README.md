@@ -21,7 +21,7 @@
 | S3 | `/admin` pozivnice i korisnici | gotovo | d0d0323 | 277 → 284, skipped 0 | 0015; odluke 300–304 |
 | S4 | App na `/app`, passkey UI | gotovo | de3873b | 284 → 284, skipped 0 | app `6eb1c2f`; odluke 400–405; lokalni e2e prošao |
 | S5 | GoTrue van, SPOT, TEST | gotovo | aaf203b | 284 → 280, skipped 0 | −7 GoTrue, +3 testa; 0014+0015 na TEST-u; odluke 500–502; **vrata**: korisnik testira TEST, termin PROD-a (vrh S6.md) |
-| S6 | PROD | otvoreno | | | vrata prije: termin |
+| S6 | PROD | gotovo | aaf203b (+docs S6) | 280 → 280, skipped 0 | 0014+0015 na PROD-u, Worker `643fffac`; 0 redova `korisnik_tenant`, pozivnice nisu trebale; odluke 600–602; **vrata**: brisanje Pagesa i preusmjeravanje (vrh S7.md) |
 | S7 | Mirovina Pagesa i domene | otvoreno | | | vrata: brisanje |
 
 ## Zajednička pravila

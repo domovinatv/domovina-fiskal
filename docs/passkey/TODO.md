@@ -41,8 +41,8 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 
 ## F4 — PROD i mirovina starog
 
-- [ ] Izmjeriti PROD `korisnik_tenant` (aktivni redovi po tenantu, tko se ikad prijavio) → S6
-- [ ] (!) Korisnik bira termin i javlja korisnicima (SUSRET) → vrata prije S6
-- [ ] PROD: migracija, deploy, pozivnice izdane za sve aktivne redove; korisnik šalje linkove → S6
+- [x] Izmjeriti PROD `korisnik_tenant` (aktivni redovi po tenantu, tko se ikad prijavio) → S6
+- [x] (!) Korisnik bira termin i javlja korisnicima (SUSRET) → vrata prije S6
+- [x] PROD: migracija, deploy, pozivnice izdane za sve aktivne redove; korisnik šalje linkove → S6 (0 aktivnih redova, odluka 600)
 - [ ] (!) Mirovina: Pages projekti `domovina-fiskal-app` i `-test`, `fiskal-app.domovina.ai` → 301 na `fiskal.domovina.ai/app`, GoTrue redirect URL maknut → S7
 - [ ] README appa i memorija ažurirani → S7

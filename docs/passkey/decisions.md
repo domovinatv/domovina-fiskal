@@ -237,3 +237,23 @@ migracije u S5. *Revizija:* ako se ikad radi rebuild `korisnik_tenant` iz drugog
 `listMojiTenanti`, `createKorisnikTenant` (zatvara reviziju odluke 303). Članstvo ide samo kroz
 `findClanstvoPoEmailu` / `listMojiTenantiPoEmailu`. `ApiKorisnik` ostaje objekt s `izvor: 'passkey'`
 (postojeće provjere `izvor === 'passkey'` ostaju valjane). *Revizija:* nema.
+
+## S6 (23. 11. 2026.)
+
+**600. PROD deploy bez pozivnica.** Mjerenje prije deploya: PROD `korisnik_tenant` ima **0** redova
+(2 tenanta), nitko se nikad nije prijavio u stari dashboard
+([../research/2026-11-23-prod-korisnik-tenant-mjerenje.md](../research/2026-11-23-prod-korisnik-tenant-mjerenje.md)).
+Uvjet revizije odluke 3 nije ispunjen, a uvjet „za svaki aktivni red postoji pozivnica” je prazno
+ispunjen. S6 ne izdaje nijednu pozivnicu; prvu PROD pozivnicu (npr. vlasnik tenanta 2) korisnik
+izdaje sam u `/admin/korisnici` kad mu zatreba. *Revizija:* nema.
+
+**601. Redoslijed PROD-a.** `migrations apply DB --remote` (0014 ✅, 0015 ✅), zatim `npm run deploy`
+(Worker verzija `643fffac-78e7-45f9-98b2-bd626d31d6bc`, 45 assetsa pod `/app`). Ispravak S5
+napomene: `npm run deploy` **ima** `predeploy` (typecheck + testovi), pa ih pokreće; S6 ih je
+pokrenuo i ručno. *Revizija:* nema.
+
+**602. Stvarni `dfk_` zahtjev nakon deploya nije viđen u S6 (potvrditi).** Sesija nema PROD ključ.
+`dfk_` grana radi (krivi ključ → 401, `/api/v1/zdravlje` 200), a ključ tenanta 2 zadnji put korišten
+2026-11-23 12:09 UTC, prije deploya. Provjera: `zadnje_koristen_at` u `api_kljuc` nakon idućeg
+webshop računa (S7, korak 0). *Revizija:* ako nakon idućeg webshop zahtjeva `zadnje_koristen_at` ne
+napreduje ili webshop javi grešku.
