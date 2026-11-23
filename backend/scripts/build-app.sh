@@ -44,6 +44,10 @@ cat > "$ODREDISTE/_headers" <<'EOF'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 EOF
+# CSP (odluka 401, revizija S7): Next static export ubacuje inline skripte
+# (self.__next_f.push) i inline stilove, zato 'unsafe-inline'. Hash-based script-src
+# bez 'unsafe-inline' je otvorena revizija odluke 401.
 
 echo "build-app: $(find "$ODREDISTE" -type f | wc -l | tr -d ' ') datoteka u $ODREDISTE"
