@@ -1,4 +1,5 @@
 import { dnevniBackup } from './backup';
+import { sinkronizirajSve } from './backup/tenant';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
@@ -137,6 +138,8 @@ export async function izvediCron(cron: string, env: Env): Promise<void> {
   if (r.pokusano || r.zaustavljeno.length) {
     console.log(`naknadna dostava: ${r.uspjelo}/${r.pokusano} dobilo JIR; zaustavljeno ${r.zaustavljeno.length}`);
   }
+  // BYO backup tenanata: mreža za realtime (npr. JIR iz sweepa nije prošao kroz API).
+  await sinkronizirajSve(env).catch((e) => console.error('backup tenanata', e));
   const poslani = await obradiAlarme(env);
   if (poslani.length) console.log(`alarmi: ${poslani.join(', ')}`);
 }

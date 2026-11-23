@@ -149,6 +149,19 @@ export async function izracunajAlarme(env: Env, opcije: { dnevno?: boolean } = {
   }
 
   if (opcije.dnevno) {
+    // BYO backup tenanta: greška koja traje (token opozvan, bucket obrisan…).
+    const pokvareni = await db
+      .prepare(`SELECT tenant_id, bucket, zadnja_greska, zadnja_greska_ts, zadnja_sinkronizacija FROM tenant_backup WHERE aktivan = 1 AND zadnja_greska IS NOT NULL`)
+      .all<{ tenant_id: number; bucket: string; zadnja_greska: string; zadnja_greska_ts: string; zadnja_sinkronizacija: string | null }>();
+    for (const b of pokvareni.results) {
+      alarmi.push({
+        kljuc: `backup-tenanta:${b.tenant_id}`,
+        tenantId: b.tenant_id,
+        naslov: `Backup računa u vaš Cloudflare R2 (${b.bucket}) ne radi`,
+        tekst: `Zadnja greška (${b.zadnja_greska_ts}): ${b.zadnja_greska}\nZadnji uspješan upis: ${b.zadnja_sinkronizacija ?? 'nikad'}.\nRačuni se i dalje izdaju i fiskaliziraju normalno; samo ne stižu u vaš bucket. Provjerite API token i bucket u postavkama backupa.`,
+        intervalSekundi: DAN,
+      });
+    }
     // Platformski backup (cron 01:30 UTC): alarm ako zadnji uspješni nije
     // mlađi od 30 h. Bez BACKUP bindinga (lokalno) nema alarma.
     if (env.BACKUP) {

@@ -31,7 +31,7 @@ export interface RotacijaIzvjestaj {
   nijedanRedovi: string[]; // npr. 'certifikat:3' — za dijagnozu
 }
 
-const TABLICE = ['certifikat', 'doku_konfig'] as const;
+const TABLICE = ['certifikat', 'doku_konfig', 'tenant_backup'] as const;
 
 export async function rotirajKek(env: Env, suho: boolean): Promise<RotacijaIzvjestaj> {
   const tekuciKek = env.ENC_MASTER_KEY;

@@ -14,6 +14,7 @@ import {
   jeUniqueGreska,
 } from '../db';
 import { normalizirajTekst, validanOib } from '../util';
+import { getTenantBackup, obrisiTenantBackup, spremiTenantBackup, validirajUnos, type TenantBackupRow } from '../backup/tenant';
 import { jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
 
@@ -125,4 +126,47 @@ postavkeRute.post('/postavke/operater', async (c) => {
     if (jeUniqueGreska(e)) return c.json({ greska: `Operater ${oib} već postoji` }, 409);
     throw e;
   }
+});
+
+// ── BYO backup u tenantov Cloudflare R2 (docs/knowledge/23-backup.md §Razina 2) ──
+// Token se nikad ne vraća; GET pokazuje samo odredište i stanje.
+
+function backupJson(b: TenantBackupRow | null) {
+  if (!b) return { ukljucen: false };
+  return {
+    ukljucen: !!b.aktivan,
+    cfAccountId: b.cf_account_id,
+    bucket: b.bucket,
+    jurisdikcija: b.jurisdikcija,
+    prefiks: b.prefiks,
+    tokenPrefiks: b.token_prefiks,
+    sinkroniziranoDo: b.sinkronizirano_do,
+    zadnjaSinkronizacija: b.zadnja_sinkronizacija,
+    zadnjiSnapshot: b.zadnji_snapshot,
+    greska: b.zadnja_greska,
+    greskaKada: b.zadnja_greska_ts,
+  };
+}
+
+postavkeRute.get('/postavke/backup', async (c) => {
+  return c.json(backupJson(await getTenantBackup(c.env.DB, c.get('tenant').id)));
+});
+
+postavkeRute.put('/postavke/backup', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const v = validirajUnos(await jsonTijelo(c));
+  if (!v.ok) return c.json({ greska: v.greska }, 400);
+  const tenantId = c.get('tenant').id;
+  try {
+    await spremiTenantBackup(c.env, tenantId, v.unos);
+  } catch (e) {
+    return c.json({ greska: `Backup nije spremljen: ${(e as Error).message}` }, 400);
+  }
+  return c.json(backupJson(await getTenantBackup(c.env.DB, tenantId)));
+});
+
+postavkeRute.delete('/postavke/backup', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  await obrisiTenantBackup(c.env.DB, c.get('tenant').id);
+  return c.json({ ukljucen: false });
 });

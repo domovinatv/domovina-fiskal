@@ -20,6 +20,7 @@ import type {
 } from '../types';
 import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
+import type { TenantBackupRow } from '../backup/tenant';
 import pkg from '../../package.json';
 import { escapeHtml, iznosRetka } from '../util';
 
@@ -256,6 +257,7 @@ export interface TenantDetaljData {
   racuni: RacunRow[];
   korisnici: KorisnikTenantRow[];
   imaIzdanih: boolean; // PDV status i slijednost zaključani nakon prvog izdanog dokumenta
+  backup: TenantBackupRow | null;
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
 }
@@ -459,6 +461,8 @@ ${d.imaIzdanih ? '<p style="font-size:.8rem;color:var(--muted)">🔒 PDV status 
 <p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Svaki tenant unosi <strong>svoj</strong> doku token (doku naplaćuje njemu direktno). Token se sprema AES-256-GCM enkriptiran (envelope, KEK iz Worker Secreta); doku svojim certom potpisuje i šalje UBL. Pristupne podatke tenant dobiva od doku-a (<span class="mono">hello@doku.hr</span>). Slanje: <span class="mono">POST /api/v1/racun/:id/posalji-eracun</span>.</p></div>
 <table><thead><tr><th>Okolina</th><th>Token</th><th>AMS</th><th>Status</th><th>Ažuriran</th></tr></thead>
 <tbody>${dokuRedovi || '<tr><td colspan="5" class="prazno">Nema doku tokena — tenant ne može slati eRačun dok se ne unese.</td></tr>'}</tbody></table>
+
+${backupSekcija(baza, d.backup)}
 
 <h2>Proizvodi (katalog s KPD 2025)</h2>
 <div class="box"><form method="post" action="${baza}/proizvodi">
@@ -718,4 +722,30 @@ export function renderPasskeysPage(o: { email: string; kljucevi: PasskeyPrikaz[]
 <p id="msg" class="greska" hidden></p></div>
 <script>${o.klijentJs}</script>`,
   );
+}
+
+// BYO backup u tenantov Cloudflare R2 (src/backup/tenant.ts).
+function backupSekcija(baza: string, b: TenantBackupRow | null): string {
+  const stanje = b
+    ? `<table><tbody>
+<tr><th>Odredište</th><td class="mono">${escapeHtml(b.cf_account_id)} / ${escapeHtml(b.bucket)}${b.jurisdikcija ? ` (${escapeHtml(b.jurisdikcija)})` : ''} / ${escapeHtml(b.prefiks)}</td></tr>
+<tr><th>Token</th><td class="mono">${escapeHtml(b.token_prefiks ?? '')}…</td></tr>
+<tr><th>Računi sinkronizirani do</th><td>${escapeHtml(b.sinkronizirano_do ?? '— (još ništa)')} · zadnji upis ${escapeHtml(b.zadnja_sinkronizacija ?? '—')}</td></tr>
+<tr><th>Zadnji snapshot</th><td class="mono">${escapeHtml(b.zadnji_snapshot ?? '—')}</td></tr>
+<tr><th>Greška</th><td>${b.zadnja_greska ? `<span style="color:#b00">${escapeHtml(b.zadnja_greska)}</span> (${escapeHtml(b.zadnja_greska_ts ?? '')})` : '✅ nema'}</td></tr>
+</tbody></table>
+<form method="post" action="${baza}/backup/sada" style="display:inline"><button type="submit">Sinkroniziraj i snapshot sada</button></form>
+<form method="post" action="${baza}/backup/obrisi" style="display:inline;margin-left:.5rem"><button type="submit">Isključi backup</button></form>`
+    : '<p class="prazno">Backup u tenantov Cloudflare nije uključen.</p>';
+  return `<h2>Backup u tenantov Cloudflare R2 (BYO, opcionalno)</h2>
+<div class="box"><form method="post" action="${baza}/backup">
+  <div class="field"><label>Cloudflare Account ID *</label><input name="cfAccountId" required pattern="[0-9a-fA-F]{32}" value="${escapeHtml(b?.cf_account_id ?? '')}"></div>
+  <div class="field"><label>R2 bucket *</label><input name="bucket" required value="${escapeHtml(b?.bucket ?? '')}" placeholder="moj-fiskal-backup"></div>
+  <div class="field"><label>Jurisdikcija</label><select name="jurisdikcija"><option value="">zadana</option><option value="eu"${b?.jurisdikcija === 'eu' ? ' selected' : ''}>eu</option><option value="fedramp"${b?.jurisdikcija === 'fedramp' ? ' selected' : ''}>fedramp</option></select></div>
+  <div class="field"><label>Prefiks</label><input name="prefiks" value="${escapeHtml(b?.prefiks ?? 'domovina-fiskal/')}"></div>
+  <div class="field"><label>API token *</label><input name="token" type="password" required autocomplete="off" placeholder="Workers R2 Storage: Edit"></div>
+  <button type="submit">Spremi (probni upis + enkripcija tokena)</button>
+</form>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Svaki račun se nakon promjene upisuje u tenantov bucket kao JSON (sa stavkama i CIS XML-om) i PDF, a svaki dan u 01:30 UTC i snapshot svih njegovih podataka (<span class="mono">snapshots/YYYY/MM/YYYY-MM-DD.json.gz</span>). Token: Cloudflare → My Profile → API Tokens → Create → „Workers R2 Storage: Edit”, po mogućnosti ograničen na taj bucket. Sprema se AES-256-GCM enkriptiran.</p>
+${stanje}</div>`;
 }

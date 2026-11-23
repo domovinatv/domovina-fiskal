@@ -2,6 +2,7 @@
 // Upravljanje tenantima i njihovim fiskalnim kontekstom (prostori, uređaji, operateri, API ključevi, certifikati).
 
 import { napraviPlatformskiBackup } from '../backup';
+import { getTenantBackup, obrisiTenantBackup, sinkronizirajSve, sinkronizirajTenanta, snapshotTenanta, spremiTenantBackup, validirajUnos } from '../backup/tenant';
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { adminZastita, type AdminHono } from './auth/zastita';
@@ -72,6 +73,15 @@ const ID = '{[1-9][0-9]{0,14}}';
 // Prijava: Cloudflare Access (OTP) ili passkey → sesija; skripte bearer tokenom.
 // CSRF, CSP i sigurnosna zaglavlja su u adminZastita (docs/knowledge/20-admin-prijava.md).
 admin.use('*', adminZastita);
+
+// BYO backup: admin izdaje/stornira/fiskalizira mimo API-ja; nakon uspješnog
+// POST-a (redirect 303 ili 2xx) sinkroniziraj tenante s backupom u pozadini.
+admin.use('*', async (c, next) => {
+  await next();
+  if (c.req.method === 'POST' && c.res.status < 400 && /^\/admin\/(tenant|racun)\//.test(c.req.path)) {
+    c.executionCtx.waitUntil(sinkronizirajSve(c.env).catch((e) => console.error('backup tenanata', e)));
+  }
+});
 admin.route('/', prijava);
 
 admin.get('/', async (c) => {
@@ -114,7 +124,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih, backup] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -125,8 +135,9 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     listRacuni(c.env.DB, { tenantId, limit: 20 }),
     listKorisniciTenanta(c.env.DB, tenantId),
     tenantImaIzdanihDokumenata(c.env.DB, tenantId),
+    getTenantBackup(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, imaIzdanih, backup };
 }
 
 admin.get(`/tenant/:id${ID}`, async (c) => {
@@ -404,6 +415,33 @@ admin.post(`/tenant/:id${ID}/doku`, async (c) => {
   } catch (e) {
     return c.html(renderTenantDetaljPage({ ...d, greska: `Spremanje doku tokena nije uspjelo: ${(e as Error).message}` }), 400);
   }
+});
+
+// BYO backup tenanta u NJEGOV Cloudflare R2 (src/backup/tenant.ts). Spremanje
+// odmah probno upisuje objekt, pa kriva konfiguracija ne prolazi tiho.
+admin.post(`/tenant/:id${ID}/backup`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const v = validirajUnos(await c.req.parseBody());
+  if (!v.ok) return c.html(renderTenantDetaljPage({ ...d, greska: v.greska }), 400);
+  try {
+    await spremiTenantBackup(c.env, tenantId, v.unos);
+  } catch (e) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `Backup nije spremljen: ${(e as Error).message}` }), 400);
+  }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+admin.post(`/tenant/:id${ID}/backup/:akcija{sada|obrisi}`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  if (c.req.param('akcija') === 'obrisi') {
+    await obrisiTenantBackup(c.env.DB, tenantId);
+  } else {
+    await sinkronizirajTenanta(c.env, tenantId);
+    await snapshotTenanta(c.env, tenantId);
+  }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
 // Ručno označavanje CIS statusa poslovnog prostora — prijava/odjava prostora od

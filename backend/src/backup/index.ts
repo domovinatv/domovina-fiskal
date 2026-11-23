@@ -4,6 +4,7 @@
 import type { Env } from '../types';
 import { postaviStanje } from '../db';
 import { napraviPlatformskiBackup } from './platforma';
+import { aktivniTenantiSBackupom, sinkronizirajTenanta, snapshotTenanta } from './tenant';
 
 export { napraviPlatformskiBackup } from './platforma';
 
@@ -16,5 +17,10 @@ export async function dnevniBackup(env: Env): Promise<void> {
   } catch (e) {
     console.error('backup platforme nije uspio', e);
     await postaviStanje(env.DB, 'backup_zadnja_greska', `${new Date().toISOString()} ${String(e)}`.slice(0, 1000));
+  }
+  for (const tenantId of await aktivniTenantiSBackupom(env.DB)) {
+    await sinkronizirajTenanta(env, tenantId).catch((e) => console.error(`backup tenanta ${tenantId}`, e));
+    const kljuc = await snapshotTenanta(env, tenantId);
+    if (kljuc) console.log(`snapshot tenanta ${tenantId}: ${kljuc}`);
   }
 }
