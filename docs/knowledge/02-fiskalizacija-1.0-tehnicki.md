@@ -576,11 +576,17 @@ bitno je da se poklapaju.
 | `178` | Brojčana oznaka računa ima vrijednost `0` |
 | `179` | OIB operatera nije formalno ispravan |
 | `180` | OIB primatelja računa nije formalno ispravan |
-| `181` | OIB primatelja nije dozvoljen u kombinaciji (kontekst) |
+| `181` | OIB primatelja nije dozvoljen u kombinaciji (kontekst). ✅ Izmjereno na CIS TEST-u 23. 11. 2026.: javlja se kad je `OibPrimateljaRacuna` OIB **fizičke osobe** (račun 33, kupac `tip='fizicka'`, `NacinPlac=T`). Isti račun bez tog elementa dobio je JIR. Od commita `0cec853` `mapirajZaCis` ga izostavlja za `tip='fizicka'`. Službeni tekst greške nije provjeren ⚠️ |
 | `164` | Iznos naknade > 135,00 EUR |
 | `166` | Ukupan iznos nije ispravan po formuli (tolerancija ±0,01 EUR) |
 | `167` | Max ukupni iznos za vrstu plaćanja premašen (±150.000,00 EUR) |
 | `185` | Max ukupni iznos za vrstu plaćanja (10.000,00 EUR kad je Ukupni iznos …) |
+
+> **Zamka (23. 11. 2026.):** račun koji CIS odbije restriktivnom greškom ostaje s
+> `fiskal_nak_dost = 0` i ne ulazi u cron sweep (`racuniZaNaknadnuDostavu` traži
+> `fiskal_nak_dost = 1 OR fiskal_pokusaja = 0`). Ponovno se šalje admin gumbom
+> „fiskaliziraj”, kroz `POST /api/v1/racun/:id/fiskaliziraj` ili ručno
+> `UPDATE racun SET fiskal_nak_dost=1` (tada ide s `NakDost=true`). Dashboard `/app` gumba nema.
 
 **Formula kontrole ukupnog iznosa (`166`):**
 ```
