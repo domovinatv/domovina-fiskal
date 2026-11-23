@@ -20,3 +20,8 @@ Trenutno: **RESEARCH / PLANNING**. Prvo činjenično znanje u `docs/`, tek onda 
 - `docs/reference/*.md` — reference iz prve ruke (Fira API, lokalni artefakti).
 - `docs/research/*` — sirovi istraživački materijali (po potrebi).
 - `PLAN.md` — plan implementacije.
+
+## Lanac: passkey prijava za dashboard (umjesto GoTrue)
+
+Plan od 23. 11. 2026. u `docs/passkey/` (`TODO.md`, `plan.md`, `decisions.md`, `handoffs/`). „Nastavi passkey”
+znači prvi red koji nije „gotovo” u „Stanje lanca” u `docs/passkey/handoffs/README.md`; prompt je `SN.md`.
