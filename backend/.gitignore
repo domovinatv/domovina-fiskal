@@ -4,3 +4,6 @@ node_modules/
 
 # Tajne za lokalni razvoj/onboarding (certifikati, lozinke) — NIKAD u repo (javan!)
 .tajne/
+
+# Ugrađeni dashboard (scripts/build-app.sh) — generira se pri buildu/deployu
+app-dist/

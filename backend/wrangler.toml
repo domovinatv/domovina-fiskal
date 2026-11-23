@@ -12,6 +12,15 @@ account_id = "7dc7167b7e2e00923bfa7cd697df14e4"
 pattern = "fiskal.domovina.ai"
 custom_domain = true
 
+# Customer dashboard (Next static export, basePath /app) kao Workers static assets.
+# `npm run build:app` builda app iz njegovog repoa i kopira `out/` u app-dist/app/
+# (gitignored). Rute /api/* i /admin/* uvijek idu Workeru, i kad bi u app-dist
+# slučajno bila datoteka s tom putanjom. Sve što nije asset (npr. `/`) ide Workeru.
+# Vidi docs/research/2026-11-23-workers-assets-next-basepath.md.
+[assets]
+directory = "./app-dist"
+run_worker_first = ["/api/*", "/admin/*"]
+
 [observability]
 enabled = true
 
@@ -100,6 +109,10 @@ name = "fiskal-domovina-backend-test"
 [[env.test.routes]]
 pattern = "fiskal-test.domovina.ai"
 custom_domain = true
+
+[env.test.assets]
+directory = "./app-dist"
+run_worker_first = ["/api/*", "/admin/*"]
 
 [env.test.observability]
 enabled = true
