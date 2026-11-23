@@ -71,10 +71,18 @@ describe('backup', () => {
     const objekti = await db
       .prepare(`SELECT type, name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'`)
       .all<{ type: string; name: string }>();
-    await db.batch([
-      db.prepare('PRAGMA defer_foreign_keys = ON'),
-      ...objekti.results.map((o) => db.prepare(`DROP ${o.type.toUpperCase()} "${o.name}"`)),
-    ]);
+    // Brisanje u krugovima dok ne nestane sve: redoslijed u sqlite_master nije redoslijed ovisnosti
+    // (migracije prepisuju tablice), a DROP roditelja čije dijete ima FK na već obrisanu tablicu pada
+    // s „no such table” (0014: korisnik ← pozivnice → tenant). Neuspjeli DROP se ponovi idući krug.
+    let ostalo = objekti.results;
+    for (let krug = 0; ostalo.length && krug < 10; krug++) {
+      const neuspjeli: typeof ostalo = [];
+      for (const o of ostalo) {
+        await db.prepare(`DROP ${o.type.toUpperCase()} "${o.name}"`).run().catch(() => neuspjeli.push(o));
+      }
+      ostalo = neuspjeli;
+    }
+    expect(ostalo).toEqual([]);
     expect((await db.prepare(`SELECT count(*) n FROM sqlite_master WHERE name = 'racun'`).first<{ n: number }>())!.n).toBe(0);
 
     await db.batch(prije.naredbe.map((n) => db.prepare(n)));
