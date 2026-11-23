@@ -53,11 +53,14 @@ Za vraćanje na trenutak unutar zadnjih 30 dana prvo razmotri D1 Time Travel
 
 ## Razina 2 — BYO backup u tenantov Cloudflare R2 (od 2026-11-23, migracija 0013)
 
-Opcionalno, po tenantu. Tenant u svom Cloudflare računu napravi R2 bucket i API token
-(„Workers R2 Storage: Edit”, po mogućnosti samo na taj bucket), pa ga unese:
+Opcionalno, po tenantu. Obavezan je **samo API token** (Account API Token, dozvola
+`Account · Workers R2 Storage · Edit`). Account ID se otkriva iz tokena (`GET /accounts`; ako ih
+token vidi više, traži se upis), a bucket `domovina-fiskal-<OIB>` se kreira u **EU** jurisdikciji
+ako ne postoji. Token ograničen na jedan bucket ne može kreirati novi: tada se upisuje naziv
+postojećeg. Unos:
 - admin: `/admin/tenant/:id` → „Backup u tenantov Cloudflare R2”;
 - API/dashboard: `GET|PUT|DELETE /api/v1/postavke/backup`
-  (`{cfAccountId, bucket, jurisdikcija?: 'eu'|'fedramp', prefiks?, token}`; operater ne smije).
+  (`{token, cfAccountId?, bucket?, jurisdikcija?: 'eu' (zadano)|'default'|'fedramp', prefiks?}`; operater ne smije).
 
 Spremanje odmah probno upisuje `<prefiks>provjera.txt`; ako upis ne uspije, ništa se ne sprema.
 Token je šifriran envelopeom (kao doku token) i ide kroz KEK rotaciju; API ga nikad ne vraća.

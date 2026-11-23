@@ -13,14 +13,29 @@ const db = testEnv.DB;
 interface Upis { kljuc: string; jur: string | null; auth: string | null; tip: string | null; tijelo: Uint8Array }
 let upisi: Upis[];
 let status: number;
+let racuni: { id: string; name: string }[];
+let bucketi: Map<string, string | null>; // naziv → jurisdikcija
 
 function mockCloudflare() {
   const pravi = globalThis.fetch;
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (ulaz, init) => {
     const url = typeof ulaz === 'string' ? ulaz : ulaz instanceof URL ? ulaz.href : ulaz.url;
     const m = url.match(/^https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/([0-9a-f]+)\/r2\/buckets\/([^/]+)\/objects\/(.+)$/);
-    if (!m) return pravi(ulaz, init);
     const h = new Headers(init?.headers);
+    const ok = (result: unknown) => new Response(JSON.stringify({ success: true, errors: [], result }), { status: 200 });
+    if (url.startsWith('https://api.cloudflare.com/client/v4/accounts?')) return ok(racuni);
+    const b = url.match(/^https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/[0-9a-f]+\/r2\/buckets(?:\/([^/?]+))?$/);
+    if (b) {
+      if ((init?.method ?? 'GET') === 'POST') {
+        const ime = JSON.parse(String(init?.body)).name as string;
+        bucketi.set(ime, h.get('cf-r2-jurisdiction'));
+        return ok({ name: ime });
+      }
+      return bucketi.has(decodeURIComponent(b[1]!))
+        ? ok({ name: b[1] })
+        : new Response(JSON.stringify({ success: false, errors: [{ code: 10006, message: 'The specified bucket does not exist.' }] }), { status: 404 });
+    }
+    if (!m) return pravi(ulaz, init);
     if (status !== 200) return new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }), { status });
     upisi.push({
       kljuc: m[3]!.split('/').map(decodeURIComponent).join('/'),
@@ -51,6 +66,8 @@ describe('BYO backup tenanta', () => {
   beforeEach(() => {
     upisi = [];
     status = 200;
+    racuni = [{ id: ACC, name: 'Tenantov račun' }];
+    bucketi = new Map([['moj-backup', 'eu']]);
     mockCloudflare();
   });
   afterEach(() => vi.restoreAllMocks());
@@ -68,6 +85,29 @@ describe('BYO backup tenanta', () => {
     const r = await ukljuci(t);
     expect(r.status).toBe(400);
     expect((await json(r)).greska).toMatch(/HTTP 403.*Workers R2 Storage: Edit/);
+    expect(await db.prepare('SELECT count(*) n FROM tenant_backup WHERE tenant_id = ?').bind(t.tenant.id).first('n')).toBe(0);
+  });
+
+  it('samo token: Account ID iz tokena, bucket domovina-fiskal-<oib> kreiran u EU', async () => {
+    const t = await napraviTenanta();
+    const r = await poziv('/api/v1/postavke/backup', { method: 'PUT', kljuc: t.kljuc, body: JSON.stringify({ token: TOKEN }) });
+    const tijelo = await json(r);
+    expect(r.status, JSON.stringify(tijelo)).toBe(200);
+    const ime = `domovina-fiskal-${t.tenant.oib}`;
+    expect(tijelo).toMatchObject({ ukljucen: true, cfAccountId: ACC, bucket: ime, jurisdikcija: 'eu', prefiks: 'domovina-fiskal/', bucketKreiran: true });
+    expect(bucketi.get(ime)).toBe('eu');
+    expect(upisi[0]).toMatchObject({ kljuc: 'domovina-fiskal/provjera.txt', jur: 'eu' });
+    // drugi put: bucket postoji, ne kreira se ponovno
+    const r2 = await json(await poziv('/api/v1/postavke/backup', { method: 'PUT', kljuc: t.kljuc, body: JSON.stringify({ token: TOKEN }) }));
+    expect(r2.bucketKreiran).toBe(false);
+  });
+
+  it('token vidi više računa → 400 s popisom, ništa se ne sprema', async () => {
+    const t = await napraviTenanta();
+    racuni = [{ id: ACC, name: 'Prvi' }, { id: 'b'.repeat(32), name: 'Drugi' }];
+    const r = await poziv('/api/v1/postavke/backup', { method: 'PUT', kljuc: t.kljuc, body: JSON.stringify({ token: TOKEN }) });
+    expect(r.status).toBe(400);
+    expect((await json(r)).greska).toMatch(/više računa.*Prvi.*Drugi/);
     expect(await db.prepare('SELECT count(*) n FROM tenant_backup WHERE tenant_id = ?').bind(t.tenant.id).first('n')).toBe(0);
   });
 

@@ -156,13 +156,14 @@ postavkeRute.put('/postavke/backup', async (c) => {
   if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
   const v = validirajUnos(await jsonTijelo(c));
   if (!v.ok) return c.json({ greska: v.greska }, 400);
-  const tenantId = c.get('tenant').id;
+  const tenant = c.get('tenant');
+  let kreiran = false;
   try {
-    await spremiTenantBackup(c.env, tenantId, v.unos);
+    ({ kreiran } = await spremiTenantBackup(c.env, tenant.id, tenant.oib, v.unos));
   } catch (e) {
     return c.json({ greska: `Backup nije spremljen: ${(e as Error).message}` }, 400);
   }
-  return c.json(backupJson(await getTenantBackup(c.env.DB, tenantId)));
+  return c.json({ ...backupJson(await getTenantBackup(c.env.DB, tenant.id)), bucketKreiran: kreiran });
 });
 
 postavkeRute.delete('/postavke/backup', async (c) => {

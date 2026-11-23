@@ -739,13 +739,13 @@ function backupSekcija(baza: string, b: TenantBackupRow | null): string {
     : '<p class="prazno">Backup u tenantov Cloudflare nije uključen.</p>';
   return `<h2>Backup u tenantov Cloudflare R2 (BYO, opcionalno)</h2>
 <div class="box"><form method="post" action="${baza}/backup">
-  <div class="field"><label>Cloudflare Account ID *</label><input name="cfAccountId" required pattern="[0-9a-fA-F]{32}" value="${escapeHtml(b?.cf_account_id ?? '')}"></div>
-  <div class="field"><label>R2 bucket *</label><input name="bucket" required value="${escapeHtml(b?.bucket ?? '')}" placeholder="moj-fiskal-backup"></div>
-  <div class="field"><label>Jurisdikcija</label><select name="jurisdikcija"><option value="">zadana</option><option value="eu"${b?.jurisdikcija === 'eu' ? ' selected' : ''}>eu</option><option value="fedramp"${b?.jurisdikcija === 'fedramp' ? ' selected' : ''}>fedramp</option></select></div>
-  <div class="field"><label>Prefiks</label><input name="prefiks" value="${escapeHtml(b?.prefiks ?? 'domovina-fiskal/')}"></div>
   <div class="field"><label>API token *</label><input name="token" type="password" required autocomplete="off" placeholder="Workers R2 Storage: Edit"></div>
-  <button type="submit">Spremi (probni upis + enkripcija tokena)</button>
+  <div class="field"><label>Cloudflare Account ID</label><input name="cfAccountId" pattern="[0-9a-fA-F]{32}" value="${escapeHtml(b?.cf_account_id ?? '')}" placeholder="prazno = otkrij iz tokena"></div>
+  <div class="field"><label>R2 bucket</label><input name="bucket" value="${escapeHtml(b?.bucket ?? '')}" placeholder="prazno = domovina-fiskal-&lt;OIB&gt; (kreira se)"></div>
+  <div class="field"><label>Jurisdikcija</label><select name="jurisdikcija"><option value="eu"${!b || b.jurisdikcija === 'eu' ? ' selected' : ''}>eu (preporučeno)</option><option value="default"${b && !b.jurisdikcija ? ' selected' : ''}>bez jurisdikcije</option><option value="fedramp"${b?.jurisdikcija === 'fedramp' ? ' selected' : ''}>fedramp</option></select></div>
+  <div class="field"><label>Prefiks</label><input name="prefiks" value="${escapeHtml(b?.prefiks ?? 'domovina-fiskal/')}"></div>
+  <button type="submit">Spremi (otkrij račun, kreiraj bucket, probni upis)</button>
 </form>
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Svaki račun se nakon promjene upisuje u tenantov bucket kao JSON (sa stavkama i CIS XML-om) i PDF, a svaki dan u 01:30 UTC i snapshot svih njegovih podataka (<span class="mono">snapshots/YYYY/MM/YYYY-MM-DD.json.gz</span>). Token: Cloudflare → My Profile → API Tokens → Create → „Workers R2 Storage: Edit”, po mogućnosti ograničen na taj bucket. Sprema se AES-256-GCM enkriptiran.</p>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Svaki račun se nakon promjene upisuje u tenantov bucket kao JSON (sa stavkama i CIS XML-om) i PDF, a svaki dan u 01:30 UTC i snapshot svih njegovih podataka (<span class="mono">snapshots/YYYY/MM/YYYY-MM-DD.json.gz</span>). Dovoljan je samo token: Cloudflare → Manage Account → Account API Tokens → Create Token → Custom → dozvola <span class="mono">Account · Workers R2 Storage · Edit</span>. Iz njega se otkriva Account ID, a bucket <span class="mono">domovina-fiskal-&lt;OIB&gt;</span> se kreira u EU ako ne postoji. Token se sprema AES-256-GCM enkriptiran.</p>
 ${stanje}</div>`;
 }

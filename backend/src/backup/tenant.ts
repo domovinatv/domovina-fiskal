@@ -69,8 +69,8 @@ async function getSMaterijalom(db: D1Database, tenantId: number) {
 // ───────────────────────── Validacija unosa ─────────────────────────
 
 export interface UnosBackupa {
-  cfAccountId: string;
-  bucket: string;
+  cfAccountId: string | null; // null → otkrij iz tokena (GET /accounts)
+  bucket: string | null; // null → domovina-fiskal-<oib>, kreira se ako ne postoji
   jurisdikcija: string | null;
   prefiks: string;
   token: string;
@@ -82,15 +82,17 @@ export function validirajUnos(u: Record<string, unknown>): { ok: true; unos: Uno
   const jur = String(u.jurisdikcija ?? '').trim().toLowerCase();
   let prefiks = String(u.prefiks ?? '').trim() || 'domovina-fiskal/';
   const token = String(u.token ?? '').trim();
-  if (!/^[0-9a-f]{32}$/.test(cfAccountId)) return { ok: false, greska: 'Cloudflare Account ID: 32 heksadekadska znaka (Dashboard → Account home → Account ID).' };
-  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) return { ok: false, greska: 'Naziv R2 bucketa: 3–63 znaka, mala slova, brojke i crtica.' };
-  if (jur && jur !== 'eu' && jur !== 'fedramp') return { ok: false, greska: "Jurisdikcija: prazno, 'eu' ili 'fedramp'." };
+  // Obavezan je samo token: račun se otkriva iz tokena, bucket se kreira sam.
+  if (cfAccountId && !/^[0-9a-f]{32}$/.test(cfAccountId)) return { ok: false, greska: 'Cloudflare Account ID: 32 heksadekadska znaka (ili ostavi prazno — otkrije se iz tokena).' };
+  if (bucket && !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) return { ok: false, greska: 'Naziv R2 bucketa: 3–63 znaka, mala slova, brojke i crtica (ili ostavi prazno).' };
+  // Zadano EU; 'default' = bucket bez jurisdikcije.
+  if (jur && jur !== 'eu' && jur !== 'fedramp' && jur !== 'default') return { ok: false, greska: "Jurisdikcija: 'eu' (zadano), 'default' ili 'fedramp'." };
   if (!/^[A-Za-z0-9._\-/]{0,200}$/.test(prefiks) || prefiks.startsWith('/') || prefiks.includes('..')) {
     return { ok: false, greska: 'Prefiks: slova, brojke, . _ - /, bez vodećeg / i bez „..”.' };
   }
   if (!prefiks.endsWith('/')) prefiks += '/';
   if (token.length < 20 || /\s/.test(token)) return { ok: false, greska: 'Unesi Cloudflare API token (Workers R2 Storage: Edit).' };
-  return { ok: true, unos: { cfAccountId, bucket, jurisdikcija: jur || null, prefiks, token } };
+  return { ok: true, unos: { cfAccountId: cfAccountId || null, bucket: bucket || null, jurisdikcija: jur === 'default' ? null : jur || 'eu', prefiks, token } };
 }
 
 // ───────────────────────── R2 preko REST API-ja ─────────────────────────
@@ -132,13 +134,71 @@ export async function r2Upisi(o: Odrediste, token: string, kljuc: string, tijelo
   }
 }
 
+// ───────────────────────── Otkrivanje računa i bucketa iz tokena ─────────────────────────
+
+async function cfApi<T>(token: string, putanja: string, init: RequestInit = {}, jurisdikcija: string | null = null): Promise<{ status: number; result: T | null; greska: string }> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (jurisdikcija) headers['cf-r2-jurisdiction'] = jurisdikcija;
+  const r = await fetchSTimeoutom('Cloudflare API', `${CF_API}${putanja}`, { ...init, headers }, R2_TIMEOUT_MS);
+  let j: { result?: T; errors?: { code?: number; message?: string }[] } = {};
+  try {
+    j = await r.json();
+  } catch {
+    /* nije JSON */
+  }
+  const greska = (j.errors ?? []).map((e) => `${e.code ?? ''} ${e.message ?? ''}`.trim()).join('; ');
+  return { status: r.status, result: r.ok ? (j.result ?? null) : null, greska };
+}
+
+// Računi kojima token ima pristup. Tokenu s „Workers R2 Storage: Edit” to
+// vraća račun(e) na koje se dozvola odnosi.
+export async function racuniIzTokena(token: string): Promise<{ id: string; name: string }[]> {
+  const r = await cfApi<{ id: string; name: string }[]>(token, '/accounts?per_page=50');
+  if (r.status === 401 || r.status === 403 || /authenticat/i.test(r.greska)) {
+    throw new Error(`Cloudflare ne prihvaća token (HTTP ${r.status}${r.greska ? `: ${r.greska}` : ''})`);
+  }
+  if (!r.result) throw new Error(`Popis Cloudflare računa nije dohvaćen (HTTP ${r.status}${r.greska ? `: ${r.greska}` : ''})`);
+  return r.result.map((a) => ({ id: a.id, name: a.name }));
+}
+
+export async function odrediOdrediste(
+  u: UnosBackupa,
+  oib: string,
+): Promise<{ cfAccountId: string; bucket: string; kreiran: boolean }> {
+  let cfAccountId = u.cfAccountId;
+  if (!cfAccountId) {
+    const racuni = await racuniIzTokena(u.token);
+    if (racuni.length === 0) {
+      throw new Error('Token nema pristup nijednom Cloudflare računu — upiši Account ID ručno ili napravi token s „Workers R2 Storage: Edit”.');
+    }
+    if (racuni.length > 1) {
+      throw new Error(`Token vidi više računa — upiši Account ID jednog od njih: ${racuni.map((a) => `${a.name} (${a.id})`).join(', ')}`);
+    }
+    cfAccountId = racuni[0]!.id;
+  }
+  const bucket = u.bucket ?? `domovina-fiskal-${oib}`;
+  const put = `/accounts/${cfAccountId}/r2/buckets/${encodeURIComponent(bucket)}`;
+  const postoji = await cfApi(u.token, put, {}, u.jurisdikcija);
+  if (postoji.status === 200) return { cfAccountId, bucket, kreiran: false };
+  if (postoji.status !== 404) {
+    throw new Error(`Provjera bucketa ${bucket} nije uspjela (HTTP ${postoji.status}${postoji.greska ? `: ${postoji.greska}` : ''}) — token treba „Workers R2 Storage: Edit”.`);
+  }
+  const novi = await cfApi(u.token, `/accounts/${cfAccountId}/r2/buckets`, { method: 'POST', body: JSON.stringify({ name: bucket }) }, u.jurisdikcija);
+  if (novi.status !== 200) {
+    throw new Error(`Kreiranje bucketa ${bucket} nije uspjelo (HTTP ${novi.status}${novi.greska ? `: ${novi.greska}` : ''}) — token treba „Workers R2 Storage: Edit” na razini računa (token ograničen na jedan bucket ne može kreirati novi; tada upiši naziv postojećeg).`);
+  }
+  return { cfAccountId, bucket, kreiran: true };
+}
+
 // ───────────────────────── Spremanje / brisanje postavki ─────────────────────────
 
 // Prije spremanja upisuje probni objekt: kriva konfiguracija se odbija odmah,
 // a ne tek kad prvi račun tiho ne stigne u backup.
-export async function spremiTenantBackup(env: Env, tenantId: number, u: UnosBackupa): Promise<void> {
+export async function spremiTenantBackup(env: Env, tenantId: number, oib: string, unos: UnosBackupa): Promise<{ bucket: string; kreiran: boolean }> {
   const kek = kekZaSifriranje(env);
   if (!kek) throw new Error('ENC_MASTER_KEY nije postavljen — token se ne može sigurno spremiti');
+  const o = await odrediOdrediste(unos, oib);
+  const u = { ...unos, cfAccountId: o.cfAccountId, bucket: o.bucket };
   await r2Upisi(
     { cf_account_id: u.cfAccountId, bucket: u.bucket, jurisdikcija: u.jurisdikcija },
     u.token,
@@ -161,6 +221,7 @@ export async function spremiTenantBackup(env: Env, tenantId: number, u: UnosBack
   )
     .bind(tenantId, u.cfAccountId, u.bucket, u.jurisdikcija, u.prefiks, enc.tokenEncrypted, await oznakaKek(kek), enc.encIv, enc.dekWrapped, enc.dekIv, u.token.slice(0, 6))
     .run();
+  return { bucket: o.bucket, kreiran: o.kreiran };
 }
 
 export async function obrisiTenantBackup(db: D1Database, tenantId: number): Promise<void> {

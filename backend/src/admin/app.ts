@@ -426,7 +426,7 @@ admin.post(`/tenant/:id${ID}/backup`, async (c) => {
   const v = validirajUnos(await c.req.parseBody());
   if (!v.ok) return c.html(renderTenantDetaljPage({ ...d, greska: v.greska }), 400);
   try {
-    await spremiTenantBackup(c.env, tenantId, v.unos);
+    await spremiTenantBackup(c.env, tenantId, d.tenant.oib, v.unos);
   } catch (e) {
     return c.html(renderTenantDetaljPage({ ...d, greska: `Backup nije spremljen: ${(e as Error).message}` }), 400);
   }
