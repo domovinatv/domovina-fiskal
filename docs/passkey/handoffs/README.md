@@ -15,7 +15,7 @@
 
 | Sesija | Paket | Stanje | Commit | Testovi | Napomena |
 |---|---|---|---|---|---|
-| S0 | Plan | gotovo | (upisuje S0) | — | plan bez koda |
+| S0 | Plan | gotovo | 075c3ce | — | plan bez koda |
 | S1 | Migracija + app-auth moduli | otvoreno | | | |
 | S2 | API rute, grana za kolačić, članovi | otvoreno | | | |
 | S3 | `/admin` pozivnice i korisnici | otvoreno | | | |
