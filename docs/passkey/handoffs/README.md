@@ -26,6 +26,8 @@
 
 ## Otvoreno nakon lanca (nije paket, nema `S8.md`)
 
+- ✅ 23. 11. 2026. korisnik je na PROD-u prošao sve ručno: pozivnica → passkey (prava biometrija)
+  → računi i PDF bez CSP grešaka → odjava i prijava passkeyem → `fiskal-app.domovina.ai` 301 na `/app/`.
 - (!) Brisanje Pages projekata `domovina-fiskal-app` i `domovina-fiskal-app-test`: zasebna
   odluka korisnika. Redoslijed u odluci 700 (*Revizija*): custom domene s Pagesa, DNS ostaje
   proxied, pa tek onda brisanje; `curl -sI https://fiskal-app.domovina.ai` mora i dalje dati 301.
