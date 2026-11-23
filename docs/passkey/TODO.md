@@ -34,9 +34,9 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 
 ## F3 — GoTrue van, TEST
 
-- [ ] Backend: obrisati `src/auth/gotrue.ts`, GoTrue granu iz `src/api/auth.ts`, `DASHBOARD_ORIGIN`/CORS za dashboard, GoTrue env → S5
-- [ ] SPOT: `docs/knowledge/24-dashboard-passkey.md`; `16-dashboard-sso.md` označen kao zamijenjen; indeks → S5
-- [ ] TEST: migracija pa `deploy:test`; smoke `fiskal-test.domovina.ai/app` → S5
+- [x] Backend: obrisati `src/auth/gotrue.ts`, GoTrue granu iz `src/api/auth.ts`, `DASHBOARD_ORIGIN`/CORS za dashboard, GoTrue env → S5
+- [x] SPOT: `docs/knowledge/24-dashboard-passkey.md`; `16-dashboard-sso.md` označen kao zamijenjen; indeks → S5
+- [x] TEST: migracija pa `deploy:test`; smoke `fiskal-test.domovina.ai/app` → S5
 - [ ] (!) Korisnik na TEST-u registrira passkey iz pozivnice i izda račun → vrata prije S6
 
 ## F4 — PROD i mirovina starog

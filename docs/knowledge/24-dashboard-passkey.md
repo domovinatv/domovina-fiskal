@@ -126,7 +126,7 @@ Passkey je vezan uz rpID: ključ s TEST-a ne otvara PROD i obrnuto.
 Deploy (u `backend/`): migracija prije deploya, izlaz se čita cijeli.
 
 ```bash
-npx wrangler d1 migrations apply fiskal_domovina --remote --env test   # PROD: bez --env
+npx wrangler d1 migrations apply DB --remote --env test   # PROD: bez --env; prije: export CLOUDFLARE_ACCOUNT_ID=<D.O.M.>
 npm run deploy:test                                                   # PROD: npm run deploy
 ```
 

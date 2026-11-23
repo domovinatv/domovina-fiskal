@@ -63,3 +63,4 @@ flowchart LR
 ## Gdje smo
 
 S0 (23. 11. 2026.): plan napisan, koda nema.
+S5 (23. 11. 2026.): GoTrue i CORS van iz backenda, SPOT `../knowledge/24-dashboard-passkey.md`, TEST migriran i deployan; čeka se korisnikov test na TEST-u i termin PROD-a (vrh `handoffs/S6.md`).
