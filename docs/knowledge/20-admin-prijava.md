@@ -1,7 +1,7 @@
 # 20 — Admin prijava: Cloudflare Access (OTP) + passkey
 
 > SPOT za prijavu u `/admin` (platformski admin, ne tenant dashboard — za to vidi
-> `16-dashboard-sso.md`). Zamjenjuje Basic Auth od 2026-11-11. Model je **1:1** iz
+> `24-dashboard-passkey.md`). Zamjenjuje Basic Auth od 2026-11-11. Model je **1:1** iz
 > `~/git/logomedo/logomedo.com` (`docs/admin.md`, `src/lib/admin/*`, `src/middleware.ts`),
 > a tamo iz `omm.domovina.ai` i `pay.domovina.ai` — sigurnosnu logiku držati u skladu s njima.
 > Plan: `../handoff/2026-11-11-admin-access-passkey.md`.

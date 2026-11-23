@@ -27,7 +27,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 13 | [`13-provideri-krajolik.md`](./13-provideri-krajolik.md) | Krajolik providera (doku, Pondi, FINA, MeR) — build vs buy |
 | 14 | [`14-postupak-registracije-posrednika.md`](./14-postupak-registracije-posrednika.md) | Korak-po-korak: kako se upisati kao informacijski posrednik (PTS, čl. 61) |
 | 15 | [`15-ekonomija-i-troskovi.md`](./15-ekonomija-i-troskovi.md) | Troškovi: je li dostava eRačuna besplatna, break-even posrednik vs vlastita PT |
-| 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
+| 16 | [`16-dashboard-sso.md`](./16-dashboard-sso.md) | ⚠️ **Zamijenjeno s 24 (2026-11-23).** Customer dashboard (self-service) + dijeljeni GoTrue SSO; korisnički auth mod, `korisnik_tenant`, novi Next repo. Prompt: `../handoff/dashboard-sso.md` |
 | 17 | [`17-licenca-onboarding.md`](./17-licenca-onboarding.md) | Samoposlužna kupnja godišnje licence → auto-kreiranje tenanta; dogfood račun kroz platformin (ITalk) tenant. Prompt: `../handoff/licenca-onboarding.md` |
 | 18 | [`18-onboarding-dohvat-po-oibu.md`](./18-onboarding-dohvat-po-oibu.md) | Predpopunjavanje tenanta po OIB-u u adminu: sudreg + VIES + CompanyWall (firecrawl); koji izvor daje što, zašto PDV status i IBAN ostaju posebni |
 | 19 | [`19-proizvodjac-i-odrzavatelj-softvera.md`](./19-proizvodjac-i-odrzavatelj-softvera.md) | **ITalk kao proizvođač/održavatelj softvera (F1.0)**: nema registracije ni licenciranja — samo OIB uz poslovni prostor; suodgovornost čl. 14 i kazna do 66.360 € (čl. 71); prelazak Fira/Solo → ITalk |
@@ -35,6 +35,7 @@ istraživanje; ovaj indeks se finalizira nakon kontrole potpunosti).
 | 21 | [`21-pohrana-certifikata.md`](./21-pohrana-certifikata.md) | **Pohrana certifikata i lozinki**: envelope enkripcija (DEK po certifikatu, KEK `ENC_MASTER_KEY`), lozinka P12 se ne sprema; scenariji curenja baze/KEK-a, isti KEK lokalno/TEST/PROD, K16; mermaid dijagrami |
 | 22 | [`22-astro-vs-hono.md`](./22-astro-vs-hono.md) | **Astro ili Hono na Workers**: isti runtime, različit sloj; fiskal ostaje na Honu; admin views → `hono/jsx` kao kandidat; pravilo za ekosustav (API → Hono, stranice → Astro, hibrid) |
 | 23 | [`23-backup.md`](./23-backup.md) | **Backup i vraćanje**: dnevni SQL dump D1 u R2 `fiskal-backup-secured` (EU, Bucket Lock 11 g.), postupak vraćanja, BYO backup po tenantu |
+| 24 | [`24-dashboard-passkey.md`](./24-dashboard-passkey.md) | **Dashboard prijava**: passkey + pozivnice (admin ili vlasnik), sesija `__Host-fiskal_app`, članstvo po e-mailu u `korisnik_tenant`, app na `/app` istog Workera bez CORS-a; tokovi, tablice, okoline, lokalno, testovi. Plan: `../passkey/` |
 | 99 | [`99-gap-analiza.md`](./99-gap-analiza.md) | Nedostaci, proturječja, nepotvrđeno, pitanja za korisnika |
 
 ## Reference (iz prve ruke)

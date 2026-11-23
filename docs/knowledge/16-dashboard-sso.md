@@ -1,3 +1,8 @@
+> [!WARNING]
+> **Zamijenjeno s [`24-dashboard-passkey.md`](./24-dashboard-passkey.md) (23. 11. 2026.).** GoTrue grana,
+> CORS i `SUPABASE_*`/`DASHBOARD_ORIGIN` uklonjeni su iz backenda; dashboard je na `/app` istog Workera
+> s passkey prijavom i pozivnicama. Ovaj dokument ostaje kao povijest.
+
 # 16 — Dashboard za krajnje korisnike + SSO (dijeljeni GoTrue)
 
 > SPOT za **customer dashboard** (self-service izdavanje računa) i **jedinstveni
