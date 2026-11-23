@@ -44,5 +44,7 @@ Legenda: `[x]` gotovo · `[ ]` otvoreno · `[~]` u radu · `(!)` traži korisnik
 - [x] Izmjeriti PROD `korisnik_tenant` (aktivni redovi po tenantu, tko se ikad prijavio) → S6
 - [x] (!) Korisnik bira termin i javlja korisnicima (SUSRET) → vrata prije S6
 - [x] PROD: migracija, deploy, pozivnice izdane za sve aktivne redove; korisnik šalje linkove → S6 (0 aktivnih redova, odluka 600)
-- [ ] (!) Mirovina: Pages projekti `domovina-fiskal-app` i `-test`, `fiskal-app.domovina.ai` → 301 na `fiskal.domovina.ai/app`, GoTrue redirect URL maknut → S7
-- [ ] README appa i memorija ažurirani → S7
+- [x] (!) Mirovina: `fiskal-app(-test).domovina.ai` → 301 na `fiskal(-test).domovina.ai/app`, GoTrue redirect URL-ovi maknuti → S7 (odluke 700, 702)
+- [x] CSP za `/app/*` na TEST-u i PROD-u → S7 (odluka 701)
+- [ ] (!) Brisanje Pages projekata `domovina-fiskal-app` i `-test` → zasebna odluka korisnika (nakon lanca)
+- [x] README appa i memorija ažurirani → S7

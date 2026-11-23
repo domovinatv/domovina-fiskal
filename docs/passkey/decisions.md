@@ -67,7 +67,7 @@ ne izda pozivnicu za vlasnika ni za novi passkey. *Revizija:* ako vlasnik smije 
 prijavljeni dodaje ključ) i `poziv_id` (namjena `poziv`), ne e-mail kao admin: izazov iz jedne
 pozivnice ne vrijedi za drugu pozivnicu istog e-maila u drugom tenantu. *Revizija:* nema.
 
-**103. Uvjeti iskorištenja u samom UPDATE-u (potvrditi).** Potrošnja pozivnice (`pozivnice.ts`
+**103. Uvjeti iskorištenja u samom UPDATE-u (potvrđeno 23. 11. 2026.).** Potrošnja pozivnice (`pozivnice.ts`
 `SMIJE`) uspije samo ako: pozivnica je otvorena; korisnik s tim e-mailom nije deaktiviran, osim
 kad je pozivnicu za tenant izdao admin (tada ga iskorištenje reaktivira, kao logomedo 105);
 „novi passkey” traži da korisnik postoji, da je e-mail njegov i da je aktivan; korisnik nema već
@@ -75,7 +75,7 @@ kad je pozivnicu za tenant izdao admin (tada ga iskorištenje reaktivira, kao lo
 *Razlog:* vlasnik ne smije poništiti adminovu deaktivaciju; granica od 5 ključeva vrijedi i za pozivnice.
 *Revizija:* S3 ako admin treba eksplicitnu reaktivaciju bez pozivnice.
 
-**104. Postojeći korisnik i nova pozivnica za tenant (potvrditi).** Aktivni korisnik koji je već
+**104. Postojeći korisnik i nova pozivnica za tenant (potvrđeno 23. 11. 2026.).** Aktivni korisnik koji je već
 aktivan član tog tenanta ne dobiva pozivnicu (`vec_clan`; promjena uloge ide izravno, S2/S3).
 Aktivni korisnik pozvan u **drugi** tenant iskorištava pozivnicu kao i novi: registrira još jedan
 passkey (do 5). *Razlog:* jedan tok za sve pozivnice u S1. *Revizija:* S2 smije dodati
@@ -126,7 +126,7 @@ i `/potvrdi` (svježa prijava < 10 min, bilo kojom metodom), `DELETE /passkeyi/:
 uvjet je u samom DELETE-u, `obrisiKljucOsimZadnjeg`). Tijela: `{token}`, `{token, odgovor, oznaka}`,
 `{odgovor}`. *Revizija:* S4 ako app treba drukčiji oblik.
 
-**205. Članovi (potvrditi).** Samo `uloga = 'vlasnik'` u tom tenantu (do S5 i uz GoTrue prijavu).
+**205. Članovi (potvrđeno 23. 11. 2026.).** Samo `uloga = 'vlasnik'` u tom tenantu (do S5 i uz GoTrue prijavu).
 Vlasnik poziva knjigovođu/operatera (`vlasnik` → 403, `vec_clan`/`neaktivan` → 409, ostalo 400),
 opoziva pozivnice svog tenanta (tuđa → 404) i deaktivira **samo knjigovođu ili operatera**, nikad
 sebe (409) ni drugog vlasnika (403: to radi admin, S3). Deaktivacija = `korisnik_tenant.aktivan = 0`
@@ -171,7 +171,7 @@ Passkeyi i retci `korisnik_tenant` ostaju; „Aktiviraj” vraća pristup bez po
 (već deaktiviran / već aktivan) ne radi ništa i ne ostavlja zapis. „Novi passkey” deaktiviranom → 409.
 *Revizija:* nema.
 
-**303. Članstvo u tenantu iz admina (potvrditi).** Postojeća ruta `/admin/tenant/:id/korisnici/:kid/
+**303. Članstvo u tenantu iz admina (potvrđeno 23. 11. 2026.).** Postojeća ruta `/admin/tenant/:id/korisnici/:kid/
 (de)aktiviraj` ostaje (admin smije i vlasnika i vraćanje bez pozivnice, odluka 205); deaktivacija
 članstva sada opoziva i otvorene pozivnice tog e-maila u tenantu (isto kao vlasnik) i ostavlja zapis.
 Uklonjen je samo `POST /admin/tenant/:id/korisnici` (dodavanje e-maila bez pozivnice); `createKorisnikTenant`
@@ -191,7 +191,7 @@ ostaje `none` (nema dinamičkih ruta). `deploy` i `deploy:test` zovu `build:app`
 ako app ima necommitane promjene, ali ne staje. Ista app ide na TEST i PROD (relativni API).
 Nalaz: `../research/2026-11-23-workers-assets-next-basepath.md`. *Revizija:* nema.
 
-**401. Zaglavlja za `/app/*` (potvrditi).** `build-app.sh` piše `app-dist/_headers`:
+**401. Zaglavlja za `/app/*` (potvrđeno; CSP dodan u S7, odluka 701).** `build-app.sh` piše `app-dist/_headers`:
 `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`.
 Bez CSP-a (Next inline skripte traže hash/nonce). *Revizija:* ako se želi CSP.
 
@@ -257,3 +257,48 @@ pokrenuo i ručno. *Revizija:* nema.
 2026-11-23 12:09 UTC, prije deploya. Provjera: `zadnje_koristen_at` u `api_kljuc` nakon idućeg
 webshop računa (S7, korak 0). *Revizija:* ako nakon idućeg webshop zahtjeva `zadnje_koristen_at` ne
 napreduje ili webshop javi grešku.
+
+## S7 (23. 11. 2026.)
+
+Korisnikovi odgovori na vrata S6→S7: **1b** (preusmjeriti, Pages projekte zadržati), **2a** (S7
+miče staru domenu iz GoTrue), potvrđene odluke 103, 104, 205, 303, osnovni CSP za `/app/*`.
+
+**700. 301 preko zasebnog malog Workera, ne Redirect Rule ni grane glavnog Workera.**
+`fiskal-app-preusmjeravanje` (`backend/src/preusmjeravanje/stara-app-domena.ts`,
+`backend/wrangler.preusmjeravanje.toml`, `npm run deploy:preusmjeravanje`) ima rute na zoni
+`fiskal-app.domovina.ai/*` i `fiskal-app-test.domovina.ai/*` i vraća 301 na
+`https://fiskal(-test).domovina.ai/app` + putanja + upit (`/app` se ne udvostručuje). Razlozi:
+wranglerov OAuth token nema dozvolu za DNS ni Rulesets (Redirect Rule bi radio korisnik u
+dashboardu); glavni Worker servira `/app/*` iz assetsa prije koda, pa bi grana po hostu
+na staroj domeni ondje dala dashboard umjesto 301. Ruta na zoni presreće zahtjev prije Pagesa,
+pa custom domene i DNS CNAME ostaju na Pages projektima netaknuti (sve je reverzibilno:
+brisanje Workera vraća stari app). TEST domena je uključena radi simetrije. Izmjereno:
+`curl -sI` na obje stare domene → `301`, `location: …/app/…`. Version `aa41025d`.
+*Revizija:* kad se Pages projekti brišu, prvo se s njih skidaju custom domene; DNS zapis
+mora ostati proxied (npr. `AAAA 100::`) da ruta Workera i dalje hvata promet.
+
+**701. CSP za `/app/*`** (revizija 401, tekst korisnika bez izmjena): `default-src 'self';
+script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self';
+img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self';
+form-action 'self'; frame-ancestors 'none'` u `build-app.sh`. Provjera u pregledniku
+(TEST i PROD, čisti kontekst): stranica prijave se hidrira, 0 CSP grešaka u konzoli
+(jedine greške su očekivani `401` na `/api/v1/ja` i `404` na `/favicon.ico`, oboje i prije);
+PDF otvoren kao `blob:` (kao `otvoriPdf`) se prikazuje unatoč `object-src 'none'`.
+Sam passkey ceremonijal nije izveden (traži biometriju korisnika); CSP ne utječe na
+WebAuthn, a `fetch` na `/api/v1` prolazi. TEST `6d7bddcc`, PROD `a798ed14` (kod Workera
+isti kao `643fffac`, mijenja se samo `_headers`). *Revizija:* hash-based `script-src` bez
+`'unsafe-inline'` (otvoreno).
+
+**702. GoTrue `ADDITIONAL_REDIRECT_URLS` (domovina-api, Coolify):** maknuta 4 unosa
+`https://fiskal-app.domovina.ai/**`, `https://fiskal-app-test.domovina.ai/**`,
+`https://domovina-fiskal-app.pages.dev/**`, `https://domovina-fiskal-app-test.pages.dev/**`
+(28 → 24), kroz `domovina-api/scripts/coolify-env-set.sh … --recreate-service=supabase-auth`
+(Coolify DB + host `.env`, recreate samo `supabase-auth`; kontejner `healthy`, 0 pojava
+`fiskal-app` u njegovu okolišu). TEST domena i `pages.dev` adrese su maknute uz PROD domenu
+jer pripadaju istom umirovljenom appu (potvrditi). `http://localhost:3000/**` i
+`http://localhost:8787/**` ostaju jer ih koriste drugi projekti. Vraćanje: isti skript s
+dodanim unosima. *Revizija:* nema.
+
+**703. Provjera iz S6 (odluka 602) ostaje otvorena.** PROD u 13:14 UTC: ključ tenanta 2 zadnje
+korišten `2026-11-23 12:09:16`, ali tenant 2 još nema nijedan račun u `racun`, dakle webshop
+od deploya nije izdavao. Nema znaka greške. *Revizija:* prvi webshop račun tenanta 2.

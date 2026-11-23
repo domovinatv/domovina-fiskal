@@ -22,7 +22,16 @@
 | S4 | App na `/app`, passkey UI | gotovo | de3873b | 284 → 284, skipped 0 | app `6eb1c2f`; odluke 400–405; lokalni e2e prošao |
 | S5 | GoTrue van, SPOT, TEST | gotovo | aaf203b | 284 → 280, skipped 0 | −7 GoTrue, +3 testa; 0014+0015 na TEST-u; odluke 500–502; **vrata**: korisnik testira TEST, termin PROD-a (vrh S6.md) |
 | S6 | PROD | gotovo | aaf203b (+docs S6) | 280 → 280, skipped 0 | 0014+0015 na PROD-u, Worker `643fffac`; 0 redova `korisnik_tenant`, pozivnice nisu trebale; odluke 600–602; **vrata**: brisanje Pagesa i preusmjeravanje (vrh S7.md) |
-| S7 | Mirovina Pagesa i domene | otvoreno | | | vrata: brisanje |
+| S7 | Mirovina Pagesa i domene | gotovo | e3a5794 (+docs S7) | 280 → 284, skipped 0 | 301 kroz Worker `fiskal-app-preusmjeravanje`; CSP na `/app/*` TEST+PROD (`a798ed14`); GoTrue 28 → 24 URL-a; Pages projekti **zadržani** (odluka korisnika); odluke 700–703. **Lanac zatvoren.** |
+
+## Otvoreno nakon lanca (nije paket, nema `S8.md`)
+
+- (!) Brisanje Pages projekata `domovina-fiskal-app` i `domovina-fiskal-app-test`: zasebna
+  odluka korisnika. Redoslijed u odluci 700 (*Revizija*): custom domene s Pagesa, DNS ostaje
+  proxied, pa tek onda brisanje; `curl -sI https://fiskal-app.domovina.ai` mora i dalje dati 301.
+- Odluka 602/703: `zadnje_koristen_at` ključa tenanta 2 nakon prvog webshop računa.
+- Revizija 401/701: hash-based `script-src` bez `'unsafe-inline'`.
+- Odluke s oznakom „(potvrditi)”: 501, 702.
 
 ## Zajednička pravila
 

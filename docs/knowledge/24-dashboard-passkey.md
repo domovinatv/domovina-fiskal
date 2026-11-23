@@ -134,7 +134,8 @@ npm run deploy:test                                                   # PROD: np
 `/Volumes/DOMOVINA2TB/git/domovinatv/domovina-fiskal-app` ili u `FISKAL_APP_DIR`, inače deploy
 staje. `[assets]`: `directory = "./app-dist"`, `run_worker_first = ["/api/*", "/admin/*"]`
 (odluka 400). `/app/*` dobiva `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`
-kroz `app-dist/_headers` (odluka 401). Izvor za Workers static assets:
+i CSP (samo isti origin, `'unsafe-inline'` za Next inline skripte i stilove) kroz
+`app-dist/_headers` (odluke 401, 701). Izvor za Workers static assets:
 https://developers.cloudflare.com/workers/static-assets/ i
 https://developers.cloudflare.com/workers/static-assets/routing/ (pristupljeno 2026-11-23);
 nalaz u `../research/2026-11-23-workers-assets-next-basepath.md`.
@@ -182,5 +183,9 @@ Vitest u `@cloudflare/vitest-pool-workers`, bez mreže, WebAuthn lažan
 
 - 2026-07-06 – 2026-11-23: dijeljeni GoTrue (`api.domovina.ai`, Google i e-mail OTP), Bearer JWT,
   dashboard na Pagesu (`fiskal-app.domovina.ai`) s CORS-om. Vidi `16-dashboard-sso.md`.
-- 2026-11-23 (S5): GoTrue i CORS uklonjeni iz backenda; TEST na passkeyu. PROD i mirovina Pagesa
-  slijede (S6, S7 u `../passkey/`).
+- 2026-11-23 (S5): GoTrue i CORS uklonjeni iz backenda; TEST na passkeyu.
+- 2026-11-23 (S6): PROD na passkeyu (Worker `643fffac`).
+- 2026-11-23 (S7): `fiskal-app(-test).domovina.ai` → 301 na `/app` kroz Worker
+  `fiskal-app-preusmjeravanje` (rute na zoni; `backend/wrangler.preusmjeravanje.toml`, odluka 700);
+  stare domene maknute iz GoTrue `ADDITIONAL_REDIRECT_URLS` (702). Pages projekti
+  `domovina-fiskal-app(-test)` još postoje, ali se ne deployaju; brisanje je zasebna odluka.

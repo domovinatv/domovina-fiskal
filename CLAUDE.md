@@ -23,5 +23,7 @@ Trenutno: **RESEARCH / PLANNING**. Prvo činjenično znanje u `docs/`, tek onda 
 
 ## Lanac: passkey prijava za dashboard (umjesto GoTrue)
 
-Plan od 23. 11. 2026. u `docs/passkey/` (`TODO.md`, `plan.md`, `decisions.md`, `handoffs/`). „Nastavi passkey”
-znači prvi red koji nije „gotovo” u „Stanje lanca” u `docs/passkey/handoffs/README.md`; prompt je `SN.md`.
+**Gotovo 23. 11. 2026. (S0–S7).** Dashboard je na `fiskal.domovina.ai/app` (passkey + pozivnice),
+`fiskal-app(-test).domovina.ai` 301 preusmjerava mali Worker `fiskal-app-preusmjeravanje`
+(`backend/wrangler.preusmjeravanje.toml`). Plan i odluke u `docs/passkey/`; što je ostalo otvoreno
+(brisanje Pages projekata, odluka 602) piše u „Otvoreno nakon lanca” u `docs/passkey/handoffs/README.md`.
