@@ -9,7 +9,7 @@ import { getRacun, getRacunKontekst, getRacunPoReferenci, izdajSkicu, listRacuni
 import { izdajDokument, TIP_U_DB } from '../dokumenti/izdavanje';
 import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracun/eracun';
 import { fiskalizirajRacun } from '../fiskal/fiskalizacija';
-import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
+import { blokadaSlanjaBezJir, emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { godinaZagreb, izCenti, uCente, uTisucinke, validanOib } from '../util';
 import { formatirajGreske, racunModelShema, vanjskaReferencaShema, type RacunModel } from '../validacija';
@@ -269,15 +269,17 @@ racuniRute.get('/racun/:id/pdf', async (c) => {
 racuniRute.post('/racun/:id/posalji', async (c) => {
   const id = idIzParametra(c);
   if (id instanceof Response) return id;
-  if (!emailKonfiguriran(c.env)) {
-    return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
-  }
   const tenant = c.get('tenant');
   const k = await getRacunKontekst(c.env.DB, tenant.id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
   if (k.racun.status === 'nacrt') return c.json({ greska: 'Skica se ne šalje — prvo izdaj dokument (POST /racun/:id/izdaj)' }, 409);
 
   const body = await jsonTijelo(c);
+  const blokada = blokadaSlanjaBezJir(k, body.bezJir === true);
+  if (blokada) return c.json({ greska: blokada, kod: 'NEMA_JIR' }, 409);
+  if (!emailKonfiguriran(c.env)) {
+    return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
+  }
   const na = String(body.na ?? '').trim() || k.kupac?.email || '';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(na)) {
     return c.json({ greska: "Nema valjane adrese primatelja — pošalji { \"na\": \"adresa@primjer.hr\" } ili postavi email kupca" }, 400);

@@ -47,6 +47,17 @@ export function emailKonfiguriran(env: EmailKanali): boolean {
   return !!env.EMAIL || !!env.RESEND_API_KEY;
 }
 
+// Fiskalni račun bez JIR-a (CIS nije odgovorio ili je javio grešku) ne šalje se
+// kupcu bez izričitog izbora: zakon dopušta uručenje sa ZKI-jem kad CIS ne radi,
+// ali mail ne smije otići usput, prije nego što fiskalizacija uspije (incident
+// 23. 11. 2026., TEST račun 33 poslan dok je imao grešku s013).
+// Vraća poruku greške ili null kad se smije slati.
+export function blokadaSlanjaBezJir(k: RacunKontekst, bezJir: boolean): string | null {
+  if (k.racun.tip_dokumenta !== 'fiskalni_b2c' || k.racun.jir || bezJir) return null;
+  const greska = k.racun.fiskal_greska ? ` (zadnja greška CIS-a: ${k.racun.fiskal_greska})` : '';
+  return `Fiskalni račun još nema JIR${greska} — pričekaj fiskalizaciju ili pošalji { "bezJir": true } ako ga svjesno uručuješ samo sa ZKI-jem`;
+}
+
 export async function posaljiRacunEmailom(
   env: EmailKanali,
   k: RacunKontekst,

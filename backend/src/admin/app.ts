@@ -47,7 +47,7 @@ import {
 import { cisEcho, fiskalizirajRacun } from '../fiskal/fiskalizacija';
 import { okolinaIzEnv } from '../okolina';
 import { parsirajP12 } from '../fiskal/certifikat';
-import { emailKonfiguriran, posaljiRacunEmailom } from '../email';
+import { blokadaSlanjaBezJir, emailKonfiguriran, posaljiRacunEmailom } from '../email';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
@@ -727,10 +727,14 @@ admin.post(`/racun/:id${ID}/posalji`, async (c) => {
   const id = Number(c.req.param('id'));
   const k = await adminRacunKontekst(c, id);
   if (!k) return c.text('Dokument ne postoji', 404);
+  const form = await c.req.parseBody();
+  const blokada = blokadaSlanjaBezJir(k, form.bezJir === '1');
+  if (blokada) {
+    return c.html(renderRacunDetaljPage(k, { greska: 'Fiskalni račun još nema JIR — pričekaj fiskalizaciju ili označi „pošalji bez JIR-a” ako ga svjesno uručuješ samo sa ZKI-jem.' }), 409);
+  }
   if (!emailKonfiguriran(c.env)) {
     return c.html(renderRacunDetaljPage(k, { greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY).' }), 503);
   }
-  const form = await c.req.parseBody();
   const na = String(form.na ?? '').trim() || k.kupac?.email || '';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(na)) {
     return c.html(renderRacunDetaljPage(k, { greska: 'Upiši valjanu e-mail adresu primatelja.' }), 400);

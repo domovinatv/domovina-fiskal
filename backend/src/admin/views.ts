@@ -636,6 +636,7 @@ ${poruka?.ok ? `<div class="flash">${escapeHtml(poruka.ok)}</div>` : ''}
   ${jeSkica ? `<form method="post" action="/admin/racun/${r.id}/izdaj"><button type="submit">Izdaj (dodijeli broj)</button></form>` : ''}
   ${!jeSkica ? `<form method="post" action="/admin/racun/${r.id}/posalji" style="display:flex;gap:.5rem">
     <input name="na" type="email" placeholder="${escapeHtml(k.kupac?.email ?? 'email primatelja')}" style="border:1px solid var(--border);border-radius:.4rem;padding:.45rem .6rem">
+    ${r.tip_dokumenta === 'fiskalni_b2c' && !r.jir ? `<label style="display:flex;align-items:center;gap:.3rem;font-size:.85rem"><input type="checkbox" name="bezJir" value="1"> pošalji bez JIR-a</label>` : ''}
     <button type="submit">✉️ Pošalji e-mailom</button></form>` : ''}
   ${r.tip_dokumenta === 'fiskalni_b2c' && !r.jir ? `<form method="post" action="/admin/racun/${r.id}/fiskaliziraj"><button type="submit" style="background:var(--red)">⚡ Fiskaliziraj (CIS)</button></form>` : ''}
 </div>

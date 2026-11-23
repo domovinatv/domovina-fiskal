@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRacunKontekst } from '../src/db';
 import { posaljiRacunEmailom } from '../src/email';
 import { b2cTijelo, json, napraviTenanta, poziv, testEnv } from './pomocno/okolina';
-import { cisVracaJir } from './pomocno/cis-mock';
+import { cisNedostupan, cisVracaJir } from './pomocno/cis-mock';
 
 type Poruka = { to: string; subject: string; text: string; html: string; replyTo?: string };
 
@@ -63,5 +63,35 @@ describe('API sitnice (4.4)', () => {
     expect(racuni[0]).toMatchObject({ vanjskaReferenca: 'L-1', fiskalizacija: { status: 'fiskaliziran' } });
     expect(racuni[0].jir).toBeTruthy();
     expect(racuni[0].zki).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe('Slanje fiskalnog računa bez JIR-a', () => {
+  const posalji = (kljuc: string, id: number, tijelo: Record<string, unknown> = {}) =>
+    poziv(`/api/v1/racun/${id}/posalji`, { method: 'POST', kljuc, body: JSON.stringify({ na: 'kupac@primjer.hr', ...tijelo }) });
+
+  it('CIS nedostupan → 409 NEMA_JIR, ništa nije zabilježeno kao poslano', async () => {
+    cisNedostupan();
+    const t = await napraviTenanta();
+    const r = await json(await poziv('/api/v1/racun', { method: 'POST', kljuc: t.kljuc, body: JSON.stringify(b2cTijelo(t)) }));
+    const odg = await posalji(t.kljuc, r.id);
+    expect(odg.status).toBe(409);
+    expect(await json(odg)).toMatchObject({ kod: 'NEMA_JIR' });
+    const red = await testEnv.DB.prepare('SELECT poslano_email_ts FROM racun WHERE id = ?').bind(r.id).first<{ poslano_email_ts: string | null }>();
+    expect(red?.poslano_email_ts).toBeNull();
+  });
+
+  it('{ bezJir: true } prolazi provjeru (svjesno uručenje sa ZKI-jem)', async () => {
+    cisNedostupan();
+    const t = await napraviTenanta();
+    const r = await json(await poziv('/api/v1/racun', { method: 'POST', kljuc: t.kljuc, body: JSON.stringify(b2cTijelo(t)) }));
+    expect((await posalji(t.kljuc, r.id, { bezJir: true })).status).not.toBe(409);
+  });
+
+  it('fiskaliziran račun (ima JIR) se šalje bez zastavice', async () => {
+    cisVracaJir();
+    const t = await napraviTenanta();
+    const r = await json(await poziv('/api/v1/racun', { method: 'POST', kljuc: t.kljuc, body: JSON.stringify(b2cTijelo(t)) }));
+    expect((await posalji(t.kljuc, r.id)).status).not.toBe(409);
   });
 });
