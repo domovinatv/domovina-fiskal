@@ -443,7 +443,7 @@ export interface RacunKontekst {
   operaterOib: string | null;
   // Storno: original na koji se odnosi (PDF/email: „Storno računa br. X od …").
   stornoOriginal: { broj: string | null; datumVrijeme: string } | null;
-  kupac: { naziv: string; oib: string | null; vat_number: string | null; adr_ulica: string | null; adr_grad: string | null; adr_postanski_broj: string | null; adr_drzava: string | null; email: string | null } | null;
+  kupac: { naziv: string; oib: string | null; vat_number: string | null; adr_ulica: string | null; adr_grad: string | null; adr_postanski_broj: string | null; adr_drzava: string | null; email: string | null; tip: 'fizicka' | 'pravna' | 'drzava' | null } | null;
 }
 
 export async function getRacunKontekst(db: D1Database, tenantId: number, racunId: number): Promise<RacunKontekst | null> {
@@ -459,7 +459,7 @@ export async function getRacunKontekst(db: D1Database, tenantId: number, racunId
       ? db.prepare(`SELECT ime, oib_operatera FROM operater WHERE id = ?`).bind(racun.operater_id).first<{ ime: string | null; oib_operatera: string }>()
       : Promise.resolve(null),
     racun.kupac_id
-      ? db.prepare(`SELECT naziv, oib, vat_number, adr_ulica, adr_grad, adr_postanski_broj, adr_drzava, email FROM kupac WHERE id = ?`).bind(racun.kupac_id).first<RacunKontekst['kupac']>()
+      ? db.prepare(`SELECT naziv, oib, vat_number, adr_ulica, adr_grad, adr_postanski_broj, adr_drzava, email, tip FROM kupac WHERE id = ?`).bind(racun.kupac_id).first<RacunKontekst['kupac']>()
       : Promise.resolve(null),
     racun.storno_racun_id
       ? db.prepare(`SELECT broj_racuna_full, datum_vrijeme FROM racun WHERE id = ? AND tenant_id = ?`).bind(racun.storno_racun_id, tenantId).first<{ broj_racuna_full: string | null; datum_vrijeme: string }>()

@@ -118,7 +118,10 @@ export function mapirajZaCis(k: RacunKontekst, nakDost: boolean): { cis: CisRacu
       oibOper: k.operaterOib,
       zastKod: r.zki ?? '',
       nakDost,
-      oibPrimatelja: k.kupac?.oib ?? null,
+      // OibPrimateljaRacuna samo za poslovne kupce: CIS za fizičku osobu vraća
+      // s013 / restriktivnu grešku 181 (TEST račun 33, 23. 11. 2026.).
+      // Nepoznat tip (null, stari zapisi) šalje kao i prije.
+      oibPrimatelja: k.kupac && k.kupac.tip !== 'fizicka' ? (k.kupac.oib ?? null) : null,
     },
   };
 }

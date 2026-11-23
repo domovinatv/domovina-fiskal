@@ -6,7 +6,7 @@ import type { PdvRaspodjelaRow, RacunRow, TenantRow } from '../../src/types';
 
 function kontekst(
   raspodjela: [kategorija: string, stopa: string, osnovica: string, porez: string][],
-  izmjene: { racun?: Partial<RacunRow>; tenant?: Partial<TenantRow>; operaterOib?: string | null; kupacOib?: string | null } = {},
+  izmjene: { racun?: Partial<RacunRow>; tenant?: Partial<TenantRow>; operaterOib?: string | null; kupacOib?: string | null; kupacTip?: 'fizicka' | 'pravna' | 'drzava' | null } = {},
 ): RacunKontekst {
   return {
     racun: {
@@ -24,7 +24,7 @@ function kontekst(
     operaterIme: 'Op',
     operaterOib: izmjene.operaterOib === undefined ? '98765432106' : izmjene.operaterOib,
     stornoOriginal: null,
-    kupac: izmjene.kupacOib === undefined ? null : ({ oib: izmjene.kupacOib } as RacunKontekst['kupac']),
+    kupac: izmjene.kupacOib === undefined ? null : ({ oib: izmjene.kupacOib, tip: izmjene.kupacTip ?? null } as RacunKontekst['kupac']),
   };
 }
 
@@ -62,6 +62,16 @@ describe('mapirajZaCis', () => {
     const c = cis(kontekst([['S', '25', '10.00', '2.50']], { kupacOib: '11111111119' }), true);
     expect(c.oibPrimatelja).toBe('11111111119');
     expect(c.nakDost).toBe(true);
+  });
+
+  // CIS za OIB fizičke osobe vraća s013 / 181 (TEST račun 33, 23. 11. 2026.)
+  it.each([
+    ['fizicka', null],
+    ['pravna', '11111111119'],
+    ['drzava', '11111111119'],
+  ] as const)('oibPrimatelja za kupca tipa %s', (kupacTip, ocekivano) => {
+    const c = cis(kontekst([['S', '25', '10.00', '2.50']], { kupacOib: '11111111119', kupacTip }));
+    expect(c.oibPrimatelja).toBe(ocekivano);
   });
 
   it.each([
