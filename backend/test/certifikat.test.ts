@@ -21,6 +21,7 @@ describe('parsirajP12', () => {
     expect(p.oib).toBe(TEST_OIB);
     expect(p.serialDec).toBe(BigInt('0x7f0e0d').toString(10));
     expect(p.issuerDn).toContain('TEST EC CA');
+    expect(p.subjectDn).toContain('O=TESTNI OBRT, vl. Ivo Belavić HR');
     expect(p.certPem.replace(/\s+/g, '')).toBe(tc.certAkdPem.replace(/\s+/g, ''));
     expect(p.privatniKljucPem).toContain('BEGIN PRIVATE KEY');
   });

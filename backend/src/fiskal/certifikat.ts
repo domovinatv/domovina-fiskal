@@ -27,8 +27,23 @@ function dnString(attrs: forge.pki.CertificateField[]): string {
   // RFC 2253 stil: najspecifičniji RDN prvi (obrnuto od redoslijeda u certifikatu).
   return [...attrs]
     .reverse()
-    .map((a) => `${a.shortName ?? a.name ?? DODATNI_OIDI[a.type ?? ''] ?? a.type}=${String(a.value ?? '')}`)
+    .map((a) => `${a.shortName ?? a.name ?? DODATNI_OIDI[a.type ?? ''] ?? a.type}=${vrijednostAtributa(a)}`)
     .join(',');
+}
+
+// forge vraća vrijednost atributa kao „binary string” (bajt po znaku), pa
+// UTF8String „Belavić” izađe kao „BelaviÄ\u0087”. Dekodiramo UTF-8; ako bajtovi
+// nisu valjan UTF-8 (npr. T61String/Latin-1), ostavljamo kako jest.
+function vrijednostAtributa(a: forge.pki.CertificateField): string {
+  const v = String(a.value ?? '');
+  if (!/[\x80-\xff]/.test(v)) return v;
+  try {
+    // forge.util.decodeUtf8 koristi escape(), kojeg u Workers runtimeu nema.
+    const bajtovi = Uint8Array.from(v, (z) => z.charCodeAt(0));
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bajtovi);
+  } catch {
+    return v;
+  }
 }
 
 export function parsirajP12(p12Buf: ArrayBuffer, lozinka: string): ParsiraniCertifikat {

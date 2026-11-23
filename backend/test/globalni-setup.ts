@@ -61,7 +61,12 @@ export function generirajTestniCertifikat(): TestniCertifikat {
   akd.serialNumber = '7f0e0d';
   akd.validity.notBefore = cert.validity.notBefore;
   akd.validity.notAfter = cert.validity.notAfter;
-  akd.setSubject([{ shortName: 'C', value: 'HR' }, { shortName: 'O', value: `TESTNI OBRT HR${TEST_OIB}` }, { shortName: 'CN', value: 'AKD TEST' }]);
+  // O kao UTF8String s „ć” (forge sam UTF-8 enkodira vrijednost) (kao pravi AKD: „SUSRET CONSULTING, vl. Tomislav Belavić”).
+  akd.setSubject([
+    { shortName: 'C', value: 'HR' },
+    { shortName: 'O', value: `TESTNI OBRT, vl. Ivo Belavić HR${TEST_OIB}`, valueTagClass: forge.asn1.Type.UTF8 as unknown as forge.asn1.Class }, // @types/node-forge krivo tipizira valueTagClass
+    { shortName: 'CN', value: 'AKD TEST' },
+  ]);
   akd.setIssuer([{ shortName: 'C', value: 'HR' }, { shortName: 'O', value: 'AKD d.o.o.' }, { shortName: 'CN', value: 'TEST EC CA' }]);
   akd.sign(forge.pki.privateKeyFromPem(kljucPem), forge.md.sha256.create());
   const ECDSA_SHA256 = '1.2.840.10045.4.3.2';
