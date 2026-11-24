@@ -213,6 +213,19 @@ Načelo: **least exposure**. (Vidi i `04-*` i `05-*` §2.2.)
     Izvor: https://resend.com/docs/api-reference/domains/list-domains,
     https://resend.com/docs/api-reference/api-keys/create-api-key (pristupljeno 23. 11. 2026.;
     ⚠️ naziv greške `restricted_api_key` je iz sjećanja, nije izmjeren na pravom ključu).
+  - **Reply-To (migracija 0018):** `tenant_email.reply_to`, redoslijed Reply-To iz postavke →
+    `tenant.email` → adresa pošiljatelja. **Odluka 24. 11. 2026.:** dolaznu poštu ne
+    obrađujemo (nema Resend inbound webhooka ni pohrane prepiske) — odgovori idu ravno
+    tenantu, npr. na njegov Gmail; održavanje pošte nije posao fiskalnog servisa.
+  - **Stanje 24. 11. 2026.:** TEST E2E potvrđen (Gmail Inbox, DKIM `resend` + SPF pass,
+    Reply-To ispravan) za udrugu Prilika za susret (TEST id 4) i obrt Susret consulting
+    (TEST id 6). PROD (verzija `8cc0f83c`): 0016 + 0018 primijenjene, PROD build je bio
+    `5a618ea` + cherry-pick `eb0897a` na `7dd9f54` — **bez** PDF layouta/brandinga (0017),
+    koji su na PROD-u još čekali odobrenje. Pošiljatelji postavljeni i domene verificirane
+    za Susret consulting (PROD id 2) i udrugu (PROD id 3, prenesena s TEST-a: podaci +
+    prostor 1 / uređaj 1, bez certifikata → samo nefiskalni dokumenti).
+  - **Zamka:** Resend ključ se ne može prekopirati TEST → PROD (ni obrnuto): svaka okolina
+    ima svoj KEK, pa ga tenant ponovno upisuje.
 - **QR kod** (`09-*`, `02-*` §10): generiranje QR-a je čisti JS → **na Workers** bez problema.
 
 ---
