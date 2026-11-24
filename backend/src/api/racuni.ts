@@ -9,7 +9,8 @@ import { getRacun, getRacunKontekst, getRacunPoReferenci, izdajSkicu, listRacuni
 import { izdajDokument, TIP_U_DB } from '../dokumenti/izdavanje';
 import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracun/eracun';
 import { fiskalizirajRacun } from '../fiskal/fiskalizacija';
-import { blokadaSlanjaBezJir, emailKonfiguriran, posaljiRacunEmailom } from '../email';
+import { blokadaSlanjaBezJir } from '../email';
+import { emailDostupan, posaljiRacunTenanta } from '../email-tenant';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { godinaZagreb, izCenti, uCente, uTisucinke, validanOib } from '../util';
 import { formatirajGreske, racunModelShema, vanjskaReferencaShema, type RacunModel } from '../validacija';
@@ -277,7 +278,7 @@ racuniRute.post('/racun/:id/posalji', async (c) => {
   const body = await jsonTijelo(c);
   const blokada = blokadaSlanjaBezJir(k, body.bezJir === true);
   if (blokada) return c.json({ greska: blokada, kod: 'NEMA_JIR' }, 409);
-  if (!emailKonfiguriran(c.env)) {
+  if (!(await emailDostupan(c.env, k.racun.tenant_id))) {
     return c.json({ greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY)' }, 503);
   }
   const na = String(body.na ?? '').trim() || k.kupac?.email || '';
@@ -288,7 +289,7 @@ racuniRute.post('/racun/:id/posalji', async (c) => {
   const pdf = await generirajRacunPdf(k);
   let kanal: string;
   try {
-    ({ kanal } = await posaljiRacunEmailom(c.env, k, pdf, na));
+    ({ kanal } = await posaljiRacunTenanta(c.env, k, pdf, na));
   } catch (e) {
     const kod = (e as { code?: string }).code ?? '';
     return c.json({ greska: `Slanje nije uspjelo${kod ? ` (${kod})` : ''}: ${(e as Error).message}` }, 502);

@@ -4,6 +4,8 @@
 //   2. Resend REST API (RESEND_API_KEY secret) — aktivni kanal dok CF nije
 //      aktiviran; domena domovina.ai je već verificirana na Resendu.
 // Redoslijed: pokušaj binding → na grešku/nedostupnost padni na Resend.
+// Tenant može imati VLASTITI Resend ključ i pošiljatelja (src/email-tenant.ts):
+// tada se prvo šalje njime, a na grešku zadanim kanalima platforme.
 // Bez ijednog kanala endpoint vraća 503 s jasnom porukom (safe default).
 
 import type { RacunKontekst } from './db';
@@ -43,6 +45,20 @@ export interface EmailKanali {
   RESEND_API_KEY?: string;
 }
 
+// Vlastiti kanal tenanta: njegov Resend ključ i adresa na njegovoj domeni.
+export interface TenantKanal {
+  apiKey: string;
+  from: { email: string; name: string };
+}
+
+export type Kanal = 'cloudflare' | 'resend' | 'resend-tenant';
+
+export interface RezultatSlanja {
+  kanal: Kanal;
+  // Poruka greške tenantovog kanala kad se palo na zadani (null = nije ni pokušan ili je uspio).
+  tenantGreska: string | null;
+}
+
 export function emailKonfiguriran(env: EmailKanali): boolean {
   return !!env.EMAIL || !!env.RESEND_API_KEY;
 }
@@ -64,7 +80,8 @@ export async function posaljiRacunEmailom(
   pdf: Uint8Array,
   na: string,
   replyTo?: string | null,
-): Promise<{ kanal: 'cloudflare' | 'resend' }> {
+  tenantKanal?: TenantKanal | null,
+): Promise<RezultatSlanja> {
   if (pdf.byteLength > MAX_PRIVITAK_BAJTOVA) {
     throw new Error(`PDF privitak je prevelik (${Math.round(pdf.byteLength / 1024)} KB > 4 MB)`);
   }
@@ -74,7 +91,9 @@ export async function posaljiRacunEmailom(
   const subject = `${naslov} ${broj} — ${k.tenant.naziv}`;
   const nalog = trebaNalogZaPlacanje(k); // isto pravilo kao barkodovi na PDF-u
   // Odgovor kupca ide tenantu (izdavatelju), ne na racuni@domovina.ai.
-  replyTo = replyTo ?? k.tenant.email ?? null;
+  // S vlastitim pošiljateljem: bez kontakt e-maila odgovor ide na njegovu adresu
+  // (važno kad slanje padne na racuni@domovina.ai).
+  replyTo = replyTo ?? k.tenant.email ?? tenantKanal?.from.email ?? null;
 
   const text = [
     `Poštovani,`,
@@ -95,23 +114,49 @@ ${nalog ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code
 <p>S poštovanjem,<br>${escapeHtml(k.tenant.naziv)}<br>OIB: ${escapeHtml(k.tenant.oib)}</p>`;
 
   const imeDatoteke = `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;
-  return posaljiPoruku(env, { na, replyTo, subject, html, text, privitak: { pdf, imeDatoteke } });
+  const poruka = { na, replyTo, subject, html, text, privitak: { pdf, imeDatoteke } };
+
+  // 0) Vlastiti Resend tenanta; na bilo koju grešku padni na zadane kanale.
+  if (tenantKanal) {
+    try {
+      // Odgovor ide na kontakt tenanta; bez njega na samu adresu pošiljatelja (njegova je).
+      await posaljiResendom(tenantKanal.apiKey, tenantKanal.from, poruka);
+      return { kanal: 'resend-tenant', tenantGreska: null };
+    } catch (e) {
+      const greska = (e as Error).message;
+      console.log(`Resend tenanta ${k.tenant.id} nije uspio (${greska}) — fallback na zadani kanal`);
+      try {
+        const r = await posaljiPoruku(env, poruka);
+        return { kanal: r.kanal, tenantGreska: greska };
+      } catch (e2) {
+        throw new Error(`vlastiti Resend: ${greska}; zadani kanal: ${(e2 as Error).message}`);
+      }
+    }
+  }
+  const r = await posaljiPoruku(env, poruka);
+  return { kanal: r.kanal, tenantGreska: null };
 }
 
 // Obavijest bez privitka (alarmi platforme/tenanta) — isti kanali kao računi.
 export async function posaljiObavijest(
   env: EmailKanali,
   p: { na: string; subject: string; text: string },
-): Promise<{ kanal: 'cloudflare' | 'resend' }> {
+): Promise<{ kanal: Kanal }> {
   const html = `<pre style="font-family:ui-monospace,monospace;white-space:pre-wrap">${escapeHtml(p.text)}</pre>`;
   return posaljiPoruku(env, { ...p, html });
 }
 
+interface Poruka {
+  na: string;
+  replyTo?: string | null;
+  subject: string;
+  html: string;
+  text: string;
+  privitak?: { pdf: Uint8Array; imeDatoteke: string };
+}
+
 // Slanje kroz kanale: Cloudflare binding → (greška/nedostupnost) → Resend.
-async function posaljiPoruku(
-  env: EmailKanali,
-  p: { na: string; replyTo?: string | null; subject: string; html: string; text: string; privitak?: { pdf: Uint8Array; imeDatoteke: string } },
-): Promise<{ kanal: 'cloudflare' | 'resend' }> {
+async function posaljiPoruku(env: EmailKanali, p: Poruka): Promise<{ kanal: 'cloudflare' | 'resend' }> {
   const { na, replyTo, subject, html, text, privitak } = p;
 
   // 1) Cloudflare binding (preferiran čim Email Sending bude aktiviran).
@@ -150,14 +195,21 @@ async function posaljiPoruku(
   if (!env.RESEND_API_KEY) {
     throw new Error('Nijedan email kanal nije konfiguriran (send_email binding ni RESEND_API_KEY)');
   }
+  await posaljiResendom(env.RESEND_API_KEY, EMAIL_POSILJATELJ, p);
+  return { kanal: 'resend' };
+}
+
+// Resend REST API — zajednički za ključ platforme i ključ tenanta.
+async function posaljiResendom(apiKey: string, from: { email: string; name: string }, p: Poruka): Promise<void> {
+  const { na, replyTo, subject, html, text, privitak } = p;
   const odgovor = await fetchSTimeoutom('Resend', 'https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: `${EMAIL_POSILJATELJ.name} <${EMAIL_POSILJATELJ.email}>`,
+      from: `${imeZaZaglavlje(from.name)} <${from.email}>`,
       to: [na],
       ...(replyTo ? { reply_to: replyTo } : {}),
       subject,
@@ -170,7 +222,12 @@ async function posaljiPoruku(
     const tijelo = await odgovor.text().catch(() => '');
     throw new Error(`Resend ${odgovor.status}: ${tijelo.slice(0, 300)}`);
   }
-  return { kanal: 'resend' };
+}
+
+// Ime u From zaglavlju: navodnici ako ima znakova koji bi ga razbili (zarez, točka…).
+function imeZaZaglavlje(ime: string): string {
+  const cisto = ime.replace(/["\\\r\n<>]/g, '').trim();
+  return /^[\p{L}\p{N} ]+$/u.test(cisto) ? cisto : `"${cisto}"`;
 }
 
 function uBase64(bytes: Uint8Array): string {

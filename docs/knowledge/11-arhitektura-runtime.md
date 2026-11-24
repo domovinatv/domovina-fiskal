@@ -199,6 +199,20 @@ Načelo: **least exposure**. (Vidi i `04-*` i `05-*` §2.2.)
   - **Zamka:** server pri `POST /api/v1/racun` **nikad ne šalje mail sam**; klijent (webshop,
     GAS bridge) mora zvati `POST /racun/:id/posalji`. Fiskalni račun bez JIR-a → 409
     `NEMA_JIR`, osim uz `{ "bezJir": true }` (commit 4646d6a, TEST + PROD 23. 11. 2026.).
+  - **Vlastiti pošiljatelj po tenantu (BYO Resend, migracija 0016, `src/email-tenant.ts`):**
+    tenant može spremiti svoj Resend API ključ i adresu na svojoj domeni (npr.
+    `financije@prilikazasusret.hr`) — admin „Pošiljatelj e-maila” ili
+    `GET/PUT/DELETE /api/v1/postavke/email` (`{ posiljateljEmail, posiljateljIme?, apiKey? }`;
+    bez `apiKey` zadržava spremljeni ključ). Spremanje zove Resend `GET /domains` tim
+    ključem: domena mora biti dodana i `verified`; ključ „Sending access” vraća
+    `restricted_api_key`, prihvaća se uz `domenaProvjerena: false`. Redoslijed slanja:
+    tenantov Resend → (bilo koja greška) → binding → Resend platforme s
+    `racuni@domovina.ai`; greška tenantovog kanala zapisuje se u `tenant_email.zadnja_greska`,
+    a `kanal` u odgovoru je `resend-tenant` ili zadani. Ključ je envelope-šifriran
+    (KEK, uključen u rotaciju). Alarmi i dalje idu kanalom platforme.
+    Izvor: https://resend.com/docs/api-reference/domains/list-domains,
+    https://resend.com/docs/api-reference/api-keys/create-api-key (pristupljeno 23. 11. 2026.;
+    ⚠️ naziv greške `restricted_api_key` je iz sjećanja, nije izmjeren na pravom ključu).
 - **QR kod** (`09-*`, `02-*` §10): generiranje QR-a je čisti JS → **na Workers** bez problema.
 
 ---

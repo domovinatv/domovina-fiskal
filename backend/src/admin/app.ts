@@ -47,7 +47,8 @@ import {
 import { cisEcho, fiskalizirajRacun } from '../fiskal/fiskalizacija';
 import { okolinaIzEnv } from '../okolina';
 import { parsirajP12 } from '../fiskal/certifikat';
-import { blokadaSlanjaBezJir, emailKonfiguriran, posaljiRacunEmailom } from '../email';
+import { blokadaSlanjaBezJir } from '../email';
+import { emailDostupan, getTenantEmail, obrisiTenantEmail, posaljiRacunTenanta, spremiTenantEmail, validirajUnosEmaila } from '../email-tenant';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
 import { generirajRacunPdf } from '../pdf/racun-pdf';
@@ -124,7 +125,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -137,8 +138,9 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     otvorenePozivnice(c.env, { tenantId }),
     tenantImaIzdanihDokumenata(c.env.DB, tenantId),
     getTenantBackup(c.env.DB, tenantId),
+    getTenantEmail(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email };
 }
 
 admin.get(`/tenant/:id${ID}`, async (c) => {
@@ -419,6 +421,28 @@ admin.post(`/tenant/:id${ID}/backup/:akcija{sada|obrisi}`, async (c) => {
     await sinkronizirajTenanta(c.env, tenantId);
     await snapshotTenanta(c.env, tenantId);
   }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+// Vlastiti pošiljatelj e-maila tenanta (src/email-tenant.ts). Spremanje odmah
+// provjerava ključ i domenu kod Resenda.
+admin.post(`/tenant/:id${ID}/email`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const v = validirajUnosEmaila(await c.req.parseBody());
+  if (!v.ok) return c.html(renderTenantDetaljPage({ ...d, greska: v.greska }), 400);
+  try {
+    await spremiTenantEmail(c.env, tenantId, v.unos);
+  } catch (e) {
+    return c.html(renderTenantDetaljPage({ ...d, greska: `Pošiljatelj nije spremljen: ${(e as Error).message}` }), 400);
+  }
+  return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+admin.post(`/tenant/:id${ID}/email/obrisi`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  await obrisiTenantEmail(c.env.DB, tenantId);
   return c.redirect(`/admin/tenant/${tenantId}`, 303);
 });
 
@@ -732,7 +756,7 @@ admin.post(`/racun/:id${ID}/posalji`, async (c) => {
   if (blokada) {
     return c.html(renderRacunDetaljPage(k, { greska: 'Fiskalni račun još nema JIR — pričekaj fiskalizaciju ili označi „pošalji bez JIR-a” ako ga svjesno uručuješ samo sa ZKI-jem.' }), 409);
   }
-  if (!emailKonfiguriran(c.env)) {
+  if (!(await emailDostupan(c.env, k.racun.tenant_id))) {
     return c.html(renderRacunDetaljPage(k, { greska: 'Slanje e-maila nije konfigurirano (ni send_email binding ni RESEND_API_KEY).' }), 503);
   }
   const na = String(form.na ?? '').trim() || k.kupac?.email || '';
@@ -742,7 +766,7 @@ admin.post(`/racun/:id${ID}/posalji`, async (c) => {
   const pdf = await generirajRacunPdf(k);
   let kanal: string;
   try {
-    ({ kanal } = await posaljiRacunEmailom(c.env, k, pdf, na));
+    ({ kanal } = await posaljiRacunTenanta(c.env, k, pdf, na));
   } catch (e) {
     return c.html(renderRacunDetaljPage(k, { greska: `Slanje nije uspjelo: ${(e as Error).message}` }), 502);
   }

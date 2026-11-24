@@ -15,6 +15,7 @@ import {
 } from '../db';
 import { normalizirajTekst, validanOib } from '../util';
 import { getTenantBackup, obrisiTenantBackup, spremiTenantBackup, validirajUnos, type TenantBackupRow } from '../backup/tenant';
+import { getTenantEmail, obrisiTenantEmail, spremiTenantEmail, validirajUnosEmaila, type TenantEmailRow } from '../email-tenant';
 import { jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
 
@@ -174,4 +175,47 @@ postavkeRute.delete('/postavke/backup', async (c) => {
   if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
   await obrisiTenantBackup(c.env.DB, c.get('tenant').id);
   return c.json({ ukljucen: false });
+});
+
+// ── Vlastiti pošiljatelj e-maila (BYO Resend, src/email-tenant.ts) ──
+// Bez njega računi idu s racuni@domovina.ai. Ključ se nikad ne vraća.
+
+function emailJson(e: TenantEmailRow | null) {
+  if (!e) return { ukljucen: false, posiljatelj: 'racuni@domovina.ai' };
+  return {
+    ukljucen: !!e.aktivan,
+    posiljatelj: e.posiljatelj_email,
+    posiljateljEmail: e.posiljatelj_email,
+    posiljateljIme: e.posiljatelj_ime,
+    tokenPrefiks: e.token_prefiks,
+    domenaProvjerena: !!e.domena_provjerena,
+    zadnjeSlanje: e.zadnje_slanje,
+    greska: e.zadnja_greska,
+    greskaKada: e.zadnja_greska_ts,
+  };
+}
+
+postavkeRute.get('/postavke/email', async (c) => {
+  return c.json(emailJson(await getTenantEmail(c.env.DB, c.get('tenant').id)));
+});
+
+// Body: { posiljateljEmail, posiljateljIme?, apiKey? } — apiKey smije izostati
+// kad je ključ već spremljen (promjena samo adrese ili imena).
+postavkeRute.put('/postavke/email', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const v = validirajUnosEmaila(await jsonTijelo(c));
+  if (!v.ok) return c.json({ greska: v.greska }, 400);
+  const tenant = c.get('tenant');
+  try {
+    await spremiTenantEmail(c.env, tenant.id, v.unos);
+  } catch (e) {
+    return c.json({ greska: `Pošiljatelj nije spremljen: ${(e as Error).message}` }, 400);
+  }
+  return c.json(emailJson(await getTenantEmail(c.env.DB, tenant.id)));
+});
+
+postavkeRute.delete('/postavke/email', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  await obrisiTenantEmail(c.env.DB, c.get('tenant').id);
+  return c.json(emailJson(null));
 });

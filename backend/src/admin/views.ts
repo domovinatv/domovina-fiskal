@@ -20,6 +20,7 @@ import type {
 import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
 import type { TenantBackupRow } from '../backup/tenant';
+import type { TenantEmailRow } from '../email-tenant';
 import pkg from '../../package.json';
 import { escapeHtml, iznosRetka } from '../util';
 import type { ClanTenanta } from './korisnici';
@@ -261,6 +262,7 @@ export interface TenantDetaljData {
   pozivnice: OtvorenaPozivnica[];
   imaIzdanih: boolean; // PDV status i slijednost zaključani nakon prvog izdanog dokumenta
   backup: TenantBackupRow | null;
+  email: TenantEmailRow | null;
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
 }
@@ -466,6 +468,7 @@ ${tablicaPozivnica(d.pozivnice, () => t.naziv, baza)}
 <table><thead><tr><th>Okolina</th><th>Token</th><th>AMS</th><th>Status</th><th>Ažuriran</th></tr></thead>
 <tbody>${dokuRedovi || '<tr><td colspan="5" class="prazno">Nema doku tokena — tenant ne može slati eRačun dok se ne unese.</td></tr>'}</tbody></table>
 
+${emailSekcija(baza, d.email)}
 ${backupSekcija(baza, d.backup)}
 
 <h2>Proizvodi (katalog s KPD 2025)</h2>
@@ -727,6 +730,28 @@ export function renderPasskeysPage(o: { email: string; kljucevi: PasskeyPrikaz[]
 <p id="msg" class="greska" hidden></p></div>
 <script>${o.klijentJs}</script>`,
   );
+}
+
+// Vlastiti pošiljatelj e-maila (src/email-tenant.ts).
+function emailSekcija(baza: string, e: TenantEmailRow | null): string {
+  const stanje = e
+    ? `<table><tbody>
+<tr><th>Pošiljatelj</th><td class="mono">${escapeHtml(e.posiljatelj_ime ? `${e.posiljatelj_ime} <${e.posiljatelj_email}>` : e.posiljatelj_email)}</td></tr>
+<tr><th>Resend ključ</th><td class="mono">${escapeHtml(e.token_prefiks ?? '')}… · domena ${e.domena_provjerena ? '✅ verificirana' : '⚠️ nije provjerena (ključ samo za slanje)'}</td></tr>
+<tr><th>Zadnje slanje</th><td>${escapeHtml(e.zadnje_slanje ?? '— (još ništa)')}</td></tr>
+<tr><th>Greška</th><td>${e.zadnja_greska ? `<span style="color:#b00">${escapeHtml(e.zadnja_greska)}</span> (${escapeHtml(e.zadnja_greska_ts ?? '')}) — taj mail je otišao s racuni@domovina.ai` : '✅ nema'}</td></tr>
+</tbody></table>
+<form method="post" action="${baza}/email/obrisi" style="display:inline"><button type="submit">Vrati na racuni@domovina.ai</button></form>`
+    : '<p class="prazno">Računi idu s <span class="mono">racuni@domovina.ai</span> (reply-to = e-mail tenanta).</p>';
+  return `<h2>Pošiljatelj e-maila (vlastiti Resend, opcionalno)</h2>
+<div class="box"><form method="post" action="${baza}/email">
+  <div class="field"><label>Adresa pošiljatelja *</label><input name="posiljateljEmail" type="email" required value="${escapeHtml(e?.posiljatelj_email ?? '')}" placeholder="financije@prilikazasusret.hr"></div>
+  <div class="field"><label>Ime pošiljatelja</label><input name="posiljateljIme" value="${escapeHtml(e?.posiljatelj_ime ?? '')}" placeholder="prazno = naziv tenanta"></div>
+  <div class="field"><label>Resend API ključ${e ? '' : ' *'}</label><input name="apiKey" type="password" autocomplete="off"${e ? '' : ' required'} placeholder="${e ? 'prazno = zadrži postojeći' : 're_…'}"></div>
+  <button type="submit">Spremi (provjeri ključ i domenu)</button>
+</form>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Domena pošiljatelja mora biti dodana i verificirana u tenantovom Resend računu (Domains → DNS zapisi). Ključ s dozvolom „Full access” omogućuje provjeru domene unaprijed; ključ „Sending access” radi, ali se domena provjeri tek pri prvom slanju. Ako slanje tim ključem ne uspije, mail ide s <span class="mono">racuni@domovina.ai</span>, a greška se vidi ovdje. Ključ se sprema AES-256-GCM enkriptiran.</p>
+${stanje}</div>`;
 }
 
 // BYO backup u tenantov Cloudflare R2 (src/backup/tenant.ts).
