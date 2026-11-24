@@ -95,3 +95,30 @@ describe('Slanje fiskalnog računa bez JIR-a', () => {
     expect((await posalji(t.kljuc, r.id)).status).not.toBe(409);
   });
 });
+
+describe('Redoslijed kanala platforme: Resend prvi, binding samo rezerva', () => {
+  // Binding bez uključenog Email Sendinga vrati „uspjeh” bez isporuke (TEST, 23.–25. 11. 2026.).
+  it('oba kanala: ide Resend, binding se ne zove; Resend pada → binding', async () => {
+    const t = await napraviTenanta();
+    const r = await json(await poziv('/api/v1/racun', { method: 'POST', kljuc: t.kljuc, body: JSON.stringify(b2cTijelo(t)) }));
+    const k = (await getRacunKontekst(testEnv.DB, t.tenant.id, r.id))!;
+    const send = vi.fn(async (_p: Poruka) => ({}));
+    let resendStatus = 200;
+    const pravi = globalThis.fetch;
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (ulaz, init) => {
+      const url = typeof ulaz === 'string' ? ulaz : ulaz instanceof URL ? ulaz.href : ulaz.url;
+      if (url !== 'https://api.resend.com/emails') return pravi(ulaz, init);
+      return new Response('{}', { status: resendStatus });
+    });
+    try {
+      const env = { EMAIL: { send }, RESEND_API_KEY: 're_x' };
+      expect((await posaljiRacunEmailom(env, k, new Uint8Array([1]), 'kupac@primjer.hr')).kanal).toBe('resend');
+      expect(send).not.toHaveBeenCalled();
+      resendStatus = 500;
+      expect((await posaljiRacunEmailom(env, k, new Uint8Array([1]), 'kupac@primjer.hr')).kanal).toBe('cloudflare');
+      expect(send).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

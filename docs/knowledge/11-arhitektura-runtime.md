@@ -196,6 +196,10 @@ Načelo: **least exposure**. (Vidi i `04-*` i `05-*` §2.2.)
     ranije, TEST od 23. 11.). Izvor: https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/
     (pristupljeno 23. 11. 2026.). ⚠️ Mail računa 33 na TEST-u (16:01, binding, glavni gmail)
     baza vodi kao poslan, ali u Gmailu ga nema — binding „uspjeh” nije dokaz isporuke.
+  - **Redoslijed od 25. 11. 2026.: Resend prvi, binding samo rezerva** (prije obrnuto). Povod:
+    pozivnica za MARCIDEA na TEST-u na glavni gmail — binding vratio uspjeh (`kanal: cloudflare`),
+    mail nikad nije stigao (ni u spam). Kad se Email Sending za domovina.ai uključi, redoslijed
+    se smije vratiti (`posaljiPoruku` u `src/email.ts`).
   - **Zamka:** server pri `POST /api/v1/racun` **nikad ne šalje mail sam**; klijent (webshop,
     GAS bridge) mora zvati `POST /racun/:id/posalji`. Fiskalni račun bez JIR-a → 409
     `NEMA_JIR`, osim uz `{ "bezJir": true }` (commit 4646d6a, TEST + PROD 23. 11. 2026.).

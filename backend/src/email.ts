@@ -1,9 +1,12 @@
 // Slanje dokumenta (PDF privitak) e-mailom — dva kanala:
-//   1. Cloudflare Email Service `send_email` binding (preferiran kad je Email
-//      Sending aktiviran za domovina.ai — Workers Paid + beta aktivacija),
-//   2. Resend REST API (RESEND_API_KEY secret) — aktivni kanal dok CF nije
-//      aktiviran; domena domovina.ai je već verificirana na Resendu.
-// Redoslijed: pokušaj binding → na grešku/nedostupnost padni na Resend.
+//   1. Resend REST API (RESEND_API_KEY secret) — stvarni kanal na obje okoline;
+//      domena domovina.ai je verificirana na Resendu.
+//   2. Cloudflare Email Service `send_email` binding — samo rezerva (ili jedini
+//      kanal kad Resenda nema). Email Sending za domovina.ai NIJE uključen, pa
+//      binding isporučuje samo na Email Routing destination adrese, a i za njih
+//      vrati „uspjeh” bez isporuke (račun 33 i pozivnica MARCIDEA na TEST-u,
+//      23.–25. 11. 2026.). Zato više nije prvi.
+// Redoslijed: Resend → na grešku binding.
 // Tenant može imati VLASTITI Resend ključ i pošiljatelja (src/email-tenant.ts):
 // tada se prvo šalje njime, a na grešku zadanim kanalima platforme.
 // Bez ijednog kanala endpoint vraća 503 s jasnom porukom (safe default).
@@ -166,48 +169,47 @@ export interface Poruka {
   privitak?: { pdf: Uint8Array; imeDatoteke: string };
 }
 
-// Slanje kroz kanale: Cloudflare binding → (greška/nedostupnost) → Resend.
+// Slanje kroz kanale platforme: Resend → (greška/nedostupnost) → Cloudflare binding.
 async function posaljiPoruku(env: EmailKanali, p: Poruka): Promise<{ kanal: 'cloudflare' | 'resend' }> {
-  const { na, replyTo, subject, html, text, privitak } = p;
-
-  // 1) Cloudflare binding (preferiran čim Email Sending bude aktiviran).
-  if (env.EMAIL) {
+  if (env.RESEND_API_KEY) {
     try {
-      await env.EMAIL.send({
-        to: na,
-        from: EMAIL_POSILJATELJ,
-        ...(replyTo ? { replyTo } : {}),
-        subject,
-        html,
-        text,
-        ...(privitak
-          ? {
-              attachments: [
-                {
-                  // Kopija u samostalni ArrayBuffer (binding ne prima view s offsetom).
-                  content: privitak.pdf.buffer.slice(privitak.pdf.byteOffset, privitak.pdf.byteOffset + privitak.pdf.byteLength) as ArrayBuffer,
-                  filename: privitak.imeDatoteke,
-                  type: 'application/pdf',
-                  disposition: 'attachment' as const,
-                },
-              ],
-            }
-          : {}),
-      });
-      return { kanal: 'cloudflare' };
+      await posaljiResendom(env.RESEND_API_KEY, EMAIL_POSILJATELJ, p);
+      return { kanal: 'resend' };
     } catch (e) {
-      // Email Sending još nije aktiviran (ili privremena greška) → probaj Resend.
-      if (!env.RESEND_API_KEY) throw e;
-      console.log(`EMAIL binding nije uspio (${(e as Error).message}) — fallback na Resend`);
+      if (!env.EMAIL) throw e;
+      console.log(`Resend nije uspio (${(e as Error).message}) — fallback na EMAIL binding`);
     }
   }
-
-  // 2) Resend REST API.
-  if (!env.RESEND_API_KEY) {
-    throw new Error('Nijedan email kanal nije konfiguriran (send_email binding ni RESEND_API_KEY)');
+  if (!env.EMAIL) {
+    throw new Error('Nijedan email kanal nije konfiguriran (RESEND_API_KEY ni send_email binding)');
   }
-  await posaljiResendom(env.RESEND_API_KEY, EMAIL_POSILJATELJ, p);
-  return { kanal: 'resend' };
+  await posaljiBindingom(env.EMAIL, p);
+  return { kanal: 'cloudflare' };
+}
+
+async function posaljiBindingom(binding: SendEmailBinding, p: Poruka): Promise<void> {
+  const { na, replyTo, subject, html, text, privitak } = p;
+  await binding.send({
+    to: na,
+    from: EMAIL_POSILJATELJ,
+    ...(replyTo ? { replyTo } : {}),
+    subject,
+    html,
+    text,
+    ...(privitak
+      ? {
+          attachments: [
+            {
+              // Kopija u samostalni ArrayBuffer (binding ne prima view s offsetom).
+              content: privitak.pdf.buffer.slice(privitak.pdf.byteOffset, privitak.pdf.byteOffset + privitak.pdf.byteLength) as ArrayBuffer,
+              filename: privitak.imeDatoteke,
+              type: 'application/pdf',
+              disposition: 'attachment' as const,
+            },
+          ],
+        }
+      : {}),
+  });
 }
 
 // Resend REST API — zajednički za ključ platforme i ključ tenanta.
