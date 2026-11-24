@@ -319,3 +319,17 @@ ili korisnik), staru poništava (i kad je istekla) i šalje mail. Zapis `poziv.i
 `zamjenjuje: <stari id>`. Rute: `POST /admin/korisnici/pozivnica/:id/posalji-ponovno` i
 `POST /api/v1/clanovi/pozivnica/:id/posalji-ponovno` (vlasnik, samo svoj tenant; pozivnicu za
 vlasnika ne može, 403 kao kod izdavanja). Iskorištena ili opozvana: 404.
+
+**802. Link u mailu pozivnice je goli tekst, bez `<a href>`.** Na TEST-u 25. 11. 2026. mail je
+otišao Resendom tenanta (susret.com.hr) s uključenim praćenjem klikova. Gumb je prepisan u
+`links.susret.com.hr/CL0/https:%2F%2F…%2Fapp%2Fpoziv%23<token>`, pa bi token iz fragmenta završio u
+putanji i u Resendovim logovima. Gmail goli URL sam pretvori u link, a Resend ga ne dira. Odbačeno:
+slanje pozivnica uvijek kanalom platforme (korisnik je odabrao goli link).
+
+**803. Pozivnica za postojeći račun prihvaća se prijavom.** Kad e-mail već ima račun s passkeyem
+(npr. druga firma), izrada novog ključa na istom uređaju pada zbog `excludeCredentials`
+(„Ovaj uređaj već ima passkey…”). `POST /api/v1/poziv/prijava` (izazov iz `/prijava/opcije`) provjeri
+postojeći passkey, traži da mu e-mail bude e-mail pozivnice (drukčije 403, pozivnica ostaje), i u
+jednom batchu potroši pozivnicu i upiše članstvo s ulogom iz pozivnice (`iskoristiPrijavom`). Sesija
+je izvora `passkey`. `/poziv/opcije` vraća `imaPasskey`, pa dashboard prijavu nudi kao glavnu radnju.
+Pozivnica za „novi passkey” (`korisnik_id`) se prijavom ne prihvaća (409).

@@ -17,7 +17,7 @@ import {
   dodajPasskey, loginOptions, mojiKljucevi, obrisiKljucOsimZadnjeg, provjeriRegistraciju, registerRefusal,
   registrationOptions, verifyLogin,
 } from '../app-auth/passkey';
-import { iskoristi, provjeri } from '../app-auth/pozivnice';
+import { iskoristi, iskoristiPrijavom, provjeri } from '../app-auth/pozivnice';
 import { createSession, deleteSession, odjavaCookie, sessionCookie } from '../app-auth/sesija';
 import type { Env } from '../types';
 import { jsonTijelo } from './pomocno';
@@ -75,8 +75,14 @@ appAuthJavno.post('/poziv/opcije', async (c) => {
   const tenant = p.tenantId != null
     ? await c.env.DB.prepare('SELECT naziv FROM tenant WHERE id = ?').bind(p.tenantId).first<{ naziv: string }>()
     : null;
+  // Račun s tim e-mailom već ima passkey: dashboard nudi prijavu umjesto izrade novog ključa
+  // (token ima samo pozvani, pa mu to smijemo reći).
+  const imaPasskey = !!(await c.env.DB.prepare(
+    'SELECT 1 FROM korisnik_passkeys kp JOIN korisnik k ON k.id = kp.korisnik_id WHERE k.email = ? AND k.aktivan = 1 LIMIT 1',
+  ).bind(p.email).first());
   return c.json({
     opcije,
+    imaPasskey,
     email: p.email,
     ime: p.ime,
     tenant: p.tenantId != null ? { id: p.tenantId, naziv: tenant?.naziv ?? null } : null,
@@ -100,6 +106,29 @@ appAuthJavno.post('/poziv/potvrdi', async (c) => {
   const token = await createSession(c.env, r.korisnikId, 'poziv', ua(c));
   c.header('Set-Cookie', sessionCookie(token));
   return c.json({ ok: true, email: r.poziv.email, tenantId: r.poziv.tenantId, uloga: r.poziv.uloga }, 201);
+});
+
+// Pozivnica za tenant prihvaćena PRIJAVOM postojećim passkeyem (izazov iz /prijava/opcije):
+// korisnik već ima račun i ključ, pa dobiva samo članstvo u tenantu i sesiju.
+appAuthJavno.post('/poziv/prijava', async (c) => {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const odgovor = body.odgovor;
+  if (!jeObjekt(odgovor) || typeof odgovor.id !== 'string') return c.json({ greska: "Nedostaje 'odgovor' (WebAuthn)" }, 400);
+  const p = await provjeri(c.env, body.token);
+  if (!p) return c.json(POZIV_NE_VRIJEDI, 410);
+  if (p.korisnikId != null) {
+    return c.json({ greska: 'Ova pozivnica služi za izradu novog passkeya. Ako se možeš prijaviti, novi passkey dodaj u „Moji passkeyi”.' }, 409);
+  }
+  const k = await verifyLogin(c.env, new URL(c.req.url), odgovor as unknown as AuthenticationResponseJSON);
+  if (!k) return c.json({ greska: 'Prijava nije uspjela' }, 401);
+  if (k.email !== p.email) {
+    return c.json({ greska: `Ovaj passkey pripada računu ${k.email}, a pozivnica je za ${p.email}. Prijavi se passkeyem tog računa.` }, 403);
+  }
+  const r = await iskoristiPrijavom(c.env, body.token as string, k);
+  if (!r) return c.json(POZIV_NE_VRIJEDI, 410);
+  const token = await createSession(c.env, k.korisnikId, 'passkey', ua(c));
+  c.header('Set-Cookie', sessionCookie(token));
+  return c.json({ ok: true, email: r.email, tenantId: r.tenantId, uloga: r.uloga }, 201);
 });
 
 // Odjava ne traži valjanu sesiju: kolačić se briše uvijek, redak sesije ako postoji.

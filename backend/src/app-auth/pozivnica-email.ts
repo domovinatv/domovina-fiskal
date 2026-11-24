@@ -1,6 +1,9 @@
 // Slanje pozivnice u dashboard e-mailom (revizija odluke 7, docs/passkey/decisions.md).
 // Pozivnica za tenant ide pošiljateljem tenanta ako ga ima (vlastiti Resend, src/email-tenant.ts),
 // inače i na grešku s racuni@domovina.ai; „novi passkey” uvijek kanalom platforme.
+// Link je goli tekst, bez <a>: Resend s uključenim praćenjem klikova (domena tenanta) prepisuje
+// svaki href u svoj redirect, a time bi token iz fragmenta završio u putanji i njihovim logovima
+// (viđeno 25. 11. 2026. na links.susret.com.hr). Gmail i ostali klijenti tekst sami pretvore u link.
 // Slanje nikad ne ruši izdavanje: na grešku pozivnica ostaje, a link se vraća onome tko je
 // izdaje, pa ga može poslati sam.
 import { posaljiSKanalima, type Kanal } from '../email';
@@ -49,7 +52,7 @@ export async function posaljiPozivnicu(
       '',
       zaSto,
       '',
-      'Otvorite link i upišite pristupni ključ (passkey) na svom uređaju:',
+      'Otvorite link i upišite pristupni ključ (passkey) na svom uređaju; ako ga za ovaj račun već imate, prijavite se njime:',
       p.link,
       '',
       `Link vrijedi do ${rok} i može se iskoristiti samo jednom. Ne prosljeđujte ga.`,
@@ -59,8 +62,8 @@ export async function posaljiPozivnicu(
     ].join('\n');
     const html = `<p>${escapeHtml(pozdrav)}</p>
 <p>${escapeHtml(zaSto)}</p>
-<p><a href="${escapeHtml(p.link)}" style="display:inline-block;background:#002f6c;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Prihvati pozivnicu</a></p>
-<p style="font-size:13px;color:#555">Ako gumb ne radi, kopirajte link u preglednik:<br><span style="font-family:ui-monospace,monospace;word-break:break-all">${escapeHtml(p.link)}</span></p>
+<p>Otvorite link i upišite pristupni ključ (passkey) na svom uređaju; ako ga za ovaj račun već imate, prijavite se njime:</p>
+<p style="font-family:ui-monospace,monospace;word-break:break-all">${escapeHtml(p.link)}</p>
 <p style="font-size:13px;color:#555">Link vrijedi do ${escapeHtml(rok)} i može se iskoristiti samo jednom. Ne prosljeđujte ga. Ako pozivnicu niste očekivali, zanemarite ovu poruku.</p>
 <p>${escapeHtml(tenant ? tenant.naziv : 'Domovina Fiskal')}</p>`;
     // Odgovor ide vlasniku koji je pozvao; adminov e-mail se ne otkriva (Reply-To tenanta ili ništa).

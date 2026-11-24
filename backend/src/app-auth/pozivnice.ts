@@ -251,6 +251,48 @@ export async function iskoristi(
 }
 
 /**
+ * Iskoristi pozivnicu za tenant PRIJAVOM postojećim passkeyem (korisnik već ima račun i ključ,
+ * pa novi passkey ne nastaje; preglednik bi ga ionako odbio jer isti uređaj već ima ključ).
+ * `korisnik` je već provjeren (`verifyLogin`); pozivnica mora biti za njegov e-mail. U istom
+ * batchu: potrošnja (uz OTVORENA, samo pozivnica za tenant, e-mail korisnika) i upsert članstva
+ * s ulogom iz pozivnice, vezano uz `iskoristena_at` ovog batcha. null ako je ne može potrošiti.
+ */
+export async function iskoristiPrijavom(
+  env: PozEnv,
+  token: string,
+  korisnik: { korisnikId: number; email: string },
+  sada = new Date(),
+): Promise<Poziv | null> {
+  if (!ispravanToken(token)) return null;
+  const db = env.DB;
+  const hash = await sha256Hex(token);
+  const at = sada.toISOString();
+  const MOJA = 'p.token_hash = ? AND p.iskoristena_at = ? AND p.tenant_id IS NOT NULL';
+  const rez = await db.batch([
+    db.prepare(
+      `UPDATE pozivnice SET iskoristena_at = ?
+       WHERE token_hash = ? AND ${OTVORENA} AND tenant_id IS NOT NULL AND korisnik_id IS NULL AND email = ?
+         AND EXISTS (SELECT 1 FROM korisnik k WHERE k.id = ? AND k.email = pozivnice.email AND k.aktivan = 1)
+       RETURNING ${POLJA}`,
+    ).bind(at, hash, at, normalizirajEmail(korisnik.email), korisnik.korisnikId),
+    db.prepare(
+      `UPDATE korisnik_tenant SET aktivan = 1,
+         uloga = (SELECT p.uloga FROM pozivnice p WHERE ${MOJA})
+       WHERE EXISTS (SELECT 1 FROM pozivnice p WHERE ${MOJA}
+                     AND p.tenant_id = korisnik_tenant.tenant_id AND p.email = lower(korisnik_tenant.user_email))`,
+    ).bind(hash, at, hash, at),
+    db.prepare(
+      `INSERT INTO korisnik_tenant (tenant_id, user_email, uloga)
+       SELECT p.tenant_id, p.email, p.uloga FROM pozivnice p
+       WHERE ${MOJA}
+         AND NOT EXISTS (SELECT 1 FROM korisnik_tenant kt WHERE kt.tenant_id = p.tenant_id AND lower(kt.user_email) = p.email)`,
+    ).bind(hash, at),
+  ]);
+  const r = rez[0].results[0] as PozivRow | undefined;
+  return r ? uPoziv(r) : null;
+}
+
+/**
  * Opozovi otvorenu (ili isteklu) pozivnicu. `tenantId`: vlasnik smije samo pozivnice svog
  * tenanta. false: nema je, nije u tom tenantu ili je već iskorištena/opozvana.
  */

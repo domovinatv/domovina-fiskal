@@ -353,7 +353,7 @@ describe('pozivnica e-mailom: odmah pri izdavanju i „pošalji ponovno”', () 
   const KLJUC = 're_platforma_0123456789abcdef';
   const envResend: Env = { ...testEnv, EMAIL: undefined, RESEND_API_KEY: KLJUC };
   const envBezMaila: Env = { ...testEnv, EMAIL: undefined, RESEND_API_KEY: undefined };
-  let slanja: { from: string; to: string[]; reply_to?: string; subject: string; text: string }[];
+  let slanja: { from: string; to: string[]; reply_to?: string; subject: string; text: string; html: string }[];
   let spy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -393,6 +393,9 @@ describe('pozivnica e-mailom: odmah pri izdavanju i „pošalji ponovno”', () 
     expect(slanja[0].subject).toContain('Pozivnica u Domovina Fiskal');
     expect(slanja[0].text).toContain(b.link);
     expect(slanja[0].text).toContain('Iva');
+    // Bez <a href>: praćenje klikova (Resend) bi token iz fragmenta prepisalo u svoj redirect.
+    expect(slanja[0].html).not.toMatch(/<a\s/i);
+    expect(slanja[0].html).toContain(b.link.split('#')[1]);
     const z = await db.prepare(`SELECT detalji FROM korisnik_aktivnost WHERE pozivnica_id = ? AND radnja = 'poziv.izdan'`).bind(b.id).first<{ detalji: string }>();
     expect(JSON.parse(z!.detalji)).toMatchObject({ poslano: true, kanal: 'resend', uloga: 'operater' });
   });
@@ -438,5 +441,61 @@ describe('pozivnica e-mailom: odmah pri izdavanju i „pošalji ponovno”', () 
     const p = await izdaj(testEnv, { email: noviEmail(), tenantId: v.t.tenant.id, uloga: 'vlasnik' }, ADMIN);
     expect((await ponovno(v, p.id)).status).toBe(403);
     expect(slanja).toHaveLength(0);
+  });
+});
+
+describe('pozivnica za postojeći račun: prihvaćanje prijavom (bez novog passkeya)', () => {
+  async function prijavaOdgovor(kljucId: string) {
+    const o = await api('/prijava/opcije', { tijelo: {} });
+    return { id: kljucId, izazov: (await json(o)).challenge as string };
+  }
+  const brojKljuceva = (email: string) =>
+    db.prepare('SELECT COUNT(*) AS n FROM korisnik_passkeys kp JOIN korisnik k ON k.id = kp.korisnik_id WHERE k.email = ?')
+      .bind(email).first<{ n: number }>().then((r) => r!.n);
+
+  it('postojećim passkeyem: članstvo u novom tenantu, pozivnica potrošena, kolačić, ključ ostaje jedan', async () => {
+    const v = await tenantSVlasnikom();
+    const drugi = await napraviTenanta({ certifikat: false });
+    const p = await izdaj(testEnv, { email: v.email, tenantId: drugi.tenant.id, uloga: 'knjigovodja' }, ADMIN);
+    const opc = await json(await api('/poziv/opcije', { tijelo: { token: p.token } }));
+    expect(opc.imaPasskey).toBe(true);
+
+    const r = await api('/poziv/prijava', { tijelo: { token: p.token, odgovor: await prijavaOdgovor(v.kljucId) } });
+    expect(r.status).toBe(201);
+    expect(await json(r)).toMatchObject({ ok: true, email: v.email, tenantId: drugi.tenant.id, uloga: 'knjigovodja' });
+    const kolacic = kolacicIz(r)!;
+    expect(kolacic).toBeTruthy();
+    expect(await brojKljuceva(v.email)).toBe(1);
+    expect(await provjeri(testEnv, p.token)).toBeNull();
+    const clan = await db.prepare('SELECT uloga, aktivan FROM korisnik_tenant WHERE tenant_id = ? AND lower(user_email) = ?')
+      .bind(drugi.tenant.id, v.email).first<{ uloga: string; aktivan: number }>();
+    expect(clan).toEqual({ uloga: 'knjigovodja', aktivan: 1 });
+    // Novi kolačić radi u novom tenantu.
+    expect((await api('/clanovi', { kolacic, tenant: drugi.tenant.id })).status).toBe(403); // knjigovođa nije vlasnik
+    expect((await api('/racun', { kolacic, tenant: drugi.tenant.id })).status).toBe(200);
+    // Ponovno: pozivnica je potrošena.
+    expect((await api('/poziv/prijava', { tijelo: { token: p.token, odgovor: await prijavaOdgovor(v.kljucId) } })).status).toBe(410);
+  });
+
+  it('passkey drugog računa: 403, pozivnica ostaje otvorena; nova pozivnica (bez računa): imaPasskey false', async () => {
+    const v = await tenantSVlasnikom();
+    const tudi = await tenantSVlasnikom();
+    const p = await izdaj(testEnv, { email: v.email, tenantId: tudi.t.tenant.id, uloga: 'operater' }, ADMIN);
+    const r = await api('/poziv/prijava', { tijelo: { token: p.token, odgovor: await prijavaOdgovor(tudi.kljucId) } });
+    expect(r.status).toBe(403);
+    expect((await json(r)).greska).toContain(v.email);
+    expect(kolacicIz(r)).toBeNull();
+    expect(await provjeri(testEnv, p.token)).not.toBeNull();
+
+    const nova = await izdaj(testEnv, { email: noviEmail(), tenantId: v.t.tenant.id, uloga: 'operater' }, ADMIN);
+    expect((await json(await api('/poziv/opcije', { tijelo: { token: nova.token } }))).imaPasskey).toBe(false);
+  });
+
+  it('pozivnica za novi passkey se ne prihvaća prijavom (409)', async () => {
+    const v = await tenantSVlasnikom();
+    const k = await db.prepare('SELECT id FROM korisnik WHERE email = ?').bind(v.email).first<{ id: number }>();
+    const p = await izdaj(testEnv, { email: v.email, korisnikId: k!.id }, ADMIN);
+    expect((await api('/poziv/prijava', { tijelo: { token: p.token, odgovor: await prijavaOdgovor(v.kljucId) } })).status).toBe(409);
+    expect(await provjeri(testEnv, p.token)).not.toBeNull();
   });
 });
