@@ -1,7 +1,7 @@
 # PDF računa: novi izgled i branding po tenantu (2026-11-23 – 25)
 
 Stanje: **TEST deployan** (zadnja verzija `418b0161`, backend `be61fa1`, app `bf1529c`).
-**PROD nije diran** — ni migracija 0017 ni deploy.
+**PROD (dopuna 25. 11. 2026.):** 0017 primijenjena i deployano s HEAD-a 40217d5 (Worker verzija d871c5f3), na izričit zahtjev korisnika („sve na produkciju”).
 
 ## Što je napravljeno
 
@@ -54,8 +54,8 @@ PDV-a” i „PDV ukupno” ostaju i za ne-PDV obveznike.
 
 ## Otvoreno
 
-- **PROD:** `wrangler d1 migrations apply fiskal_domovina --remote` (primijenit će samo 0017;
-  0016 i 0018 već su na PROD-u) pa deploy s HEAD-a. Čeka odobrenje korisnika.
+- **PROD:** ✅ 25. 11. 2026. `CLOUDFLARE_ACCOUNT_ID=7dc7167b7e2e00923bfa7cd697df14e4 npx wrangler d1 migrations apply DB --remote`
+  (samo 0017) pa `npm run deploy` (verzija d871c5f3). Bez `CLOUDFLARE_ACCOUNT_ID` wrangler pita koji od više računa.
 - **SVG upload nije isproban u pregledniku** ni u dashboardu ni u adminu (pokriveno je samo da se
   admin skripta parsira i ima nonce). Provjeriti: SVG bez width/height (samo viewBox), Safari
   (DataTransfer u file inputu), SVG s vanjskim fontom/slikom (canvas ne učita vanjske resurse).
