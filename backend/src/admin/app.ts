@@ -51,7 +51,7 @@ import { blokadaSlanjaBezJir } from '../email';
 import { emailDostupan, getTenantEmail, obrisiTenantEmail, posaljiRacunTenanta, spremiTenantEmail, validirajUnosEmaila } from '../email-tenant';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
-import { generirajRacunPdf } from '../pdf/racun-pdf';
+import { pdfRacuna } from '../pdf/branding';
 import { enkriptirajCertifikat, enkriptirajTajnu, kekZaSifriranje, oznakaKek } from '../kripto';
 import { rotirajKek } from '../kripto-rotacija';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
@@ -702,7 +702,7 @@ admin.get(`/racun/:id${ID}`, async (c) => {
 admin.get(`/racun/:id${ID}/pdf`, async (c) => {
   const k = await adminRacunKontekst(c, Number(c.req.param('id')));
   if (!k) return c.text('Dokument ne postoji', 404);
-  const pdf = await generirajRacunPdf(k);
+  const pdf = await pdfRacuna(c.env.DB, k);
   return new Response(pdf.buffer as ArrayBuffer, {
     headers: {
       'Content-Type': 'application/pdf',
@@ -763,7 +763,7 @@ admin.post(`/racun/:id${ID}/posalji`, async (c) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(na)) {
     return c.html(renderRacunDetaljPage(k, { greska: 'Upiši valjanu e-mail adresu primatelja.' }), 400);
   }
-  const pdf = await generirajRacunPdf(k);
+  const pdf = await pdfRacuna(c.env.DB, k);
   let kanal: string;
   try {
     ({ kanal } = await posaljiRacunTenanta(c.env, k, pdf, na));

@@ -18,7 +18,7 @@
 import type { Env } from '../types';
 import { getRacunKontekst } from '../db';
 import { dekriptirajTajnu, enkriptirajTajnu, kekoviZaCitanje, kekZaSifriranje, oznakaKek } from '../kripto';
-import { generirajRacunPdf } from '../pdf/racun-pdf';
+import { getPdfBranding, pdfRacuna } from '../pdf/branding';
 import { fetchSTimeoutom } from '../util';
 import { gzip, izveziTenantJson } from './dump';
 
@@ -273,6 +273,7 @@ export async function sinkronizirajTenanta(env: Env, tenantId: number): Promise<
   let poslano = 0;
   try {
     const token = await otvoriToken(env, cfg);
+    const branding = await getPdfBranding(env.DB, tenantId); // jednom po seriji
     for (const { id } of racuni.results) {
       const k = await getRacunKontekst(env.DB, tenantId, id);
       if (!k) continue;
@@ -293,7 +294,7 @@ export async function sinkronizirajTenanta(env: Env, tenantId: number): Promise<
         porukeCis: poruke!.results,
       };
       await r2Upisi(cfg, token, `${osnova}.json`, JSON.stringify(zapis, null, 1), 'application/json; charset=utf-8');
-      if (broj) await r2Upisi(cfg, token, `${osnova}.pdf`, await generirajRacunPdf(k), 'application/pdf');
+      if (broj) await r2Upisi(cfg, token, `${osnova}.pdf`, await pdfRacuna(env.DB, k, branding), 'application/pdf');
       poslano++;
     }
   } catch (e) {

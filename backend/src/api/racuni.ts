@@ -11,7 +11,7 @@ import { osvjeziEracunStatus, posaljiEracun, provjeriPrimatelja } from '../eracu
 import { fiskalizirajRacun } from '../fiskal/fiskalizacija';
 import { blokadaSlanjaBezJir } from '../email';
 import { emailDostupan, posaljiRacunTenanta } from '../email-tenant';
-import { generirajRacunPdf } from '../pdf/racun-pdf';
+import { pdfRacuna } from '../pdf/branding';
 import { godinaZagreb, izCenti, uCente, uTisucinke, validanOib } from '../util';
 import { formatirajGreske, racunModelShema, vanjskaReferencaShema, type RacunModel } from '../validacija';
 import { cijeliBroj, HTTP_ZA_VRSTU, idIzParametra, jsonTijelo } from './pomocno';
@@ -256,7 +256,7 @@ racuniRute.get('/racun/:id/pdf', async (c) => {
   if (id instanceof Response) return id;
   const k = await getRacunKontekst(c.env.DB, c.get('tenant').id, id);
   if (!k) return c.json({ greska: `Dokument ${id} ne postoji` }, 404);
-  const pdf = await generirajRacunPdf(k);
+  const pdf = await pdfRacuna(c.env.DB, k);
   const ime = `${k.racun.tip_dokumenta}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;
   return new Response(pdf.buffer as ArrayBuffer, {
     headers: {
@@ -286,7 +286,7 @@ racuniRute.post('/racun/:id/posalji', async (c) => {
     return c.json({ greska: "Nema valjane adrese primatelja — pošalji { \"na\": \"adresa@primjer.hr\" } ili postavi email kupca" }, 400);
   }
 
-  const pdf = await generirajRacunPdf(k);
+  const pdf = await pdfRacuna(c.env.DB, k);
   let kanal: string;
   try {
     ({ kanal } = await posaljiRacunTenanta(c.env, k, pdf, na));

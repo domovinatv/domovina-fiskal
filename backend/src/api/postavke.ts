@@ -16,6 +16,15 @@ import {
 import { normalizirajTekst, validanOib } from '../util';
 import { getTenantBackup, obrisiTenantBackup, spremiTenantBackup, validirajUnos, type TenantBackupRow } from '../backup/tenant';
 import { getTenantEmail, obrisiTenantEmail, spremiTenantEmail, validirajUnosEmaila, type TenantEmailRow } from '../email-tenant';
+import {
+  brandingJson,
+  getTenantBranding,
+  obrisiTenantBranding,
+  primjerKontekst,
+  spremiTenantBranding,
+  validirajUnosBrandinga,
+} from '../pdf/branding';
+import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
 
@@ -219,4 +228,47 @@ postavkeRute.delete('/postavke/email', async (c) => {
   if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
   await obrisiTenantEmail(c.env.DB, c.get('tenant').id);
   return c.json(emailJson(null));
+});
+
+// ── Izgled PDF računa (branding, src/pdf/branding.ts) ──
+// Logo ide i vraća se kao data URL (≤ 200 KB) — <img src> u dashboardu ne može
+// slati X-Tenant-Id, pa zaseban binarni endpoint ne bi pomogao.
+
+postavkeRute.get('/postavke/branding', async (c) => {
+  return c.json(brandingJson(await getTenantBranding(c.env.DB, c.get('tenant').id)));
+});
+
+// Body: { boja?: '#RRGGBB' | null, podnozje?: string | null, logo?: dataURL | base64 | null }
+// logo izostavljen = ne mijenja se; null = ukloni.
+postavkeRute.put('/postavke/branding', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  const v = await validirajUnosBrandinga(await jsonTijelo(c));
+  if (!v.ok) return c.json({ greska: v.greska }, 400);
+  const tenant = c.get('tenant');
+  await spremiTenantBranding(c.env.DB, tenant.id, v.unos);
+  return c.json(brandingJson(await getTenantBranding(c.env.DB, tenant.id)));
+});
+
+postavkeRute.delete('/postavke/branding', async (c) => {
+  if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
+  await obrisiTenantBranding(c.env.DB, c.get('tenant').id);
+  return c.json(brandingJson(null));
+});
+
+// Ogledni PDF s (još nespremljenim) brandingom iz tijela — isti oblik kao PUT.
+// Izostavljen logo = trenutno spremljeni logo, da pregled odgovara rezultatu.
+postavkeRute.post('/postavke/branding/pregled', async (c) => {
+  const tijelo = await jsonTijelo(c);
+  const v = await validirajUnosBrandinga(tijelo);
+  if (!v.ok) return c.json({ greska: v.greska }, 400);
+  const tenant = c.get('tenant');
+  let logo = v.unos.logo;
+  if (logo === undefined) {
+    const spremljeno = await getTenantBranding(c.env.DB, tenant.id);
+    logo = spremljeno?.logo_b64 ? Uint8Array.from(atob(spremljeno.logo_b64), (z) => z.charCodeAt(0)) : null;
+  }
+  const pdf = await generirajRacunPdf(primjerKontekst(tenant), { branding: { boja: v.unos.boja, podnozje: v.unos.podnozje, logo } });
+  return new Response(pdf.buffer as ArrayBuffer, {
+    headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pregled-izgleda.pdf"' },
+  });
 });
