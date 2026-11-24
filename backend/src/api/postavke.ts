@@ -20,11 +20,10 @@ import {
   brandingJson,
   getTenantBranding,
   obrisiTenantBranding,
-  primjerKontekst,
+  pdfPregleda,
   spremiTenantBranding,
   validirajUnosBrandinga,
 } from '../pdf/branding';
-import { generirajRacunPdf } from '../pdf/racun-pdf';
 import { jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
 
@@ -256,18 +255,10 @@ postavkeRute.delete('/postavke/branding', async (c) => {
 });
 
 // Ogledni PDF s (još nespremljenim) brandingom iz tijela — isti oblik kao PUT.
-// Izostavljen logo = trenutno spremljeni logo, da pregled odgovara rezultatu.
 postavkeRute.post('/postavke/branding/pregled', async (c) => {
-  const tijelo = await jsonTijelo(c);
-  const v = await validirajUnosBrandinga(tijelo);
+  const v = await validirajUnosBrandinga(await jsonTijelo(c));
   if (!v.ok) return c.json({ greska: v.greska }, 400);
-  const tenant = c.get('tenant');
-  let logo = v.unos.logo;
-  if (logo === undefined) {
-    const spremljeno = await getTenantBranding(c.env.DB, tenant.id);
-    logo = spremljeno?.logo_b64 ? Uint8Array.from(atob(spremljeno.logo_b64), (z) => z.charCodeAt(0)) : null;
-  }
-  const pdf = await generirajRacunPdf(primjerKontekst(tenant), { branding: { boja: v.unos.boja, podnozje: v.unos.podnozje, logo } });
+  const pdf = await pdfPregleda(c.env.DB, c.get('tenant'), v.unos);
   return new Response(pdf.buffer as ArrayBuffer, {
     headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pregled-izgleda.pdf"' },
   });

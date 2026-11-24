@@ -3,7 +3,7 @@
 // stvarno nosi logo tenanta.
 import { PDFDocument, PDFName, PDFDict } from 'pdf-lib';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { b2cTijelo, json, napraviTenanta, poziv, testEnv } from './pomocno/okolina';
+import { adminSkripta, b2cTijelo, json, napraviTenanta, poziv, testEnv } from './pomocno/okolina';
 import { cisVracaJir } from './pomocno/cis-mock';
 
 // 32×32 PNG (crveni kvadrat)
@@ -88,5 +88,56 @@ describe('branding PDF-a', () => {
     await put(t.kljuc, { boja: '#C8102E', logo: PNG });
     const b = await json(await poziv('/api/v1/postavke/branding', { method: 'DELETE', kljuc: t.kljuc }));
     expect(b).toMatchObject({ boja: null, logo: null });
+  });
+});
+
+describe('branding u adminu (/admin/tenant/:id/izgled)', () => {
+  const ORIGIN = 'https://fiskal-test.domovina.ai';
+  const pngBajtovi = () => Uint8Array.from(atob(PNG), (z) => z.charCodeAt(0));
+  async function forma(putanja: string, polja: Record<string, string | Blob>) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(polja)) fd.append(k, v);
+    // poziv() bez Content-Type stavi JSON — multipart granicu treba prenijeti ručno.
+    const zahtjev = new Request('https://x/', { method: 'POST', body: fd });
+    return poziv(putanja, {
+      method: 'POST',
+      headers: { Authorization: adminSkripta(), Origin: ORIGIN, 'Content-Type': zahtjev.headers.get('content-type')! },
+      body: await zahtjev.arrayBuffer(),
+    });
+  }
+  const spremljeno = (tenantId: number) =>
+    testEnv.DB.prepare('SELECT boja, podnozje, logo_tip FROM tenant_branding WHERE tenant_id = ?').bind(tenantId).first<{ boja: string | null; podnozje: string | null; logo_tip: string | null }>();
+
+  it('spremi s datotekom; prikaz ima logo; bez nove datoteke logo ostaje; ukloni i obriši', async () => {
+    const t = await napraviTenanta({ certifikat: false });
+    const baza = `/admin/tenant/${t.tenant.id}/izgled`;
+    const r = await forma(baza, { vlastitaBoja: '1', boja: '#c8102e', podnozje: 'www.primjer.hr', logo: new File([pngBajtovi()], 'logo.png', { type: 'image/png' }) });
+    expect(r.status, await r.clone().text()).toBe(303);
+    expect(await spremljeno(t.tenant.id)).toEqual({ boja: '#C8102E', podnozje: 'www.primjer.hr', logo_tip: 'png' });
+
+    const html = await (await poziv(`/admin/tenant/${t.tenant.id}`, { headers: { Authorization: adminSkripta() } })).text();
+    expect(html).toContain('id="izgled"');
+    expect(html).toContain(`data:image/png;base64,${PNG}`);
+
+    // Prazan file input (preglednik ga šalje kao praznu datoteku) i bez vlastite boje.
+    await forma(baza, { boja: '#c8102e', podnozje: '', logo: new File([], '', { type: 'application/octet-stream' }) });
+    expect(await spremljeno(t.tenant.id)).toEqual({ boja: null, podnozje: null, logo_tip: 'png' });
+
+    await forma(baza, { ukloniLogo: '1', podnozje: '' });
+    expect((await spremljeno(t.tenant.id))!.logo_tip).toBeNull();
+
+    expect((await forma(`${baza}/obrisi`, {})).status).toBe(303);
+    expect(await spremljeno(t.tenant.id)).toBeNull();
+  });
+
+  it('pregled vraća PDF s logom i ništa ne sprema; neispravna slika je 400 s porukom', async () => {
+    const t = await napraviTenanta({ certifikat: false });
+    const r = await forma(`/admin/tenant/${t.tenant.id}/izgled/pregled`, { vlastitaBoja: '1', boja: '#F2B705', logo: new File([pngBajtovi()], 'l.png') });
+    expect(await slikeNaPrvojStranici(r)).toBe(1);
+    expect(await spremljeno(t.tenant.id)).toBeNull();
+
+    const losa = await forma(`/admin/tenant/${t.tenant.id}/izgled`, { logo: new File([new TextEncoder().encode('GIF89a......')], 'l.gif') });
+    expect(losa.status).toBe(400);
+    expect(await losa.text()).toContain('Logo mora biti PNG ili JPEG');
   });
 });

@@ -51,7 +51,14 @@ import { blokadaSlanjaBezJir } from '../email';
 import { emailDostupan, getTenantEmail, obrisiTenantEmail, posaljiRacunTenanta, spremiTenantEmail, validirajUnosEmaila } from '../email-tenant';
 import { dohvatiCompanywall, dohvatiPoOibu, nadjiCompanywallUrl } from '../registri';
 import { izdajDokument, type GreskaVrsta } from '../dokumenti/izdavanje';
-import { pdfRacuna } from '../pdf/branding';
+import {
+  getTenantBranding,
+  obrisiTenantBranding,
+  pdfPregleda,
+  pdfRacuna,
+  spremiTenantBranding,
+  validirajUnosBrandinga,
+} from '../pdf/branding';
 import { enkriptirajCertifikat, enkriptirajTajnu, kekZaSifriranje, oznakaKek } from '../kripto';
 import { rotirajKek } from '../kripto-rotacija';
 import { godinaZagreb, hex, normalizirajTekst, validanOib } from '../util';
@@ -125,7 +132,7 @@ admin.post('/tenanti', async (c) => {
 async function detaljData(c: { env: Env }, tenantId: number) {
   const tenant = await getTenant(c.env.DB, tenantId);
   if (!tenant) return null;
-  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email] = await Promise.all([
+  const [prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email, izgled] = await Promise.all([
     listPoslovniProstori(c.env.DB, tenantId),
     listNaplatniUredjaji(c.env.DB, tenantId),
     listOperateri(c.env.DB, tenantId),
@@ -139,8 +146,9 @@ async function detaljData(c: { env: Env }, tenantId: number) {
     tenantImaIzdanihDokumenata(c.env.DB, tenantId),
     getTenantBackup(c.env.DB, tenantId),
     getTenantEmail(c.env.DB, tenantId),
+    getTenantBranding(c.env.DB, tenantId),
   ]);
-  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email };
+  return { tenant, prostori, uredjaji, operateri, kljucevi, certifikati, dokuKonfig, proizvodi, racuni, korisnici, pozivnice, imaIzdanih, backup, email, izgled };
 }
 
 admin.get(`/tenant/:id${ID}`, async (c) => {
@@ -444,6 +452,46 @@ admin.post(`/tenant/:id${ID}/email/obrisi`, async (c) => {
   const tenantId = Number(c.req.param('id'));
   await obrisiTenantEmail(c.env.DB, tenantId);
   return c.redirect(`/admin/tenant/${tenantId}`, 303);
+});
+
+// Izgled PDF računa tenanta (src/pdf/branding.ts) — ista validacija i spremanje
+// kao dashboard (/api/v1/postavke/branding). Jedna forma, dva gumba: „Spremi”
+// (ova ruta) i „Pregledaj” (formaction …/izgled/pregled, nova kartica).
+async function unosIzgledaIzForme(form: Record<string, string | File>) {
+  const datoteka = form.logo;
+  const imaDatoteku = datoteka instanceof File && datoteka.size > 0;
+  return validirajUnosBrandinga({
+    boja: form.vlastitaBoja ? String(form.boja ?? '') : null,
+    podnozje: String(form.podnozje ?? ''),
+    logo: imaDatoteku ? new Uint8Array(await datoteka.arrayBuffer()) : form.ukloniLogo ? null : undefined,
+  });
+}
+
+admin.post(`/tenant/:id${ID}/izgled`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  const d = await detaljData(c, tenantId);
+  if (!d) return c.text('Tenant ne postoji', 404);
+  const v = await unosIzgledaIzForme(await c.req.parseBody());
+  if (!v.ok) return c.html(renderTenantDetaljPage({ ...d, greska: `Izgled računa: ${v.greska}` }), 400);
+  await spremiTenantBranding(c.env.DB, tenantId, v.unos);
+  return c.redirect(`/admin/tenant/${tenantId}#izgled`, 303);
+});
+
+admin.post(`/tenant/:id${ID}/izgled/pregled`, async (c) => {
+  const tenant = await getTenant(c.env.DB, Number(c.req.param('id')));
+  if (!tenant) return c.text('Tenant ne postoji', 404);
+  const v = await unosIzgledaIzForme(await c.req.parseBody());
+  if (!v.ok) return c.text(`Izgled računa: ${v.greska}`, 400);
+  const pdf = await pdfPregleda(c.env.DB, tenant, v.unos);
+  return new Response(pdf.buffer as ArrayBuffer, {
+    headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pregled-izgleda.pdf"' },
+  });
+});
+
+admin.post(`/tenant/:id${ID}/izgled/obrisi`, async (c) => {
+  const tenantId = Number(c.req.param('id'));
+  await obrisiTenantBranding(c.env.DB, tenantId);
+  return c.redirect(`/admin/tenant/${tenantId}#izgled`, 303);
 });
 
 // Ručno označavanje CIS statusa poslovnog prostora — prijava/odjava prostora od

@@ -21,6 +21,7 @@ import type { AlarmRow, ProizvodRow, RacunKontekst } from '../db';
 import { iznosHr } from '../pdf/racun-pdf';
 import type { TenantBackupRow } from '../backup/tenant';
 import type { TenantEmailRow } from '../email-tenant';
+import { brandingJson, LOGO_MAX_BAJTOVA, PODNOZJE_MAX, type TenantBrandingRow } from '../pdf/branding';
 import pkg from '../../package.json';
 import { escapeHtml, iznosRetka } from '../util';
 import type { ClanTenanta } from './korisnici';
@@ -263,6 +264,7 @@ export interface TenantDetaljData {
   imaIzdanih: boolean; // PDV status i slijednost zaključani nakon prvog izdanog dokumenta
   backup: TenantBackupRow | null;
   email: TenantEmailRow | null;
+  izgled: TenantBrandingRow | null;
   noviKljuc?: { rawKey: string; opis: string | null };
   greska?: string;
 }
@@ -468,6 +470,7 @@ ${tablicaPozivnica(d.pozivnice, () => t.naziv, baza)}
 <table><thead><tr><th>Okolina</th><th>Token</th><th>AMS</th><th>Status</th><th>Ažuriran</th></tr></thead>
 <tbody>${dokuRedovi || '<tr><td colspan="5" class="prazno">Nema doku tokena — tenant ne može slati eRačun dok se ne unese.</td></tr>'}</tbody></table>
 
+${izgledSekcija(baza, d.izgled)}
 ${emailSekcija(baza, d.email)}
 ${backupSekcija(baza, d.backup)}
 
@@ -730,6 +733,28 @@ export function renderPasskeysPage(o: { email: string; kljucevi: PasskeyPrikaz[]
 <p id="msg" class="greska" hidden></p></div>
 <script>${o.klijentJs}</script>`,
   );
+}
+
+// Izgled PDF računa (src/pdf/branding.ts). „Pregledaj” šalje istu formu na
+// …/izgled/pregled u novoj kartici (formaction/formtarget, bez JS-a).
+function izgledSekcija(baza: string, r: TenantBrandingRow | null): string {
+  const b = brandingJson(r);
+  const logo = b.logo
+    ? `<img src="${escapeHtml(b.logo)}" alt="Logo" style="max-height:48px;max-width:220px;object-fit:contain;display:block;margin:.3rem 0">
+  <label style="font-weight:normal"><input type="checkbox" name="ukloniLogo" value="1"> ukloni logo</label>`
+    : '<span class="prazno">bez loga — na računu je naziv tenanta</span>';
+  return `<h2 id="izgled">Izgled PDF računa</h2>
+<div class="box"><form method="post" action="${baza}/izgled" enctype="multipart/form-data">
+  <div class="field"><label>Logo (PNG/JPEG, ≤ ${LOGO_MAX_BAJTOVA / 1024} KB)</label>${logo}
+    <input name="logo" type="file" accept="image/png,image/jpeg"></div>
+  <div class="field"><label><input type="checkbox" name="vlastitaBoja" value="1"${b.boja ? ' checked' : ''}> Vlastita akcentna boja</label>
+    <input name="boja" type="color" value="${escapeHtml(b.boja ?? '#002F6C')}" style="width:4rem;height:2.2rem;padding:.1rem"></div>
+  <div class="field"><label>Tekst podnožja</label><input name="podnozje" maxlength="${PODNOZJE_MAX}" value="${escapeHtml(b.podnozje ?? '')}" placeholder="npr. www.primjer.hr · +385 1 234 5678"></div>
+  <button type="submit">Spremi izgled</button>
+  <button type="submit" formaction="${baza}/izgled/pregled" formtarget="_blank">Pregledaj ogledni PDF</button>
+</form>
+${r ? `<form method="post" action="${baza}/izgled/obrisi" style="margin-top:.5rem"><button type="submit">Vrati zadani izgled</button></form>` : ''}
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Vrijedi za sve PDF-ove tenanta (preuzimanje, e-mail kupcu, backup). Pregled ne sprema ništa; ogledni račun je skica bez barkodova. Bez odabranog loga zadržava se postojeći. Tenant isto može sam u dashboardu (Postavke → Izgled računa).${r ? ` Zadnja izmjena: ${escapeHtml(r.updated_at)}.` : ''}</p></div>`;
 }
 
 // Vlastiti pošiljatelj e-maila (src/email-tenant.ts).

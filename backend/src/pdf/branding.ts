@@ -79,7 +79,7 @@ export interface UnosBrandinga {
 
 type Rezultat = { ok: true; unos: UnosBrandinga } | { ok: false; greska: string };
 
-// logo: base64 ili data URL ('data:image/png;base64,…'); null briše logo.
+// logo: base64, data URL ('data:image/png;base64,…') ili bajtovi; null briše logo.
 export async function validirajUnosBrandinga(u: Record<string, unknown>): Promise<Rezultat> {
   let boja: string | null = null;
   if (u.boja != null && String(u.boja).trim() !== '') {
@@ -97,12 +97,15 @@ export async function validirajUnosBrandinga(u: Record<string, unknown>): Promis
   let logo: Uint8Array | null | undefined;
   if (u.logo === null) logo = null;
   else if (u.logo !== undefined) {
-    const s = String(u.logo).trim().replace(/^data:image\/[a-z+.-]+;base64,/i, '').replace(/\s/g, '');
     let bajtovi: Uint8Array;
-    try {
-      bajtovi = izBase64(s);
-    } catch {
-      return { ok: false, greska: 'Logo nije ispravan base64' };
+    if (u.logo instanceof Uint8Array) bajtovi = u.logo; // admin: multipart datoteka
+    else {
+      const s = String(u.logo).trim().replace(/^data:image\/[a-z+.-]+;base64,/i, '').replace(/\s/g, '');
+      try {
+        bajtovi = izBase64(s);
+      } catch {
+        return { ok: false, greska: 'Logo nije ispravan base64' };
+      }
     }
     if (bajtovi.length > LOGO_MAX_BAJTOVA) return { ok: false, greska: `Logo smije imati najviše ${LOGO_MAX_BAJTOVA / 1024} KB` };
     const tip = tipSlike(bajtovi);
@@ -154,6 +157,17 @@ export function brandingJson(r: TenantBrandingRow | null) {
     logo: r?.logo_b64 ? `data:image/${r.logo_tip === 'jpg' ? 'jpeg' : 'png'};base64,${r.logo_b64}` : null,
     azurirano: r?.updated_at ?? null,
   };
+}
+
+// Ogledni PDF s (još nespremljenim) unosom. Izostavljen logo = spremljeni logo,
+// da pregled odgovara onome što će biti nakon spremanja.
+export async function pdfPregleda(db: D1Database, tenant: TenantRow, unos: UnosBrandinga): Promise<Uint8Array> {
+  let logo = unos.logo;
+  if (logo === undefined) {
+    const spremljeno = await getTenantBranding(db, tenant.id);
+    logo = spremljeno?.logo_b64 ? izBase64(spremljeno.logo_b64) : null;
+  }
+  return generirajRacunPdf(primjerKontekst(tenant), { branding: { boja: unos.boja, podnozje: unos.podnozje, logo } });
 }
 
 // ── Ogledni račun za pregled izgleda (podaci tenanta, izmišljene stavke) ──
