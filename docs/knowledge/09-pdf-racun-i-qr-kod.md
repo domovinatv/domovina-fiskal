@@ -386,3 +386,7 @@ browser = { binding = "BROWSER" }
 - [Cloudflare — Generate PDFs Using HTML and CSS](https://developers.cloudflare.com/browser-run/how-to/pdf-generation/) — Browser Rendering PDF (pristup 2026-07-04)
 - [Cloudflare — `/pdf` REST endpoint](https://developers.cloudflare.com/browser-rendering/rest-api/pdf-endpoint/) — Quick Action PDF (pristup 2026-07-04)
 - [PDF4.dev — PDF generation on Cloudflare Workers 2026](https://pdf4.dev/blog/pdf-generation-cloudflare-workers) — usporedba opcija (pristup 2026-07-04)
+
+## Vezani dokumenti
+
+- [`../2026-11-25-pdf-izgled-i-branding.md`](../2026-11-25-pdf-izgled-i-branding.md) — implementirani izgled (Inter, kartice), branding po tenantu (0017), pdf-lib zamke s fontom, SVG logo
