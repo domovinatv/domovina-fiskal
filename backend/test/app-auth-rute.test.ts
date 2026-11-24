@@ -2,9 +2,10 @@
 // /api/v1 endpointi s X-Tenant-Id; Origin (CSRF); moji passkeyi; članovi (samo vlasnik).
 // WebAuthn je lažan (test/pomocno/webauthn-mock.ts): lažni odgovor nosi `izazov`, a mock
 // zove `expectedChallenge`, pa se izazovi ipak troše i vežu stvarno.
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { izdaj } from '../src/app-auth/pozivnice';
+import { izdaj, provjeri } from '../src/app-auth/pozivnice';
+import type { Env } from '../src/types';
 import { SESSION_COOKIE } from '../src/app-auth/sesija';
 import { json, napraviTenanta, poziv, testEnv } from './pomocno/okolina';
 import { lazniWebauthn } from './pomocno/webauthn-mock';
@@ -345,5 +346,97 @@ describe('bez GoTrue i CORS-a', () => {
     const r = await poziv('/api/v1/racun', { kljuc: t.kljuc, headers: { Origin: STARI_ORIGIN } });
     expect(r.status).toBe(200);
     expect(r.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
+
+describe('pozivnica e-mailom: odmah pri izdavanju i „pošalji ponovno”', () => {
+  const KLJUC = 're_platforma_0123456789abcdef';
+  const envResend: Env = { ...testEnv, EMAIL: undefined, RESEND_API_KEY: KLJUC };
+  const envBezMaila: Env = { ...testEnv, EMAIL: undefined, RESEND_API_KEY: undefined };
+  let slanja: { from: string; to: string[]; reply_to?: string; subject: string; text: string }[];
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    slanja = [];
+    const pravi = globalThis.fetch;
+    spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (ulaz, init) => {
+      const url = typeof ulaz === 'string' ? ulaz : ulaz instanceof URL ? ulaz.href : ulaz.url;
+      if (url !== 'https://api.resend.com/emails') return pravi(ulaz, init);
+      slanja.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ id: 'msg' }), { status: 200 });
+    });
+  });
+  afterEach(() => spy.mockRestore());
+
+  const pozovi = (v: { kolacic: string; t: { tenant: { id: number } } }, email: string, env: Env = envResend) =>
+    poziv('/api/v1/clanovi/pozivnica', {
+      method: 'POST', env, body: JSON.stringify({ email, ime: 'Iva', uloga: 'operater' }),
+      headers: { Cookie: `${SESSION_COOKIE}=${v.kolacic}`, 'X-Tenant-Id': String(v.t.tenant.id), Origin: ORIGIN },
+    });
+  const ponovno = (v: { kolacic: string; t: { tenant: { id: number } } }, id: number, env: Env = envResend) =>
+    poziv(`/api/v1/clanovi/pozivnica/${id}/posalji-ponovno`, {
+      method: 'POST', env, body: '{}',
+      headers: { Cookie: `${SESSION_COOKIE}=${v.kolacic}`, 'X-Tenant-Id': String(v.t.tenant.id), Origin: ORIGIN },
+    });
+
+  it('vlasnik poziva: mail odmah ide pozvanom s linkom, Reply-To je vlasnik; trag bilježi slanje', async () => {
+    const v = await tenantSVlasnikom();
+    const email = noviEmail();
+    const r = await pozovi(v, email);
+    expect(r.status).toBe(201);
+    const b = await json(r);
+    expect(b).toMatchObject({ email, poslano: true, emailGreska: null });
+    expect(slanja).toHaveLength(1);
+    expect(slanja[0].to).toEqual([email]);
+    expect(slanja[0].from).toBe('Domovina Fiskal <racuni@domovina.ai>');
+    expect(slanja[0].reply_to).toBe(v.email);
+    expect(slanja[0].subject).toContain('Pozivnica u Domovina Fiskal');
+    expect(slanja[0].text).toContain(b.link);
+    expect(slanja[0].text).toContain('Iva');
+    const z = await db.prepare(`SELECT detalji FROM korisnik_aktivnost WHERE pozivnica_id = ? AND radnja = 'poziv.izdan'`).bind(b.id).first<{ detalji: string }>();
+    expect(JSON.parse(z!.detalji)).toMatchObject({ poslano: true, kanal: 'resend', uloga: 'operater' });
+  });
+
+  it('mail ne prođe: pozivnica ipak vrijedi, link se vraća s greškom', async () => {
+    const v = await tenantSVlasnikom();
+    const r = await pozovi(v, noviEmail(), envBezMaila);
+    expect(r.status).toBe(201);
+    const b = await json(r);
+    expect(b.poslano).toBe(false);
+    expect(b.emailGreska).toContain('Nijedan email kanal');
+    expect(await provjeri(testEnv, b.link.split('#')[1])).not.toBeNull();
+  });
+
+  it('pošalji ponovno: novi link ide mailom, stari ne vrijedi; tuđi tenant 404; iskorištena 404', async () => {
+    const v = await tenantSVlasnikom();
+    const email = noviEmail();
+    const prva = await json(await pozovi(v, email));
+    const r = await ponovno(v, prva.id);
+    expect(r.status).toBe(201);
+    const druga = await json(r);
+    expect(druga).toMatchObject({ email, poslano: true });
+    expect(druga.id).not.toBe(prva.id);
+    expect(druga.link).not.toBe(prva.link);
+    expect(slanja).toHaveLength(2);
+    expect(slanja[1].text).toContain(druga.link);
+    expect(await provjeri(testEnv, prva.link.split('#')[1])).toBeNull();
+    const nova = await provjeri(testEnv, druga.link.split('#')[1]);
+    expect(nova).toMatchObject({ email, ime: 'Iva', uloga: 'operater', tenantId: v.t.tenant.id });
+    // Stara (sad opozvana) se više ne može ponovno poslati, ni iz drugog tenanta.
+    expect((await ponovno(v, prva.id)).status).toBe(404);
+    const drugi = await tenantSVlasnikom();
+    expect((await ponovno(drugi, druga.id)).status).toBe(404);
+    // Iskorištena pozivnica se ne šalje ponovno.
+    await prihvati(druga.link.split('#')[1]);
+    expect((await ponovno(v, druga.id)).status).toBe(404);
+    const trag = (await db.prepare(`SELECT detalji FROM korisnik_aktivnost WHERE pozivnica_id = ?`).bind(druga.id).first<{ detalji: string }>())!;
+    expect(JSON.parse(trag.detalji)).toMatchObject({ zamjenjuje: prva.id, poslano: true });
+  });
+
+  it('vlasnik ne može ponovno poslati pozivnicu za vlasnika (izdao je admin): 403', async () => {
+    const v = await tenantSVlasnikom();
+    const p = await izdaj(testEnv, { email: noviEmail(), tenantId: v.t.tenant.id, uloga: 'vlasnik' }, ADMIN);
+    expect((await ponovno(v, p.id)).status).toBe(403);
+    expect(slanja).toHaveLength(0);
   });
 });

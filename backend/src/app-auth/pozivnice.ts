@@ -151,6 +151,31 @@ export async function izdaj(
   return { token, id: (rez[1].results[0] as { id: number }).id, email, istjece };
 }
 
+/**
+ * „Pošalji ponovno”: token stare pozivnice nigdje nije spremljen, pa se izdaje nova s istim
+ * e-mailom, imenom, tenantom i ulogom (odnosno istim korisnikom), a stara se time poništava.
+ * Stara mora biti neiskorištena i neopozvana (smije biti istekla). `tenantId`: vlasnik smije
+ * samo pozivnice svog tenanta. null kad takve nema; inače kao `izdaj` (baca `PozivOdbijen`).
+ */
+export async function ponovnoIzdaj(
+  env: PozEnv,
+  id: number,
+  stvorio: { email: string; tip: StvorioTip },
+  ogr: { tenantId?: number } = {},
+  sada = new Date(),
+): Promise<{ token: string; id: number; email: string; istjece: string; stara: Poziv } | null> {
+  const r = await env.DB.prepare(
+    `SELECT ${POLJA} FROM pozivnice WHERE id = ? AND iskoristena_at IS NULL AND opozvana_at IS NULL${ogr.tenantId != null ? ' AND tenant_id = ?' : ''}`,
+  ).bind(...(ogr.tenantId != null ? [id, ogr.tenantId] : [id])).first<PozivRow>();
+  if (!r) return null;
+  const stara = uPoziv(r);
+  const nova = await izdaj(env, { email: stara.email, ime: stara.ime, tenantId: stara.tenantId, uloga: stara.uloga, korisnikId: stara.korisnikId }, stvorio, sada);
+  // `izdaj` poništava otvorenu pozivnicu istog e-maila i tenanta; istekla se zatvara ovdje.
+  await env.DB.prepare('UPDATE pozivnice SET opozvana_at = ? WHERE id = ? AND iskoristena_at IS NULL AND opozvana_at IS NULL')
+    .bind(sada.toISOString(), stara.id).run();
+  return { ...nova, stara };
+}
+
 /** Pozivnica iz tokena ako je otvorena i smije se iskoristiti; inače null. */
 export async function provjeri(env: PozEnv, token: unknown, sada = new Date()): Promise<Poziv | null> {
   if (!ispravanToken(token)) return null;

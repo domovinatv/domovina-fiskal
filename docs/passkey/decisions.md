@@ -302,3 +302,20 @@ dodanim unosima. *Revizija:* nema.
 **703. Provjera iz S6 (odluka 602) ostaje otvorena.** PROD u 13:14 UTC: ključ tenanta 2 zadnje
 korišten `2026-11-23 12:09:16`, ali tenant 2 još nema nijedan račun u `racun`, dakle webshop
 od deploya nije izdavao. Nema znaka greške. *Revizija:* prvi webshop račun tenanta 2.
+
+## Nakon lanca: pozivnica e-mailom (24. 11. 2026.)
+
+**800. Pozivnica se odmah šalje e-mailom (revizija odluke 7).** `src/app-auth/pozivnica-email.ts`:
+pozivnica za tenant ide pošiljateljem tenanta ako ga ima (vlastiti Resend, `posaljiPorukuTenanta`
+u `src/email-tenant.ts`), inače i na njegovu grešku s `racuni@domovina.ai`; „novi passkey” uvijek
+kanalom platforme. Reply-To je vlasnik kad poziva vlasnik; kad poziva admin, Reply-To iz postavke
+tenanta ili ništa (adminov e-mail se ne otkriva). Slanje ne ruši izdavanje: link se i dalje vrati
+jednom (admin flash, `link` u JSON-u) kao rezerva, uz `poslano`/`emailGreska`. Stanje slanja ide u
+`detalji` zapisa `poziv.izdan` (`poslano`, `kanal`) — bez nove radnje, pa bez migracije CHECK-a.
+
+**801. „Pošalji ponovno” = nova pozivnica istih podataka.** Token se ne sprema (samo sha-256), pa
+se stari link ne može ponovno poslati: `ponovnoIzdaj` izdaje novu (isti e-mail, ime, tenant, uloga
+ili korisnik), staru poništava (i kad je istekla) i šalje mail. Zapis `poziv.izdan` nosi
+`zamjenjuje: <stari id>`. Rute: `POST /admin/korisnici/pozivnica/:id/posalji-ponovno` i
+`POST /api/v1/clanovi/pozivnica/:id/posalji-ponovno` (vlasnik, samo svoj tenant; pozivnicu za
+vlasnika ne može, 403 kao kod izdavanja). Iskorištena ili opozvana: 404.

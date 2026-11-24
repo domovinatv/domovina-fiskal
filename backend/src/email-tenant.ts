@@ -11,7 +11,7 @@
 // kripto-rotacija.ts) i nikad se ne vraća kroz API.
 
 import type { RacunKontekst } from './db';
-import { emailKonfiguriran, posaljiRacunEmailom, type RezultatSlanja, type TenantKanal } from './email';
+import { emailKonfiguriran, posaljiRacunEmailom, posaljiSKanalima, type Poruka, type RezultatSlanja, type TenantKanal } from './email';
 import { dekriptirajTajnu, enkriptirajTajnu, kekoviZaCitanje, kekZaSifriranje, oznakaKek } from './kripto';
 import type { Env } from './types';
 import { fetchSTimeoutom, TIMEOUT_MS } from './util';
@@ -188,19 +188,40 @@ export async function emailDostupan(env: Env, tenantId: number): Promise<boolean
 // Slanje računa s pošiljateljem tenanta (ako ga ima) i zapis stanja kanala.
 export async function posaljiRacunTenanta(env: Env, k: RacunKontekst, pdf: Uint8Array, na: string): Promise<RezultatSlanja> {
   const kanal = await tenantKanal(env, k.tenant.id, k.tenant.naziv);
+  return uzStanjeKanala(env, k.tenant.id, kanal, () => posaljiRacunEmailom(env, k, pdf, na, null, kanal));
+}
+
+// Bilo koja poruka s pošiljateljem tenanta (ako ga ima; inače i na grešku zadani
+// kanal platforme) i zapis stanja kanala. `replyTo` null → Reply-To iz postavke tenanta.
+export async function posaljiPorukuTenanta(
+  env: Env,
+  tenant: { id: number; naziv: string },
+  poruka: Poruka,
+): Promise<RezultatSlanja> {
+  const kanal = await tenantKanal(env, tenant.id, tenant.naziv);
+  const p = { ...poruka, replyTo: poruka.replyTo ?? kanal?.replyTo ?? null };
+  return uzStanjeKanala(env, tenant.id, kanal, () => posaljiSKanalima(env, p, kanal, `tenanta ${tenant.id}`));
+}
+
+async function uzStanjeKanala(
+  env: Env,
+  tenantId: number,
+  kanal: TenantKanal | null,
+  posalji: () => Promise<RezultatSlanja>,
+): Promise<RezultatSlanja> {
   let r: RezultatSlanja;
   try {
-    r = await posaljiRacunEmailom(env, k, pdf, na, null, kanal);
+    r = await posalji();
   } catch (e) {
-    if (kanal) await zapisiGresku(env.DB, k.tenant.id, (e as Error).message);
+    if (kanal) await zapisiGresku(env.DB, tenantId, (e as Error).message);
     throw e;
   }
   if (r.kanal === 'resend-tenant') {
     await env.DB.prepare(
       `UPDATE tenant_email SET zadnje_slanje = datetime('now'), zadnja_greska = NULL, zadnja_greska_ts = NULL WHERE tenant_id = ?`,
-    ).bind(k.tenant.id).run();
+    ).bind(tenantId).run();
   } else if (r.tenantGreska) {
-    await zapisiGresku(env.DB, k.tenant.id, r.tenantGreska);
+    await zapisiGresku(env.DB, tenantId, r.tenantGreska);
   }
   return r;
 }

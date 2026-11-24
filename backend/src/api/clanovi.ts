@@ -1,11 +1,13 @@
 // Članovi tenanta u dashboardu — samo `vlasnik` tog tenanta (docs/passkey/, odluke 4 i 200+).
-// Vlasnik vidi članove i otvorene pozivnice, poziva knjigovođu ili operatera, opoziva
+// Vlasnik vidi članove i otvorene pozivnice, poziva knjigovođu ili operatera (pozivnica odmah
+// ide e-mailom, link se uz to vrati jednom kao rezerva), šalje je ponovno, opoziva
 // pozivnicu i deaktivira knjigovođu ili operatera u svom tenantu. Vlasnike (i sebe) ne dira:
 // to ide kroz administratora (/admin, S3). Mašinski dfk_ ključ nema korisnika, pa ovdje 403.
 
 import { Hono } from 'hono';
 import { naredba, zabiljezi, type Tko } from '../app-auth/aktivnost';
-import { izdaj, opozovi, otvorenePozivnice, PORUKE_ODBIJANJA, PozivOdbijen, type RazlogOdbijanja } from '../app-auth/pozivnice';
+import { posaljiPozivnicu } from '../app-auth/pozivnica-email';
+import { izdaj, opozovi, otvorenePozivnice, ponovnoIzdaj, PORUKE_ODBIJANJA, PozivOdbijen, type RazlogOdbijanja } from '../app-auth/pozivnice';
 import { idIzParametra, jsonTijelo } from './pomocno';
 import type { ApiHono, ApiKontekst } from './tipovi';
 
@@ -47,21 +49,52 @@ clanoviRute.get('/clanovi', async (c) => {
   });
 });
 
-// Link se vraća samo ovdje, jednom; šalje ga vlasnik sam (Worker ne šalje mail, odluka 7).
+/** Pošalji izdanu pozivnicu mailom, zabilježi izdavanje i složi odgovor (link samo ovdje, jednom). */
+async function posaljiIOdgovori(
+  c: ApiKontekst,
+  p: { token: string; id: number; email: string; istjece: string },
+  o: { ime: string | null; uloga: 'knjigovodja' | 'operater'; zamjenjuje?: number },
+) {
+  const tenantId = c.get('tenant').id;
+  const link = `${new URL(c.req.url).origin}/app/poziv#${p.token}`;
+  const slanje = await posaljiPozivnicu(c.env, { email: p.email, ime: o.ime, link, istjece: p.istjece, tenantId, uloga: o.uloga, stvorio: vlasnik(c) });
+  await zabiljezi(c.env, vlasnik(c), {
+    radnja: 'poziv.izdan', email: p.email, tenantId, pozivnicaId: p.id,
+    detalji: {
+      uloga: o.uloga, vrsta: 'tenant', ...(o.zamjenjuje ? { zamjenjuje: o.zamjenjuje } : {}),
+      poslano: slanje.poslano, ...(slanje.kanal ? { kanal: slanje.kanal } : {}),
+    },
+  });
+  return c.json({ id: p.id, email: p.email, istjece: p.istjece, link, poslano: slanje.poslano, emailGreska: slanje.greska }, 201);
+}
+
+// Pozivnica odmah ide e-mailom (pošiljateljem tenanta ako ga ima); link se vraća samo ovdje,
+// jednom, da ga vlasnik pošalje sam ako mail ne prođe (`poslano: false`, `emailGreska`).
 clanoviRute.post('/clanovi/pozivnica', async (c) => {
   const body = await jsonTijelo(c);
   const uloga = String(body.uloga ?? '');
   if (uloga !== 'knjigovodja' && uloga !== 'operater') {
     return c.json({ greska: PORUKE_ODBIJANJA.uloga }, uloga === 'vlasnik' ? 403 : 400);
   }
+  const ime = typeof body.ime === 'string' ? body.ime : null;
   try {
-    const p = await izdaj(
-      c.env,
-      { email: String(body.email ?? ''), ime: typeof body.ime === 'string' ? body.ime : null, tenantId: c.get('tenant').id, uloga },
-      vlasnik(c),
-    );
-    await zabiljezi(c.env, vlasnik(c), { radnja: 'poziv.izdan', email: p.email, tenantId: c.get('tenant').id, pozivnicaId: p.id, detalji: { uloga, vrsta: 'tenant' } });
-    return c.json({ id: p.id, email: p.email, istjece: p.istjece, link: `${new URL(c.req.url).origin}/app/poziv#${p.token}` }, 201);
+    const p = await izdaj(c.env, { email: String(body.email ?? ''), ime, tenantId: c.get('tenant').id, uloga }, vlasnik(c));
+    return posaljiIOdgovori(c, p, { ime, uloga });
+  } catch (e) {
+    if (e instanceof PozivOdbijen) return c.json({ greska: PORUKE_ODBIJANJA[e.razlog], razlog: e.razlog }, STATUS_ODBIJANJA[e.razlog] ?? 400);
+    throw e;
+  }
+});
+
+// Pošalji ponovno: nova pozivnica istih podataka (stari link prestaje vrijediti) i odmah mailom.
+clanoviRute.post('/clanovi/pozivnica/:id/posalji-ponovno', async (c) => {
+  const id = idIzParametra(c);
+  if (id instanceof Response) return id;
+  try {
+    const p = await ponovnoIzdaj(c.env, id, vlasnik(c), { tenantId: c.get('tenant').id });
+    if (!p) return c.json({ greska: 'Nema te otvorene pozivnice u ovom tenantu' }, 404);
+    // Vlasnik ne smije pozvati vlasnika: `izdaj` to već odbija (uloga), pa je ovdje samo knjigovođa ili operater.
+    return posaljiIOdgovori(c, p, { ime: p.stara.ime, uloga: p.stara.uloga as 'knjigovodja' | 'operater', zamjenjuje: p.stara.id });
   } catch (e) {
     if (e instanceof PozivOdbijen) return c.json({ greska: PORUKE_ODBIJANJA[e.razlog], razlog: e.razlog }, STATUS_ODBIJANJA[e.razlog] ?? 400);
     throw e;

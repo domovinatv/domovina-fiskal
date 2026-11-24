@@ -1,10 +1,11 @@
 // /admin/korisnici (docs/passkey/, S3): izdavanje pozivnice, opoziv, novi passkey, deaktivacija
 // i aktivacija korisnika, članstvo u tenantu i trag radnji (korisnik_aktivnost, migracija 0015).
 // Passkey se upisuje izravno kroz `iskoristi` (bez WebAuthna): rute prijave pokriva app-auth-rute.test.ts.
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { iskoristi, izdaj, provjeri } from '../src/app-auth/pozivnice';
 import { createSession, getSession, SESSION_COOKIE } from '../src/app-auth/sesija';
+import type { Env } from '../src/types';
 import { ADMIN_EMAIL, adminSesija, adminSkripta, napraviTenanta, poziv, testEnv } from './pomocno/okolina';
 
 const db = testEnv.DB;
@@ -161,5 +162,63 @@ describe('/admin — stari obrazac bez pozivnice uklonjen', () => {
     expect(html).toContain('Korisnici dashboarda');
     expect(html).not.toContain('Dodaj pristup');
     expect((await adminGet('/admin/korisnici')).status).toBe(200);
+  });
+});
+
+describe('/admin/korisnici — pozivnica e-mailom i „pošalji ponovno”', () => {
+  const envResend: Env = { ...testEnv, EMAIL: undefined, RESEND_API_KEY: 're_platforma_0123456789abcdef' };
+  let slanja: { to: string[]; reply_to?: string; text: string }[];
+  let spy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    slanja = [];
+    const pravi = globalThis.fetch;
+    spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (ulaz, init) => {
+      const url = typeof ulaz === 'string' ? ulaz : ulaz instanceof URL ? ulaz.href : ulaz.url;
+      if (url !== 'https://api.resend.com/emails') return pravi(ulaz, init);
+      slanja.push(JSON.parse(String(init?.body)));
+      return new Response('{"id":"m"}', { status: 200 });
+    });
+  });
+  afterEach(() => spy.mockRestore());
+
+  const post = (putanja: string, polja: Record<string, string> = {}) => poziv(putanja, {
+    method: 'POST', env: envResend,
+    headers: { Authorization: adminSkripta(), 'Content-Type': 'application/x-www-form-urlencoded', Origin: ORIGIN },
+    body: new URLSearchParams(polja).toString(),
+  });
+
+  it('izdavanje šalje mail (bez adminova Reply-To), ponovno: novi link mailom, stari ne vrijedi', async () => {
+    const t = await napraviTenanta({ certifikat: false });
+    const email = noviEmail();
+    const html = await (await post('/admin/korisnici/pozivnica', { email, tenant_id: String(t.tenant.id), uloga: 'knjigovodja' })).text();
+    expect(html).toContain('poslana e-mailom');
+    const prvi = tokenIz(html)!;
+    expect(slanja).toHaveLength(1);
+    expect(slanja[0].to).toEqual([email]);
+    expect(slanja[0].reply_to).toBeUndefined();
+    expect(slanja[0].text).toContain(prvi);
+    expect(html).toContain('Pošalji ponovno');
+
+    const p = (await provjeri(testEnv, prvi))!;
+    const r = await post(`/admin/korisnici/pozivnica/${p.id}/posalji-ponovno`);
+    expect(r.status).toBe(200);
+    const html2 = await r.text();
+    expect(html2).toContain('stari link više ne vrijedi');
+    const drugi = tokenIz(html2)!;
+    expect(drugi).not.toBe(prvi);
+    expect(slanja[1].text).toContain(drugi);
+    expect(await provjeri(testEnv, prvi)).toBeNull();
+    expect(await provjeri(testEnv, drugi)).toMatchObject({ email, uloga: 'knjigovodja', tenantId: t.tenant.id });
+    expect((await post(`/admin/korisnici/pozivnica/${p.id}/posalji-ponovno`)).status).toBe(404);
+  });
+
+  it('istekla pozivnica se može poslati ponovno (nova vrijedi 72 h)', async () => {
+    const t = await napraviTenanta({ certifikat: false });
+    const stara = await izdaj(testEnv, { email: noviEmail(), tenantId: t.tenant.id, uloga: 'operater' }, ADMIN, new Date(Date.now() - 80 * 3600_000));
+    expect(await provjeri(testEnv, stara.token)).toBeNull();
+    const html = await (await post(`/admin/korisnici/pozivnica/${stara.id}/posalji-ponovno`)).text();
+    expect(await provjeri(testEnv, tokenIz(html)!)).not.toBeNull();
+    const red = await db.prepare('SELECT opozvana_at FROM pozivnice WHERE id = ?').bind(stara.id).first<{ opozvana_at: string | null }>();
+    expect(red!.opozvana_at).not.toBeNull();
   });
 });

@@ -5,11 +5,14 @@
 // Bez pozivnice nema passkeya, pa ni ulaska: e-mail se više ne dodaje izravno u korisnik_tenant.
 // Admin smije sve što vlasnik ne smije (odluka 205): pozvati vlasnika, deaktivirati i aktivirati
 // cijelog korisnika (passkeyi ostaju, pa aktivacija vraća pristup bez pozivnice), izdati „Novi
-// passkey” i vratiti članstvo u tenantu. Link pozivnice prikazuje se samo u odgovoru na izdavanje.
+// passkey” i vratiti članstvo u tenantu. Pozivnica se odmah šalje e-mailom (src/app-auth/pozivnica-email.ts);
+// link se uz to prikazuje samo u odgovoru na izdavanje, kao rezerva ako mail ne prođe. „Pošalji ponovno”
+// izdaje novu pozivnicu istih podataka (stari token nije spremljen) i šalje je.
 // Svaka radnja ostavlja zapis u korisnik_aktivnost (migracija 0015, odluka 300).
 import { Hono, type Context } from 'hono';
 import { naredba, zabiljezi, zadnjaAktivnost, type Tko } from '../app-auth/aktivnost';
-import { izdaj, opozovi, otvorenePozivnice, PORUKE_ODBIJANJA, PozivOdbijen, type RazlogOdbijanja } from '../app-auth/pozivnice';
+import { posaljiPozivnicu } from '../app-auth/pozivnica-email';
+import { izdaj, opozovi, otvorenePozivnice, ponovnoIzdaj, PORUKE_ODBIJANJA, PozivOdbijen, type RazlogOdbijanja, type Uloga } from '../app-auth/pozivnice';
 import { listTenants } from '../db';
 import type { Env } from '../types';
 import type { AdminHono } from './auth/zastita';
@@ -77,12 +80,32 @@ async function stranica(c: AdminCtx, o: { link?: NoviLink; greska?: string; tena
 
 const linkPozivnice = (c: AdminCtx, token: string) => `${new URL(c.req.url).origin}/app/poziv#${token}`;
 
+/** Pošalji upravo izdanu pozivnicu mailom, zabilježi izdavanje (sa stanjem slanja) i vrati flash. */
+async function posaljiIZabiljezi(
+  c: AdminCtx,
+  p: { token: string; id: number; email: string; istjece: string },
+  o: { ime: string | null; tenantId: number | null; uloga: Uloga | null; korisnikId: number | null; zamjenjuje?: number },
+): Promise<NoviLink> {
+  const tko = adminTko(c);
+  const url = linkPozivnice(c, p.token);
+  const slanje = await posaljiPozivnicu(c.env, { email: p.email, ime: o.ime, link: url, istjece: p.istjece, tenantId: o.tenantId, uloga: o.uloga, stvorio: tko });
+  const vrsta = o.korisnikId != null ? 'novi_passkey' : 'tenant';
+  await zabiljezi(c.env, tko, {
+    radnja: 'poziv.izdan', email: p.email, tenantId: o.tenantId, korisnikId: o.korisnikId, pozivnicaId: p.id,
+    detalji: {
+      ...(o.uloga ? { uloga: o.uloga } : {}), vrsta, ...(o.zamjenjuje ? { zamjenjuje: o.zamjenjuje } : {}),
+      poslano: slanje.poslano, ...(slanje.kanal ? { kanal: slanje.kanal } : {}),
+    },
+  });
+  return { url, email: p.email, istjece: p.istjece, vrsta, slanje, ponovno: !!o.zamjenjuje };
+}
+
 korisniciAdmin.get('/korisnici', (c) => {
   const t = Number(c.req.query('tenant'));
   return stranica(c, { tenantId: Number.isSafeInteger(t) && t > 0 ? t : undefined });
 });
 
-// Nova pozivnica za tenant (bilo koja uloga). Link se prikazuje samo u ovom odgovoru.
+// Nova pozivnica za tenant (bilo koja uloga): odmah ide mailom; link se prikazuje samo u ovom odgovoru.
 korisniciAdmin.post('/korisnici/pozivnica', async (c) => {
   const form = await c.req.parseBody();
   const tenantId = Number(form.tenant_id);
@@ -93,10 +116,24 @@ korisniciAdmin.post('/korisnici/pozivnica', async (c) => {
   const tko = adminTko(c);
   try {
     const p = await izdaj(c.env, { email, ime, tenantId, uloga }, tko);
-    await zabiljezi(c.env, tko, { radnja: 'poziv.izdan', email: p.email, tenantId, pozivnicaId: p.id, detalji: { uloga, vrsta: 'tenant' } });
-    return stranica(c, { link: { url: linkPozivnice(c, p.token), email: p.email, istjece: p.istjece, vrsta: 'tenant' }, tenantId });
+    const link = await posaljiIZabiljezi(c, p, { ime, tenantId, uloga: uloga as Uloga, korisnikId: null });
+    return stranica(c, { link, tenantId });
   } catch (e) {
     if (e instanceof PozivOdbijen) return stranica(c, { greska: PORUKE_ODBIJANJA[e.razlog], tenantId }, STATUS_ODBIJANJA[e.razlog] ?? 400);
+    throw e;
+  }
+});
+
+// Pošalji ponovno: nova pozivnica istih podataka (stara se poništava) i odmah mailom.
+korisniciAdmin.post(`/korisnici/pozivnica/:pid${ID}/posalji-ponovno`, async (c) => {
+  const id = Number(c.req.param('pid'));
+  try {
+    const p = await ponovnoIzdaj(c.env, id, adminTko(c));
+    if (!p) return stranica(c, { greska: 'Nema te otvorene pozivnice.' }, 404);
+    const link = await posaljiIZabiljezi(c, p, { ...p.stara, zamjenjuje: p.stara.id });
+    return stranica(c, { link, tenantId: p.stara.tenantId ?? undefined });
+  } catch (e) {
+    if (e instanceof PozivOdbijen) return stranica(c, { greska: PORUKE_ODBIJANJA[e.razlog] }, STATUS_ODBIJANJA[e.razlog] ?? 400);
     throw e;
   }
 });
@@ -122,8 +159,8 @@ korisniciAdmin.post(`/korisnici/:kid${ID}/novi-passkey`, async (c) => {
   const tko = adminTko(c);
   try {
     const p = await izdaj(c.env, { email: k.email, korisnikId: k.id }, tko);
-    await zabiljezi(c.env, tko, { radnja: 'poziv.izdan', email: p.email, korisnikId: k.id, pozivnicaId: p.id, detalji: { vrsta: 'novi_passkey' } });
-    return stranica(c, { link: { url: linkPozivnice(c, p.token), email: p.email, istjece: p.istjece, vrsta: 'novi_passkey' } });
+    const link = await posaljiIZabiljezi(c, p, { ime: null, tenantId: null, uloga: null, korisnikId: k.id });
+    return stranica(c, { link });
   } catch (e) {
     if (e instanceof PozivOdbijen) return stranica(c, { greska: PORUKE_ODBIJANJA[e.razlog] }, STATUS_ODBIJANJA[e.razlog] ?? 400);
     throw e;

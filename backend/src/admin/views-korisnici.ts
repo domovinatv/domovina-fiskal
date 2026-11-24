@@ -1,6 +1,7 @@
 // /admin/korisnici — korisnici customer dashboarda, pozivnice i trag radnji (docs/passkey/, S3).
 // Izdvojeno iz views.ts; isti layout i stilovi.
 import type { AktivnostRow } from '../app-auth/aktivnost';
+import type { SlanjePozivnice } from '../app-auth/pozivnica-email';
 import type { OtvorenaPozivnica } from '../app-auth/pozivnice';
 import type { TenantRow } from '../types';
 import { escapeHtml } from '../util';
@@ -12,7 +13,7 @@ export interface KorisnikPrikaz {
   clanstva: { id: number; tenantId: number; naziv: string; uloga: string; aktivan: boolean }[];
 }
 
-export interface NoviLink { url: string; email: string; istjece: string; vrsta: 'tenant' | 'novi_passkey' }
+export interface NoviLink { url: string; email: string; istjece: string; vrsta: 'tenant' | 'novi_passkey'; slanje: SlanjePozivnice; ponovno?: boolean }
 
 const ULOGE: [string, string][] = [['vlasnik', 'vlasnik'], ['knjigovodja', 'knjigovođa'], ['operater', 'operater (bez postavki)']];
 const pill = (ok: boolean, tekst: string) => `<span class="pill ${ok ? 'p-ok' : 'p-off'}">${escapeHtml(tekst)}</span>`;
@@ -28,9 +29,9 @@ export function obrazacPozivnice(tenanti: Pick<TenantRow, 'id' | 'naziv' | 'oib'
   <div class="field"><label>Ime</label><input name="ime" maxlength="80"></div>
   <div class="field"><label>Tenant *</label><select name="tenant_id" required>${tenantId == null ? '<option value="">— odaberi —</option>' : ''}${opcije}</select></div>
   <div class="field"><label>Uloga</label><select name="uloga">${ULOGE.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>
-  <button type="submit">Napravi link pozivnice</button>
+  <button type="submit">Pošalji pozivnicu</button>
 </form>
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Link vrijedi 72 h i jednom; troši se tek kad pozvani upiše passkey. Pošalji ga osobno (ne u javni kanal). Nova pozivnica za isti e-mail i tenant poništava staru.</p>`;
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Pozivnica odmah ide e-mailom (pošiljateljem tenanta ako ga ima, inače s racuni@domovina.ai). Link vrijedi 72 h i jednom; troši se tek kad pozvani upiše passkey. Nova pozivnica za isti e-mail i tenant poništava staru.</p>`;
 }
 
 /** Tablica otvorenih pozivnica; `povratak` je stranica na koju se vraća nakon opoziva. */
@@ -39,7 +40,9 @@ export function tablicaPozivnica(pozivnice: OtvorenaPozivnica[], naziv: (tenantI
     .map((p) => `<tr><td>${escapeHtml(p.email)}${p.ime ? ` <span style="color:var(--muted)">(${escapeHtml(p.ime)})</span>` : ''}</td>
 <td>${p.korisnik_id ? '<span class="pill p-info">novi passkey</span>' : `${escapeHtml(naziv(p.tenant_id))} · ${escapeHtml(p.uloga ?? '')}`}</td>
 <td>${escapeHtml(p.stvorio_tip)}: ${escapeHtml(p.stvorio)}</td><td class="mono">${vrijeme(p.istjece)}</td>
-<td><form method="post" action="/admin/korisnici/pozivnica/${p.id}/opozovi" style="display:inline">${povratak ? `<input type="hidden" name="povratak" value="${escapeHtml(povratak)}">` : ''}
+<td><form method="post" action="/admin/korisnici/pozivnica/${p.id}/posalji-ponovno" style="display:inline" title="Nova pozivnica istih podataka ide mailom; stari link prestaje vrijediti.">
+  <button type="submit" style="background:#5A6570">Pošalji ponovno</button></form>
+<form method="post" action="/admin/korisnici/pozivnica/${p.id}/opozovi" style="display:inline">${povratak ? `<input type="hidden" name="povratak" value="${escapeHtml(povratak)}">` : ''}
   <button type="submit">Opozovi</button></form></td></tr>`)
     .join('');
   return `<table><thead><tr><th>E-mail</th><th>Za</th><th>Izdao</th><th>Istječe</th><th></th></tr></thead>
@@ -89,8 +92,10 @@ export function renderKorisniciPage(d: {
     .join('');
 
   const link = d.link
-    ? `<div class="flash">${d.link.vrsta === 'novi_passkey' ? 'Pozivnica za novi passkey' : 'Pozivnica'} za <strong>${escapeHtml(d.link.email)}</strong>
- (vrijedi do ${vrijeme(d.link.istjece)} UTC) — <strong>kopiraj je odmah, prikazuje se samo jednom:</strong><br>
+    ? `<div class="flash">${d.link.vrsta === 'novi_passkey' ? 'Pozivnica za novi passkey' : 'Pozivnica'}${d.link.ponovno ? ' (ponovno, stari link više ne vrijedi)' : ''} za <strong>${escapeHtml(d.link.email)}</strong>
+ (vrijedi do ${vrijeme(d.link.istjece)} UTC) — ${d.link.slanje.poslano
+    ? `<strong>poslana e-mailom</strong> (${escapeHtml(d.link.slanje.kanal ?? '')}). Link za svaki slučaj, prikazuje se samo jednom:`
+    : `<strong style="color:#A32020">e-mail NIJE poslan</strong> (${escapeHtml(d.link.slanje.greska ?? '')}). Kopiraj link i pošalji ga sam, prikazuje se samo jednom:`}<br>
 <input class="kljuc mono" readonly value="${escapeHtml(d.link.url)}" style="width:100%"></div>`
     : '';
 

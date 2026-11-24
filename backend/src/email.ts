@@ -118,15 +118,24 @@ ${nalog ? `<p>Podaci za plaćanje: IBAN <code>${escapeHtml(k.tenant.iban)}</code
   const imeDatoteke = `${naslov.toLowerCase()}-${(k.racun.broj_racuna_full ?? 'skica').replace(/\//g, '-')}.pdf`;
   const poruka = { na, replyTo, subject, html, text, privitak: { pdf, imeDatoteke } };
 
-  // 0) Vlastiti Resend tenanta; na bilo koju grešku padni na zadane kanale.
+  return posaljiSKanalima(env, poruka, tenantKanal, `tenanta ${k.tenant.id}`);
+}
+
+// Slanje vlastitim Resendom tenanta (ako ga ima), a na bilo koju grešku zadanim
+// kanalima platforme. Zajedničko za račune i pozivnice u dashboard.
+export async function posaljiSKanalima(
+  env: EmailKanali,
+  poruka: Poruka,
+  tenantKanal?: TenantKanal | null,
+  oznaka = 'tenanta',
+): Promise<RezultatSlanja> {
   if (tenantKanal) {
     try {
-      // Odgovor ide na kontakt tenanta; bez njega na samu adresu pošiljatelja (njegova je).
       await posaljiResendom(tenantKanal.apiKey, tenantKanal.from, poruka);
       return { kanal: 'resend-tenant', tenantGreska: null };
     } catch (e) {
       const greska = (e as Error).message;
-      console.log(`Resend tenanta ${k.tenant.id} nije uspio (${greska}) — fallback na zadani kanal`);
+      console.log(`Resend ${oznaka} nije uspio (${greska}) — fallback na zadani kanal`);
       try {
         const r = await posaljiPoruku(env, poruka);
         return { kanal: r.kanal, tenantGreska: greska };
@@ -148,7 +157,7 @@ export async function posaljiObavijest(
   return posaljiPoruku(env, { ...p, html });
 }
 
-interface Poruka {
+export interface Poruka {
   na: string;
   replyTo?: string | null;
   subject: string;
