@@ -49,6 +49,7 @@ export interface EmailKanali {
 export interface TenantKanal {
   apiKey: string;
   from: { email: string; name: string };
+  replyTo?: string | null; // izričit Reply-To tenanta (ima prednost pred tenant.email)
 }
 
 export type Kanal = 'cloudflare' | 'resend' | 'resend-tenant';
@@ -91,9 +92,10 @@ export async function posaljiRacunEmailom(
   const subject = `${naslov} ${broj} — ${k.tenant.naziv}`;
   const nalog = trebaNalogZaPlacanje(k); // isto pravilo kao barkodovi na PDF-u
   // Odgovor kupca ide tenantu (izdavatelju), ne na racuni@domovina.ai.
-  // S vlastitim pošiljateljem: bez kontakt e-maila odgovor ide na njegovu adresu
-  // (važno kad slanje padne na racuni@domovina.ai).
-  replyTo = replyTo ?? k.tenant.email ?? tenantKanal?.from.email ?? null;
+  // Redoslijed: izričit argument → Reply-To iz postavke pošiljatelja → kontakt
+  // e-mail tenanta → adresa vlastitog pošiljatelja (važno i kad slanje padne na
+  // racuni@domovina.ai). Odgovore ne obrađujemo — idu ravno tenantu.
+  replyTo = replyTo ?? tenantKanal?.replyTo ?? k.tenant.email ?? tenantKanal?.from.email ?? null;
 
   const text = [
     `Poštovani,`,

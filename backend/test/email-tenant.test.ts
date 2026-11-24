@@ -83,6 +83,23 @@ describe('Vlastiti pošiljatelj e-maila (BYO Resend)', () => {
     expect((await json(await poziv('/api/v1/postavke/email', { kljuc: t.kljuc }))).zadnjeSlanje).toBeTruthy();
   });
 
+  it('Reply-To iz postavke ima prednost i vrijedi i kad slanje padne na racuni@domovina.ai', async () => {
+    const t = await napraviTenanta();
+    await db.prepare(`UPDATE tenant SET email = 'kontakt@primjer.hr' WHERE id = ?`).bind(t.tenant.id).run();
+    expect((await ukljuci(t, { replyTo: 'nije-adresa' })).status).toBe(400);
+    const r = await ukljuci(t, { replyTo: 'PrilikaZaSusret@gmail.com' });
+    expect(await json(r)).toMatchObject({ replyTo: 'prilikazasusret@gmail.com' });
+    await izdajIPosalji(t);
+    tenantSlanjeStatus = 403;
+    await izdajIPosalji(t);
+    expect(slanja.map((x) => x.reply_to)).toEqual(['prilikazasusret@gmail.com', 'prilikazasusret@gmail.com']);
+    // bez Reply-To u postavci → kontakt e-mail tenanta
+    tenantSlanjeStatus = 200;
+    await postavi(t, { posiljateljEmail: 'financije@prilikazasusret.hr' });
+    await izdajIPosalji(t);
+    expect(slanja[2]!.reply_to).toBe('kontakt@primjer.hr');
+  });
+
   it('domena nije u Resendu ili nije verificirana → 400, ništa se ne sprema', async () => {
     const t = await napraviTenanta();
     domene = [{ name: 'drugo.hr', status: 'verified' }];

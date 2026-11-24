@@ -737,6 +737,7 @@ function emailSekcija(baza: string, e: TenantEmailRow | null): string {
   const stanje = e
     ? `<table><tbody>
 <tr><th>Pošiljatelj</th><td class="mono">${escapeHtml(e.posiljatelj_ime ? `${e.posiljatelj_ime} <${e.posiljatelj_email}>` : e.posiljatelj_email)}</td></tr>
+<tr><th>Reply-To</th><td class="mono">${escapeHtml(e.reply_to ?? '— (kontakt e-mail tenanta, inače pošiljatelj)')}</td></tr>
 <tr><th>Resend ključ</th><td class="mono">${escapeHtml(e.token_prefiks ?? '')}… · domena ${e.domena_provjerena ? '✅ verificirana' : '⚠️ nije provjerena (ključ samo za slanje)'}</td></tr>
 <tr><th>Zadnje slanje</th><td>${escapeHtml(e.zadnje_slanje ?? '— (još ništa)')}</td></tr>
 <tr><th>Greška</th><td>${e.zadnja_greska ? `<span style="color:#b00">${escapeHtml(e.zadnja_greska)}</span> (${escapeHtml(e.zadnja_greska_ts ?? '')}) — taj mail je otišao s racuni@domovina.ai` : '✅ nema'}</td></tr>
@@ -747,10 +748,11 @@ function emailSekcija(baza: string, e: TenantEmailRow | null): string {
 <div class="box"><form method="post" action="${baza}/email">
   <div class="field"><label>Adresa pošiljatelja *</label><input name="posiljateljEmail" type="email" required value="${escapeHtml(e?.posiljatelj_email ?? '')}" placeholder="financije@prilikazasusret.hr"></div>
   <div class="field"><label>Ime pošiljatelja</label><input name="posiljateljIme" value="${escapeHtml(e?.posiljatelj_ime ?? '')}" placeholder="prazno = naziv tenanta"></div>
+  <div class="field"><label>Reply-To</label><input name="replyTo" type="email" value="${escapeHtml(e?.reply_to ?? '')}" placeholder="prazno = kontakt e-mail tenanta"></div>
   <div class="field"><label>Resend API ključ${e ? '' : ' *'}</label><input name="apiKey" type="password" autocomplete="off"${e ? '' : ' required'} placeholder="${e ? 'prazno = zadrži postojeći' : 're_…'}"></div>
   <button type="submit">Spremi (provjeri ključ i domenu)</button>
 </form>
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Domena pošiljatelja mora biti dodana i verificirana u tenantovom Resend računu (Domains → DNS zapisi). Ključ s dozvolom „Full access” omogućuje provjeru domene unaprijed; ključ „Sending access” radi, ali se domena provjeri tek pri prvom slanju. Ako slanje tim ključem ne uspije, mail ide s <span class="mono">racuni@domovina.ai</span>, a greška se vidi ovdje. Ključ se sprema AES-256-GCM enkriptiran.</p>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Domena pošiljatelja mora biti dodana i verificirana u tenantovom Resend računu (Domains → DNS zapisi). Ključ s dozvolom „Full access” omogućuje provjeru domene unaprijed; ključ „Sending access” radi, ali se domena provjeri tek pri prvom slanju. Reply-To je adresa na koju kupci odgovaraju (npr. tenantov Gmail) — odgovori idu ravno tamo, platforma ih ne obrađuje. Ako slanje tim ključem ne uspije, mail ide s <span class="mono">racuni@domovina.ai</span>, a greška se vidi ovdje. Ključ se sprema AES-256-GCM enkriptiran.</p>
 ${stanje}</div>`;
 }
 

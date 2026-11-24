@@ -21,6 +21,7 @@ export interface TenantEmailRow {
   tenant_id: number;
   posiljatelj_email: string;
   posiljatelj_ime: string | null;
+  reply_to: string | null;
   token_prefiks: string | null;
   domena_provjerena: number;
   aktivan: number;
@@ -38,7 +39,7 @@ interface Materijal {
   dek_iv: string;
 }
 
-const JAVNI_STUPCI = `id, tenant_id, posiljatelj_email, posiljatelj_ime, token_prefiks, domena_provjerena, aktivan,
+const JAVNI_STUPCI = `id, tenant_id, posiljatelj_email, posiljatelj_ime, reply_to, token_prefiks, domena_provjerena, aktivan,
   zadnje_slanje, zadnja_greska, zadnja_greska_ts, created_at, updated_at`;
 
 export async function getTenantEmail(db: D1Database, tenantId: number): Promise<TenantEmailRow | null> {
@@ -66,6 +67,7 @@ async function otvoriKljuc(env: Env, red: Materijal): Promise<string> {
 export interface UnosEmaila {
   posiljateljEmail: string;
   posiljateljIme: string | null; // null → naziv tenanta
+  replyTo: string | null; // null → kontakt e-mail tenanta, pa adresa pošiljatelja
   apiKey: string | null; // null → zadrži postojeći ključ (promjena samo adrese/imena)
 }
 
@@ -75,11 +77,15 @@ export function validirajUnosEmaila(u: Record<string, unknown>): { ok: true; uno
   const posiljateljEmail = String(u.posiljateljEmail ?? '').trim().toLowerCase();
   const posiljateljIme = String(u.posiljateljIme ?? '').trim().replace(/\s+/g, ' ');
   const apiKey = String(u.apiKey ?? '').trim();
+  const replyTo = String(u.replyTo ?? '').trim().toLowerCase();
   if (!EMAIL_RE.test(posiljateljEmail)) {
     return { ok: false, greska: 'Adresa pošiljatelja nije valjana (npr. financije@prilikazasusret.hr).' };
   }
   if (posiljateljEmail.endsWith('@domovina.ai') || posiljateljEmail.endsWith('.domovina.ai')) {
     return { ok: false, greska: 'Adresa na domovina.ai je zadani pošiljatelj — za nju ne treba vlastiti ključ.' };
+  }
+  if (replyTo && !EMAIL_RE.test(replyTo)) {
+    return { ok: false, greska: 'Reply-To adresa nije valjana (npr. prilikazasusret@gmail.com).' };
   }
   if (posiljateljIme.length > 100 || /[<>"\r\n]/.test(posiljateljIme)) {
     return { ok: false, greska: 'Ime pošiljatelja: do 100 znakova, bez < > i navodnika.' };
@@ -87,7 +93,7 @@ export function validirajUnosEmaila(u: Record<string, unknown>): { ok: true; uno
   if (apiKey && (!/^re_[A-Za-z0-9_-]{10,}$/.test(apiKey))) {
     return { ok: false, greska: 'Resend API ključ počinje s „re_” (Resend → API Keys → Create API Key).' };
   }
-  return { ok: true, unos: { posiljateljEmail, posiljateljIme: posiljateljIme || null, apiKey: apiKey || null } };
+  return { ok: true, unos: { posiljateljEmail, posiljateljIme: posiljateljIme || null, replyTo: replyTo || null, apiKey: apiKey || null } };
 }
 
 // ───────────────────────── Provjera ključa kod Resenda ─────────────────────────
@@ -136,17 +142,17 @@ export async function spremiTenantEmail(env: Env, tenantId: number, unos: UnosEm
   const domenaProvjerena = await provjeriResendKljuc(apiKey, unos.posiljateljEmail);
   const enc = await enkriptirajTajnu(kek, apiKey);
   await env.DB.prepare(
-    `INSERT INTO tenant_email (tenant_id, posiljatelj_email, posiljatelj_ime, token_encrypted, enc_key_id, enc_iv, dek_wrapped, dek_iv, token_prefiks, domena_provjerena, aktivan, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, datetime('now'))
+    `INSERT INTO tenant_email (tenant_id, posiljatelj_email, posiljatelj_ime, token_encrypted, enc_key_id, enc_iv, dek_wrapped, dek_iv, token_prefiks, domena_provjerena, reply_to, aktivan, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, datetime('now'))
      ON CONFLICT (tenant_id) DO UPDATE SET
        posiljatelj_email = excluded.posiljatelj_email, posiljatelj_ime = excluded.posiljatelj_ime,
        token_encrypted = excluded.token_encrypted, enc_key_id = excluded.enc_key_id, enc_iv = excluded.enc_iv,
        dek_wrapped = excluded.dek_wrapped, dek_iv = excluded.dek_iv, token_prefiks = excluded.token_prefiks,
-       domena_provjerena = excluded.domena_provjerena, aktivan = 1,
+       domena_provjerena = excluded.domena_provjerena, reply_to = excluded.reply_to, aktivan = 1,
        zadnja_greska = NULL, zadnja_greska_ts = NULL,
        updated_at = datetime('now')`,
   )
-    .bind(tenantId, unos.posiljateljEmail, unos.posiljateljIme, enc.tokenEncrypted, await oznakaKek(kek), enc.encIv, enc.dekWrapped, enc.dekIv, apiKey.slice(0, 7), domenaProvjerena ? 1 : 0)
+    .bind(tenantId, unos.posiljateljEmail, unos.posiljateljIme, enc.tokenEncrypted, await oznakaKek(kek), enc.encIv, enc.dekWrapped, enc.dekIv, apiKey.slice(0, 7), domenaProvjerena ? 1 : 0, unos.replyTo)
     .run();
   return { domenaProvjerena };
 }
@@ -165,6 +171,7 @@ export async function tenantKanal(env: Env, tenantId: number, nazivTenanta: stri
     return {
       apiKey: await otvoriKljuc(env, red),
       from: { email: red.posiljatelj_email, name: red.posiljatelj_ime ?? nazivTenanta },
+      replyTo: red.reply_to,
     };
   } catch (e) {
     await zapisiGresku(env.DB, tenantId, `Ključ se ne može dešifrirati: ${(e as Error).message}`);

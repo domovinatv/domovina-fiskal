@@ -187,6 +187,7 @@ function emailJson(e: TenantEmailRow | null) {
     posiljatelj: e.posiljatelj_email,
     posiljateljEmail: e.posiljatelj_email,
     posiljateljIme: e.posiljatelj_ime,
+    replyTo: e.reply_to,
     tokenPrefiks: e.token_prefiks,
     domenaProvjerena: !!e.domena_provjerena,
     zadnjeSlanje: e.zadnje_slanje,
@@ -199,7 +200,7 @@ postavkeRute.get('/postavke/email', async (c) => {
   return c.json(emailJson(await getTenantEmail(c.env.DB, c.get('tenant').id)));
 });
 
-// Body: { posiljateljEmail, posiljateljIme?, apiKey? } — apiKey smije izostati
+// Body: { posiljateljEmail, posiljateljIme?, replyTo?, apiKey? } — apiKey smije izostati
 // kad je ključ već spremljen (promjena samo adrese ili imena).
 postavkeRute.put('/postavke/email', async (c) => {
   if (operaterBezPostavki(c)) return c.json({ greska: 'Uloga operater ne smije mijenjati postavke' }, 403);
