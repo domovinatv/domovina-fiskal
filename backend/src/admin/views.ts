@@ -735,6 +735,56 @@ export function renderPasskeysPage(o: { email: string; kljucevi: PasskeyPrikaz[]
   );
 }
 
+// SVG logo → PNG u pregledniku i podmetanje u file input (DataTransfer), pa
+// forma ostaje obična multipart forma. Ista logika kao dashboard lib/logo.ts.
+const SVG_U_PNG_JS = `(() => {
+  const ulaz = document.getElementById('izgled-logo');
+  const poruka = document.getElementById('izgled-logo-poruka');
+  if (!ulaz) return;
+  const MAX = ${LOGO_MAX_BAJTOVA};
+  const broj = (v) => { const n = v ? parseFloat(v) : NaN; return v && !v.trim().endsWith('%') && n > 0 ? n : null; };
+  ulaz.addEventListener('change', async () => {
+    const f = ulaz.files && ulaz.files[0];
+    poruka.textContent = '';
+    if (!f || !(f.type === 'image/svg+xml' || f.name.toLowerCase().endsWith('.svg'))) return;
+    try {
+      const doc = new DOMParser().parseFromString(await f.text(), 'image/svg+xml');
+      const k = doc.documentElement;
+      if (k.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('SVG se ne može pročitati.');
+      const vb = (k.getAttribute('viewBox') || '').trim().split(/[\\s,]+/).map(Number);
+      const vw = vb[2] > 0 ? vb[2] : null, vh = vb[3] > 0 ? vb[3] : null;
+      const aw = broj(k.getAttribute('width')), ah = broj(k.getAttribute('height'));
+      let w, h;
+      if (aw && ah) { w = aw; h = ah; }
+      else if (aw && vw && vh) { w = aw; h = aw * vh / vw; }
+      else if (ah && vw && vh) { w = ah * vw / vh; h = ah; }
+      else if (vw && vh) { w = vw; h = vh; }
+      else throw new Error('SVG nema dimenzije (width/height ni viewBox).');
+      k.setAttribute('width', String(w)); k.setAttribute('height', String(h));
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(k)], { type: 'image/svg+xml' }));
+      const img = await new Promise((ok, ne) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ne(new Error('SVG se ne može nacrtati.')); i.src = url; });
+      let m = Math.min(1200 / w, 400 / h), png = null;
+      for (let p = 0; p < 5 && !png; p++, m *= 0.7) {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * m)); c.height = Math.max(1, Math.round(h * m));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const b = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+        if (b && b.size <= MAX) png = b;
+      }
+      URL.revokeObjectURL(url);
+      if (!png) throw new Error('Logo je i nakon smanjivanja veći od 200 KB.');
+      const dt = new DataTransfer();
+      dt.items.add(new File([png], f.name.replace(/\\.svg$/i, '') + '.png', { type: 'image/png' }));
+      ulaz.files = dt.files;
+      poruka.textContent = 'SVG pretvoren u PNG (' + Math.round(png.size / 1024) + ' KB) — spremi ili pregledaj.';
+    } catch (e) {
+      ulaz.value = '';
+      poruka.textContent = e.message;
+      poruka.style.color = '#b00';
+    }
+  });
+})();`;
+
 // Izgled PDF računa (src/pdf/branding.ts). „Pregledaj” šalje istu formu na
 // …/izgled/pregled u novoj kartici (formaction/formtarget, bez JS-a).
 function izgledSekcija(baza: string, r: TenantBrandingRow | null): string {
@@ -745,8 +795,9 @@ function izgledSekcija(baza: string, r: TenantBrandingRow | null): string {
     : '<span class="prazno">bez loga — na računu je naziv tenanta</span>';
   return `<h2 id="izgled">Izgled PDF računa</h2>
 <div class="box"><form method="post" action="${baza}/izgled" enctype="multipart/form-data">
-  <div class="field"><label>Logo (PNG/JPEG, ≤ ${LOGO_MAX_BAJTOVA / 1024} KB)</label>${logo}
-    <input name="logo" type="file" accept="image/png,image/jpeg"></div>
+  <div class="field"><label>Logo (SVG, ili PNG/JPEG ≤ ${LOGO_MAX_BAJTOVA / 1024} KB)</label>${logo}
+    <input name="logo" id="izgled-logo" type="file" accept="image/svg+xml,.svg,image/png,image/jpeg">
+    <span id="izgled-logo-poruka" style="font-size:.8rem;color:var(--muted)"></span></div>
   <div class="field"><label><input type="checkbox" name="vlastitaBoja" value="1"${b.boja ? ' checked' : ''}> Vlastita akcentna boja</label>
     <input name="boja" type="color" value="${escapeHtml(b.boja ?? '#002F6C')}" style="width:4rem;height:2.2rem;padding:.1rem"></div>
   <div class="field"><label>Tekst podnožja</label><input name="podnozje" maxlength="${PODNOZJE_MAX}" value="${escapeHtml(b.podnozje ?? '')}" placeholder="npr. www.primjer.hr · +385 1 234 5678"></div>
@@ -754,7 +805,8 @@ function izgledSekcija(baza: string, r: TenantBrandingRow | null): string {
   <button type="submit" formaction="${baza}/izgled/pregled" formtarget="_blank">Pregledaj ogledni PDF</button>
 </form>
 ${r ? `<form method="post" action="${baza}/izgled/obrisi" style="margin-top:.5rem"><button type="submit">Vrati zadani izgled</button></form>` : ''}
-<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">Vrijedi za sve PDF-ove tenanta (preuzimanje, e-mail kupcu, backup). Pregled ne sprema ništa; ogledni račun je skica bez barkodova. Bez odabranog loga zadržava se postojeći. Tenant isto može sam u dashboardu (Postavke → Izgled računa).${r ? ` Zadnja izmjena: ${escapeHtml(r.updated_at)}.` : ''}</p></div>`;
+<script>${SVG_U_PNG_JS}</script>
+<p style="margin:.6rem 0 0;font-size:.8rem;color:var(--muted)">SVG se u pregledniku pretvara u PNG (do 1200 px širine) jer PDF prima samo PNG/JPEG. Vrijedi za sve PDF-ove tenanta (preuzimanje, e-mail kupcu, backup). Pregled ne sprema ništa; ogledni račun je skica bez barkodova. Bez odabranog loga zadržava se postojeći. Tenant isto može sam u dashboardu (Postavke → Izgled računa).${r ? ` Zadnja izmjena: ${escapeHtml(r.updated_at)}.` : ''}</p></div>`;
 }
 
 // Vlastiti pošiljatelj e-maila (src/email-tenant.ts).

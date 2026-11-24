@@ -118,6 +118,11 @@ describe('branding u adminu (/admin/tenant/:id/izgled)', () => {
     const html = await (await poziv(`/admin/tenant/${t.tenant.id}`, { headers: { Authorization: adminSkripta() } })).text();
     expect(html).toContain('id="izgled"');
     expect(html).toContain(`data:image/png;base64,${PNG}`);
+    // Inline SVG→PNG skripta: ima nonce (CSP) i parsira se; regex za \s preživio escapeanje.
+    const skripta = html.match(/<script nonce="[^"]+">(\(\(\) => \{\s*const ulaz = document\.getElementById\('izgled-logo'\)[\s\S]*?)<\/script>/)?.[1];
+    expect(skripta).toBeTruthy();
+    expect(() => new Function(skripta!)).not.toThrow();
+    expect(skripta).toContain('split(/[\\s,]+/)');
 
     // Prazan file input (preglednik ga šalje kao praznu datoteku) i bez vlastite boje.
     await forma(baza, { boja: '#c8102e', podnozje: '', logo: new File([], '', { type: 'application/octet-stream' }) });
